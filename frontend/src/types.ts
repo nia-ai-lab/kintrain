@@ -8,7 +8,7 @@ export interface SetDetail {
 
 export interface TrainingMenuItem {
   id: string;
-  machineName: string;
+  trainingName: string;
   defaultWeightKg: number;
   defaultReps: number;
   defaultSets: number;
@@ -19,7 +19,7 @@ export interface TrainingMenuItem {
 export interface ExerciseEntry {
   id: string;
   menuItemId: string;
-  machineName: string;
+  trainingName: string;
   weightKg: number;
   reps: number;
   sets: number;
@@ -54,7 +54,7 @@ export interface DailyRecord {
   timeZoneId: string;
   bodyWeightKg?: number;
   bodyFatPercent?: number;
-  bodyMetricRecordedAtLocal?: string;
+  bodyMetricMeasuredTime?: string;
   conditionRating?: ConditionRating;
   conditionComment?: string;
   diary?: string;
@@ -66,6 +66,16 @@ export interface Goal {
   targetBodyFatPercent: number;
 }
 
+export type UserSex = 'male' | 'female' | 'other' | 'no-answer';
+
+export interface UserProfile {
+  userName: string;
+  sex: UserSex;
+  birthDate: string;
+  heightCm: number | null;
+  timeZoneId: string;
+}
+
 export type TonePreset = 'polite' | 'friendly-coach' | 'strict-coach';
 
 export interface AiCharacterProfile {
@@ -73,7 +83,6 @@ export interface AiCharacterProfile {
   characterName: string;
   avatarImageUrl: string;
   tonePreset: TonePreset;
-  expressions: Record<string, string>;
 }
 
 export interface ChatMessage {
@@ -81,7 +90,6 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAtLocal: string;
-  expressionKey?: string;
 }
 
 export interface ChatSession {
@@ -92,7 +100,7 @@ export interface ChatSession {
 }
 
 export interface AppData {
-  timeZoneId: string;
+  userProfile: UserProfile;
   menuItems: TrainingMenuItem[];
   gymVisits: GymVisit[];
   dailyRecords: Record<string, DailyRecord>;

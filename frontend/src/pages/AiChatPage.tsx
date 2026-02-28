@@ -25,13 +25,11 @@ export function AiChatPage() {
     appendUserMessage,
     createAssistantMessage,
     appendAssistantChunk,
-    finalizeAssistantMessage,
-    updateAiCharacterProfile
+    finalizeAssistantMessage
   } = useAppState();
 
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
 
   const session = useMemo(
     () => data.aiChatSessions.find((s) => s.id === data.activeAiChatSessionId) ?? data.aiChatSessions[0],
@@ -57,7 +55,7 @@ export function AiChatPage() {
     setInput('');
     appendUserMessage(text);
 
-    const messageId = createAssistantMessage('thinking');
+    const messageId = createAssistantMessage();
     const full = buildMockAdvice(text, data.aiCharacterProfile.tonePreset);
     const chunks = full.match(/.{1,18}/g) ?? [full];
 
@@ -68,13 +66,13 @@ export function AiChatPage() {
       cursor += 1;
       if (cursor >= chunks.length) {
         window.clearInterval(timer);
-        finalizeAssistantMessage(messageId, 'default');
+        finalizeAssistantMessage(messageId);
         setIsStreaming(false);
       }
     }, 80);
   }
 
-  const avatar = data.aiCharacterProfile.avatarImageUrl || data.aiCharacterProfile.expressions.default;
+  const avatar = data.aiCharacterProfile.avatarImageUrl;
 
   return (
     <div className="stack-lg">
@@ -83,71 +81,23 @@ export function AiChatPage() {
           <div className="chat-agent-head">
             <img src={avatar} alt={data.aiCharacterProfile.characterName} className="avatar-large" />
             <div>
-              <p className="eyebrow">AI Agent</p>
-              <h1>
-                {data.aiAgentRoleName}（{data.aiCharacterProfile.characterName}）
-              </h1>
-              <p className="muted">応答方式: ストリーミング（モック）</p>
+              <p className="eyebrow">AI コーチ</p>
+              <h1>{data.aiCharacterProfile.characterName}</h1>
             </div>
           </div>
-          <button type="button" className="btn ghost" onClick={() => setShowSettings((prev) => !prev)}>
-            キャラクター設定
-          </button>
         </div>
-
-        {showSettings && (
-          <div className="character-settings">
-            <div className="input-grid">
-              <label>
-                キャラクター名
-                <input
-                  value={data.aiCharacterProfile.characterName}
-                  onChange={(e) => updateAiCharacterProfile({ characterName: e.target.value })}
-                />
-              </label>
-              <label>
-                口調プリセット
-                <select
-                  value={data.aiCharacterProfile.tonePreset}
-                  onChange={(e) => updateAiCharacterProfile({ tonePreset: e.target.value as TonePreset })}
-                >
-                  <option value="friendly-coach">フレンドリー</option>
-                  <option value="polite">丁寧</option>
-                  <option value="strict-coach">コーチ強め</option>
-                </select>
-              </label>
-              <label>
-                アイコン
-                <select
-                  value={data.aiCharacterProfile.avatarImageUrl}
-                  onChange={(e) => updateAiCharacterProfile({ avatarImageUrl: e.target.value })}
-                >
-                  {Object.entries(data.aiCharacterProfile.expressions).map(([key, value]) => (
-                    <option key={key} value={value}>
-                      {key}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            </div>
-          </div>
-        )}
       </section>
 
       <section className="chat-body card" ref={listRef}>
         {session.messages.map((message) => {
           const isAssistant = message.role === 'assistant';
-          const expression = message.expressionKey ?? 'default';
-          const messageAvatar =
-            data.aiCharacterProfile.expressions[expression] ??
-            data.aiCharacterProfile.expressions.default ??
-            data.aiCharacterProfile.avatarImageUrl;
+          const messageAvatar = data.aiCharacterProfile.avatarImageUrl;
 
           return (
             <div key={message.id} className={isAssistant ? 'message-row assistant' : 'message-row user'}>
               {isAssistant && <img src={messageAvatar} alt="ai" className="avatar-small" />}
               <div className={isAssistant ? 'message-bubble assistant' : 'message-bubble user'}>
-                {isAssistant && <p className="message-name">{data.aiAgentRoleName}</p>}
+                {isAssistant && <p className="message-name">{data.aiCharacterProfile.characterName}</p>}
                 <p>{message.content || (isStreaming ? '...' : '')}</p>
               </div>
             </div>

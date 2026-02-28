@@ -99,11 +99,16 @@ a {
 }
 
 .top-header {
+  display: grid;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+
+.top-header-main {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 14px;
 }
 
 .brand {
@@ -127,7 +132,25 @@ a {
 .header-subtitle {
   font-size: 0.82rem;
   color: var(--muted);
-  text-align: right;
+  text-align: left;
+}
+
+.header-user-icon-link {
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.9);
+  box-shadow: 0 4px 14px rgba(17, 26, 33, 0.08);
+}
+
+.header-user-icon {
+  font-size: 1.05rem;
+  line-height: 1;
 }
 
 .page-shell {
@@ -213,6 +236,20 @@ a {
   gap: 12px;
 }
 
+.menu-page-head {
+  flex-wrap: nowrap;
+}
+
+.menu-page-title {
+  white-space: nowrap;
+}
+
+.menu-generate-button {
+  white-space: nowrap;
+  word-break: keep-all;
+  padding-inline: 10px;
+}
+
 .grid-2 {
   display: grid;
   gap: 12px;
@@ -273,6 +310,8 @@ a {
   align-items: center;
   justify-content: center;
   font-weight: 600;
+  white-space: nowrap;
+  word-break: keep-all;
   transition: 120ms ease;
 }
 
@@ -336,12 +375,38 @@ a {
   border-radius: 12px;
   font-size: 0.8rem;
   color: var(--muted);
+  white-space: nowrap;
+  word-break: keep-all;
+  line-height: 1.1;
 }
 
 .nav-item.active {
   background: rgba(14, 122, 115, 0.12);
   color: var(--primary-strong);
   font-weight: 700;
+}
+
+@media (max-width: 430px) {
+  .bottom-nav {
+    width: min(97vw, 760px);
+    gap: 4px;
+    padding: 6px;
+  }
+
+  .nav-item {
+    font-size: 0.74rem;
+    padding: 7px 4px;
+  }
+
+  .menu-page-title {
+    font-size: 0.96rem;
+  }
+
+  .menu-generate-button {
+    font-size: 0.72rem;
+    padding-inline: 7px;
+    padding-block: 6px;
+  }
 }
 
 .priority-chip {
@@ -352,6 +417,48 @@ a {
   padding: 4px 9px;
   font-size: 0.75rem;
   margin-bottom: 4px;
+}
+
+.training-item-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.session-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.session-clear-button {
+  flex-shrink: 0;
+}
+
+.session-date {
+  color: var(--primary-strong);
+  font-family: 'Space Grotesk', 'Noto Sans JP', sans-serif;
+  font-size: clamp(1.02rem, 0.94rem + 0.38vw, 1.24rem);
+  font-weight: 700;
+  line-height: 1.2;
+  margin-top: 4px;
+}
+
+.session-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.copy-last-button {
+  white-space: nowrap;
+  word-break: keep-all;
+  line-height: 1;
 }
 
 .input-grid {
@@ -369,6 +476,45 @@ a {
   grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
+.input-grid.settings-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-wide-field {
+  grid-column: 1 / -1;
+}
+
+.input-grid.training-metrics-grid input {
+  text-align: center;
+  padding: 8px 8px;
+}
+
+.menu-add-form,
+.menu-item-editor {
+  display: grid;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.menu-training-name-field {
+  max-width: 100%;
+}
+
+.menu-metrics-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.menu-metrics-row input {
+  text-align: center;
+  padding: 8px 8px;
+}
+
+.menu-add-button {
+  justify-self: end;
+}
+
 .input-grid label {
   display: grid;
   gap: 6px;
@@ -383,12 +529,52 @@ a {
   }
 
   .top-header {
-    flex-direction: column;
-    align-items: flex-start;
+    gap: 6px;
   }
 
   .header-subtitle {
     text-align: left;
+  }
+
+  .input-grid.settings-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-wide-field {
+    grid-column: auto;
+  }
+
+  .menu-page-title {
+    font-size: 1.05rem;
+  }
+
+  .menu-generate-button {
+    font-size: 0.8rem;
+    padding-inline: 8px;
+    padding-block: 7px;
+  }
+
+  .menu-metrics-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .menu-metrics-row label {
+    font-size: 0.8rem;
+  }
+
+  .menu-add-button {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .input-grid.training-metrics-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .input-grid.training-metrics-grid label {
+    font-size: 0.8rem;
   }
 }
 
@@ -505,6 +691,7 @@ a {
   height: 66px;
   border-radius: 14px;
   object-fit: cover;
+  object-position: top center;
   border: 1px solid var(--line);
 }
 
@@ -513,6 +700,7 @@ a {
   height: 34px;
   border-radius: 10px;
   object-fit: cover;
+  object-position: top center;
   border: 1px solid var(--line);
 }
 

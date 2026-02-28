@@ -5,13 +5,32 @@ import type { SetDetail } from '../types';
 import { ymdToDisplay } from '../utils/date';
 import { getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
 
-function toNumber(value: string): number | undefined {
+function toPositiveNumberOrUndefined(value: string): number | undefined {
+  if (value.trim() === '') {
+    return undefined;
+  }
   const num = Number(value);
   return Number.isFinite(num) && num > 0 ? num : undefined;
 }
 
+function toWeightNumber(value: string): number | undefined {
+  const num = toPositiveNumberOrUndefined(value);
+  if (num === undefined) {
+    return undefined;
+  }
+  return Math.round(num * 100) / 100;
+}
+
+function toCountNumber(value: string): number | undefined {
+  const num = toPositiveNumberOrUndefined(value);
+  if (num === undefined) {
+    return undefined;
+  }
+  return Math.floor(num);
+}
+
 export function TrainingSessionPage() {
-  const { data, setDraftEntry, setDraftSetDetails, clearDraft, finalizeTrainingSession } = useAppState();
+  const { data, setDraftEntry, setDraftSetDetails, clearDraftEntry, clearDraft, finalizeTrainingSession } = useAppState();
   const today = useTodayYmd();
   const navigate = useNavigate();
   const [openSetDetailIds, setOpenSetDetailIds] = useState<Record<string, boolean>>({});
@@ -41,14 +60,14 @@ export function TrainingSessionPage() {
   return (
     <div className="stack-lg">
       <section className="card card-highlight">
-        <div className="row-between">
+        <div className="session-header">
           <div>
             <h1>トレーニング実施</h1>
-            <p className="muted">{ymdToDisplay(today)} / 優先順に実施して、最後に確定保存</p>
+            <p className="session-date">{ymdToDisplay(today)}</p>
           </div>
           <button
             type="button"
-            className="btn ghost"
+            className="btn ghost session-clear-button"
             onClick={() => {
               clearDraft();
               setStatusText('途中入力をクリアしました。');
@@ -58,11 +77,7 @@ export function TrainingSessionPage() {
           </button>
         </div>
 
-        {data.trainingDraft ? (
-          <p className="muted">下書き保存中: {data.trainingDraft.updatedAtLocal.replace('T', ' ').slice(0, 16)}</p>
-        ) : (
-          <p className="muted">まだ入力はありません。入力すると自動で下書き保存されます。</p>
-        )}
+        {data.trainingDraft && <p className="muted">下書き保存中: {data.trainingDraft.updatedAtLocal.replace('T', ' ').slice(0, 16)}</p>}
         {statusText && <p className="status-text">{statusText}</p>}
       </section>
 
@@ -70,51 +85,70 @@ export function TrainingSessionPage() {
         {prioritized.map((item, index) => {
           const draft = draftEntries[item.id];
           const last = getLastPerformance(item.id, data.gymVisits);
-          const weightValue = draft?.weightKg ?? item.defaultWeightKg;
-          const repsValue = draft?.reps ?? item.defaultReps;
-          const setsValue = draft?.sets ?? item.defaultSets;
+          const weightValue = draft?.weightKg;
+          const repsValue = draft?.reps;
+          const setsValue = draft?.sets;
           const isDetailOpen = !!openSetDetailIds[item.id];
 
           return (
             <article className="card" key={item.id}>
-              <div className="row-between align-start gap-sm">
+              <div className="training-item-head">
                 <div>
                   <p className="priority-chip">優先 {index + 1}</p>
-                  <h2>{item.machineName}</h2>
+                  <h2>{item.trainingName}</h2>
                   <p className="muted">
                     直近: {last ? `${ymdToDisplay(last.date)} ${last.weightKg}kg x ${last.reps}回 x ${last.sets}set` : '実績なし'}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  className="btn subtle"
-                  onClick={() => {
-                    if (!last) {
-                      return;
-                    }
-                    setDraftEntry(item.id, {
-                      menuItemId: item.id,
-                      weightKg: last.weightKg,
-                      reps: last.reps,
-                      sets: last.sets
-                    });
-                    setStatusText(`${item.machineName} に前回値を入力しました。`);
-                  }}
-                  disabled={!last}
-                >
-                  前回と同じ
-                </button>
+                <div className="session-actions">
+                  <button
+                    type="button"
+                    className="btn subtle copy-last-button"
+                    onClick={() => {
+                      if (!last) {
+                        return;
+                      }
+                      setDraftEntry(item.id, {
+                        menuItemId: item.id,
+                        weightKg: last.weightKg,
+                        reps: last.reps,
+                        sets: last.sets
+                      });
+                      setStatusText(`${item.trainingName} に前回値を入力しました。`);
+                    }}
+                    disabled={!last}
+                  >
+                    前回と同じ
+                  </button>
+                  <button
+                    type="button"
+                    className="btn danger copy-last-button"
+                    onClick={() => {
+                      clearDraftEntry(item.id);
+                      setOpenSetDetailIds((prev) => ({ ...prev, [item.id]: false }));
+                      setStatusText(`${item.trainingName} を今回の記録対象から外しました。`);
+                    }}
+                  >
+                    入力クリア
+                  </button>
+                </div>
               </div>
 
-              <div className="input-grid">
+              <div className="input-grid training-metrics-grid">
                 <label>
-                  重量 (kg)
+                  重量
                   <input
                     type="number"
                     min={0}
-                    step={0.5}
-                    value={weightValue}
-                    onChange={(e) => setDraftEntry(item.id, { menuItemId: item.id, weightKg: toNumber(e.target.value) })}
+                    step={0.01}
+                    value={weightValue ?? ''}
+                    placeholder={String(item.defaultWeightKg)}
+                    onChange={(e) =>
+                      setDraftEntry(item.id, {
+                        menuItemId: item.id,
+                        weightKg: toWeightNumber(e.target.value)
+                      })
+                    }
                   />
                 </label>
                 <label>
@@ -123,8 +157,14 @@ export function TrainingSessionPage() {
                     type="number"
                     min={0}
                     step={1}
-                    value={repsValue}
-                    onChange={(e) => setDraftEntry(item.id, { menuItemId: item.id, reps: toNumber(e.target.value) })}
+                    value={repsValue ?? ''}
+                    placeholder={String(item.defaultReps)}
+                    onChange={(e) =>
+                      setDraftEntry(item.id, {
+                        menuItemId: item.id,
+                        reps: toCountNumber(e.target.value)
+                      })
+                    }
                   />
                 </label>
                 <label>
@@ -133,8 +173,14 @@ export function TrainingSessionPage() {
                     type="number"
                     min={0}
                     step={1}
-                    value={setsValue}
-                    onChange={(e) => setDraftEntry(item.id, { menuItemId: item.id, sets: toNumber(e.target.value) })}
+                    value={setsValue ?? ''}
+                    placeholder={String(item.defaultSets)}
+                    onChange={(e) =>
+                      setDraftEntry(item.id, {
+                        menuItemId: item.id,
+                        sets: toCountNumber(e.target.value)
+                      })
+                    }
                   />
                 </label>
               </div>
@@ -147,7 +193,10 @@ export function TrainingSessionPage() {
                     const nowOpen = !isDetailOpen;
                     setOpenSetDetailIds((prev) => ({ ...prev, [item.id]: nowOpen }));
                     if (nowOpen && (!draft?.setDetails || draft.setDetails.length === 0)) {
-                      initSetDetails(item.id, Math.max(1, setsValue), weightValue, repsValue);
+                      const seedSets = Math.max(1, setsValue ?? item.defaultSets);
+                      const seedWeight = weightValue ?? item.defaultWeightKg;
+                      const seedReps = repsValue ?? item.defaultReps;
+                      initSetDetails(item.id, seedSets, seedWeight, seedReps);
                     }
                   }}
                 >
@@ -163,13 +212,13 @@ export function TrainingSessionPage() {
                       <input
                         type="number"
                         min={0}
-                        step={0.5}
+                        step={0.01}
                         value={detail.weightKg}
                         onChange={(e) => {
                           const next = [...(draft?.setDetails ?? [])];
                           next[detailIndex] = {
                             ...detail,
-                            weightKg: Number(e.target.value)
+                            weightKg: toWeightNumber(e.target.value) ?? 0
                           };
                           setDraftSetDetails(item.id, next);
                         }}

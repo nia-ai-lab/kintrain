@@ -12,10 +12,6 @@ export function DashboardPage() {
     <div className="stack-lg">
       <section className="hero-card">
         <p className="eyebrow">Today</p>
-        <h1>ジムで迷わず記録する</h1>
-        <p>
-          空いているマシンから淡々と実施。入力は一覧上で完結し、最後に <strong>記録して終了</strong> で確定します。
-        </p>
         <div className="row-wrap">
           <Link to="/training-session" className="btn primary">
             トレーニング開始
@@ -45,7 +41,7 @@ export function DashboardPage() {
               <ul className="simple-list">
                 {latestVisit.entries.slice(0, 4).map((entry) => (
                   <li key={entry.id}>
-                    {entry.machineName} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
+                    {entry.trainingName} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
                   </li>
                 ))}
               </ul>

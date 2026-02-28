@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { ConditionRatingPicker } from '../components/ConditionRatingPicker';
-import { toLocalIsoWithOffset, ymdToDisplay } from '../utils/date';
+import { ymdToDisplay } from '../utils/date';
 
 export function DailyPage() {
   const { date } = useParams<{ date: string }>();
@@ -14,7 +14,7 @@ export function DailyPage() {
 
   const record = data.dailyRecords[targetDate] ?? {
     date: targetDate,
-    timeZoneId: data.timeZoneId,
+    timeZoneId: data.userProfile.timeZoneId,
     otherActivities: [] as string[]
   };
 
@@ -37,7 +37,7 @@ export function DailyPage() {
             </Link>
           </div>
         </div>
-        <p className="muted">{ymdToDisplay(targetDate)} / TimeZone: {record.timeZoneId}</p>
+        <p className="muted">{ymdToDisplay(targetDate)}</p>
       </section>
 
       <section className="card">
@@ -52,8 +52,7 @@ export function DailyPage() {
               value={record.bodyWeightKg ?? ''}
               onChange={(e) =>
                 saveDailyRecord(targetDate, {
-                  bodyWeightKg: e.target.value ? Number(e.target.value) : undefined,
-                  bodyMetricRecordedAtLocal: toLocalIsoWithOffset(new Date())
+                  bodyWeightKg: e.target.value ? Number(e.target.value) : undefined
                 })
               }
             />
@@ -67,14 +66,25 @@ export function DailyPage() {
               value={record.bodyFatPercent ?? ''}
               onChange={(e) =>
                 saveDailyRecord(targetDate, {
-                  bodyFatPercent: e.target.value ? Number(e.target.value) : undefined,
-                  bodyMetricRecordedAtLocal: toLocalIsoWithOffset(new Date())
+                  bodyFatPercent: e.target.value ? Number(e.target.value) : undefined
+                })
+              }
+            />
+          </label>
+          <label>
+            測定時刻
+            <input
+              type="time"
+              value={record.bodyMetricMeasuredTime ?? ''}
+              onChange={(e) =>
+                saveDailyRecord(targetDate, {
+                  bodyMetricMeasuredTime: e.target.value || undefined
                 })
               }
             />
           </label>
         </div>
-        <p className="muted">記録時刻: {record.bodyMetricRecordedAtLocal ? record.bodyMetricRecordedAtLocal.replace('T', ' ').slice(0, 16) : '未記録'}</p>
+        <p className="muted">測定時刻: {record.bodyMetricMeasuredTime ?? '未記録'}</p>
       </section>
 
       <section className="card">
@@ -138,7 +148,7 @@ export function DailyPage() {
               <ul className="simple-list">
                 {visit.entries.map((entry) => (
                   <li key={entry.id}>
-                    {entry.machineName} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
+                    {entry.trainingName} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
                   </li>
                 ))}
               </ul>

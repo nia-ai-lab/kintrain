@@ -2,13 +2,5 @@
   "characterId": "nyaruko",
   "characterName": "ニャル子",
   "avatarImageUrl": "/assets/characters/nyaruko/expressions/default.png",
-  "tonePreset": "friendly-coach",
-  "expressions": {
-    "default": "/assets/characters/nyaruko/expressions/default.png",
-    "angry": "/assets/characters/nyaruko/expressions/angry.png",
-    "doubt": "/assets/characters/nyaruko/expressions/doubt.png",
-    "love": "/assets/characters/nyaruko/expressions/love.png",
-    "surprised": "/assets/characters/nyaruko/expressions/surprised.png",
-    "thinking": "/assets/characters/nyaruko/expressions/thinking.png"
-  }
+  "tonePreset": "friendly-coach"
 }

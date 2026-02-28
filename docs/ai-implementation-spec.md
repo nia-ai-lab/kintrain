@@ -64,6 +64,8 @@
 - `timeZoneId`（IANA、既定 `Asia/Tokyo`）
 - `nowUtc`（RFC3339 UTC）
 - `nowLocal`（RFC3339 with offset）
+- DynamoDB上の時刻データはRFC3339 UTC（秒精度）を正本として扱う。
+- Runtimeはツール取得した時刻を必ず `timeZoneId` 基準のローカル時刻へ変換してからモデルへ渡す。
 - 日付境界計算（今日/昨日/今月）は `timeZoneId` 基準で行う。
 - UTCのみで日付判定しない。
 
@@ -122,16 +124,15 @@
 - `characterId`
 - `characterName`
 - `tonePreset`
-- Runtimeのストリーミングイベントに `expressionKey` を付与できるようにする。
-- `expressionKey` の許容値: `default|thinking|surprised|love|doubt|angry`
-- UIは `expressionKey` を受け取り、`AiCharacterProfile.expressions` から該当画像を表示する。
+- `avatarImageUrl`
+- AIキャラクターアイコンは `default` 画像を固定利用し、感情別画像切り替えは行わない。
 
 ## 6. Gateway実装方針（MCP）
 
 ### 6.1 公開ツール
 
 - `get_recent_gym_visits(days)`
-- `get_machine_history(machineId, limit)`
+- `get_training_history(trainingMenuItemId, limit)`
 - `get_daily_records(from, to)`
 - `get_daily_record(date)`
 - `get_goal()`
@@ -295,7 +296,8 @@
 9. UIは `text/event-stream` を逐次表示するチャットUIを実装。
 10. `config/prompts/SOUL.md` / `config/prompts/PERSONA.md` / `config/prompts/system-prompt.ja.txt` を作成し、Runtime起動時に読み込む。
 11. Runtimeで `timeZoneId` / `nowUtc` / `nowLocal` を毎回生成し、モデル入力へ注入する。
-12. `assets/characters/nyaruko/character-profile.json` を配置し、`AI_CHARACTER_PROFILE` 未設定ユーザーの既定値として参照する。
+12. Runtimeでツール取得時刻（GymVisit/ExerciseEntry/BodyMetric）を `timeZoneId` 基準のローカル時刻へ変換してから推論に渡す。
+13. `assets/characters/nyaruko/character-profile.json` を配置し、`AI_CHARACTER_PROFILE` 未設定ユーザーの既定値として参照する。
 
 ## 11. エラー処理要件
 
@@ -319,9 +321,9 @@
 - コード変更なしで、プロンプトファイル更新のみで調整できること。
 - 応答ログに `soulFilePath`, `personaFilePath`, `systemPromptFilePath`, `promptGitRevision` が保存されること。
 - AIの「今日/昨日」判断が `timeZoneId` 基準で一貫すること。
+- DynamoDB由来のRFC3339 UTC時刻が、推論前に `timeZoneId` ローカル時刻へ変換されていること。
 - `AiCharacterProfile` 変更がチャット口調/表示に反映されること。
 - `AI_CHARACTER_PROFILE` 未設定時に `nyaruko` 既定設定へフォールバックできること。
-- Runtimeストリーミングイベントの `expressionKey` でUI表情が切り替わること。
 
 ## 13. 公式ドキュメント根拠（確認日: 2026-02-28）
 

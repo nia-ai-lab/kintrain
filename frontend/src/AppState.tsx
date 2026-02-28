@@ -11,13 +11,15 @@ import type {
   DraftEntry,
   ExerciseEntry,
   SetDetail,
-  TrainingMenuItem
+  TrainingMenuItem,
+  UserProfile
 } from './types';
 
 interface AppStateContextValue {
   data: AppData;
   setDraftEntry: (menuItemId: string, patch: Partial<DraftEntry>) => void;
   setDraftSetDetails: (menuItemId: string, setDetails: SetDetail[]) => void;
+  clearDraftEntry: (menuItemId: string) => void;
   clearDraft: () => void;
   finalizeTrainingSession: (date: string) => { savedCount: number };
   saveDailyRecord: (date: string, patch: Partial<DailyRecord>) => void;
@@ -29,11 +31,12 @@ interface AppStateContextValue {
   deleteMenuItem: (itemId: string) => void;
   moveMenuItem: (itemId: string, direction: -1 | 1) => void;
   replaceMenuItems: (items: TrainingMenuItem[]) => void;
+  updateUserProfile: (patch: Partial<UserProfile>) => void;
   updateAiCharacterProfile: (patch: Partial<AiCharacterProfile>) => void;
   appendUserMessage: (content: string) => void;
-  createAssistantMessage: (expressionKey?: string) => string;
+  createAssistantMessage: () => string;
   appendAssistantChunk: (messageId: string, chunk: string) => void;
-  finalizeAssistantMessage: (messageId: string, expressionKey?: string) => void;
+  finalizeAssistantMessage: (messageId: string) => void;
 }
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
@@ -42,10 +45,105 @@ function ensureDailyRecord(data: AppData, date: string): DailyRecord {
   return (
     data.dailyRecords[date] ?? {
       date,
-      timeZoneId: data.timeZoneId,
+      timeZoneId: data.userProfile.timeZoneId,
       otherActivities: []
     }
   );
+}
+
+function normalizeMeasuredTime(value?: string): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  if (/^\d{2}:\d{2}$/.test(value)) {
+    return value;
+  }
+  const fromLegacy = value.match(/T(\d{2}:\d{2})/);
+  return fromLegacy?.[1];
+}
+
+function normalizeAppData(rawData: AppData): AppData {
+  const legacy = rawData as AppData & {
+    timeZoneId?: string;
+    userProfile?: Partial<UserProfile>;
+    menuItems?: Array<TrainingMenuItem & { machineName?: string }>;
+    gymVisits?: Array<{
+      id: string;
+      date: string;
+      startedAtLocal: string;
+      endedAtLocal: string;
+      timeZoneId: string;
+      entries: Array<ExerciseEntry & { machineName?: string }>;
+    }>;
+    dailyRecords?: Record<string, DailyRecord & { bodyMetricRecordedAtLocal?: string }>;
+  };
+  const { timeZoneId: _legacyTimeZoneId, ...legacyWithoutTimeZone } = legacy;
+
+  const timeZoneId = legacy.userProfile?.timeZoneId ?? legacy.timeZoneId ?? initialAppData.userProfile.timeZoneId;
+  const userProfile: UserProfile = {
+    userName: legacy.userProfile?.userName ?? initialAppData.userProfile.userName,
+    sex: legacy.userProfile?.sex ?? initialAppData.userProfile.sex,
+    birthDate: legacy.userProfile?.birthDate ?? initialAppData.userProfile.birthDate,
+    heightCm: legacy.userProfile?.heightCm ?? initialAppData.userProfile.heightCm,
+    timeZoneId
+  };
+
+  const sourceDailyRecords = legacy.dailyRecords ?? initialAppData.dailyRecords;
+  const normalizedDailyRecords = Object.fromEntries(
+    Object.entries(sourceDailyRecords).map(([date, record]) => {
+      const normalizedRecord = record as DailyRecord & { bodyMetricRecordedAtLocal?: string };
+      return [
+        date,
+        {
+          ...normalizedRecord,
+          timeZoneId: normalizedRecord.timeZoneId ?? timeZoneId,
+          bodyMetricMeasuredTime: normalizeMeasuredTime(
+            normalizedRecord.bodyMetricMeasuredTime ?? normalizedRecord.bodyMetricRecordedAtLocal
+          )
+        } as DailyRecord
+      ];
+    })
+  );
+
+  const sourceMenuItems = (legacy.menuItems ?? initialAppData.menuItems) as Array<
+    TrainingMenuItem & { machineName?: string }
+  >;
+  const normalizedMenuItems = sourceMenuItems.map((item) => ({
+    ...item,
+    trainingName: item.trainingName ?? item.machineName ?? '未設定トレーニング'
+  }));
+
+  const sourceGymVisits = (legacy.gymVisits ?? initialAppData.gymVisits) as Array<{
+    id: string;
+    date: string;
+    startedAtLocal: string;
+    endedAtLocal: string;
+    timeZoneId: string;
+    entries: Array<ExerciseEntry & { machineName?: string }>;
+  }>;
+  const normalizedGymVisits = sourceGymVisits.map((visit) => ({
+    ...visit,
+    entries: visit.entries.map((entry) => ({
+      ...entry,
+      trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング'
+    }))
+  }));
+
+  const normalizedAiCharacterProfile: AiCharacterProfile = {
+    ...initialAppData.aiCharacterProfile,
+    ...(legacy.aiCharacterProfile ?? {}),
+    avatarImageUrl: initialAppData.aiCharacterProfile.avatarImageUrl
+  };
+
+  return {
+    ...initialAppData,
+    ...legacyWithoutTimeZone,
+    userProfile,
+    menuItems: normalizedMenuItems,
+    gymVisits: normalizedGymVisits,
+    dailyRecords: normalizedDailyRecords,
+    aiCharacterProfile: normalizedAiCharacterProfile
+  };
 }
 
 function id(prefix: string): string {
@@ -53,7 +151,7 @@ function id(prefix: string): string {
 }
 
 export function AppStateProvider({ children }: { children: React.ReactNode }) {
-  const [data, setData] = useState<AppData>(() => loadFromStorage(initialAppData));
+  const [data, setData] = useState<AppData>(() => normalizeAppData(loadFromStorage(initialAppData)));
 
   useEffect(() => {
     saveToStorage(data);
@@ -78,15 +176,29 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             ...patch
           };
 
+          const hasAnyMetric =
+            nextEntry.weightKg !== undefined || nextEntry.reps !== undefined || nextEntry.sets !== undefined;
+          const nextEntries = { ...(currentDraft?.entriesByItemId ?? {}) };
+
+          if (!hasAnyMetric) {
+            delete nextEntries[menuItemId];
+          } else {
+            nextEntries[menuItemId] = nextEntry;
+          }
+
+          if (Object.keys(nextEntries).length === 0) {
+            return {
+              ...prev,
+              trainingDraft: null
+            };
+          }
+
           return {
             ...prev,
             trainingDraft: {
               startedAtLocal: currentDraft?.startedAtLocal ?? now,
               updatedAtLocal: now,
-              entriesByItemId: {
-                ...currentDraft?.entriesByItemId,
-                [menuItemId]: nextEntry
-              }
+              entriesByItemId: nextEntries
             }
           };
         });
@@ -117,6 +229,32 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           };
         });
       },
+      clearDraftEntry: (menuItemId) => {
+        setData((prev) => {
+          if (!prev.trainingDraft) {
+            return prev;
+          }
+          const nextEntries = { ...prev.trainingDraft.entriesByItemId };
+          if (!nextEntries[menuItemId]) {
+            return prev;
+          }
+          delete nextEntries[menuItemId];
+          if (Object.keys(nextEntries).length === 0) {
+            return {
+              ...prev,
+              trainingDraft: null
+            };
+          }
+          return {
+            ...prev,
+            trainingDraft: {
+              ...prev.trainingDraft,
+              updatedAtLocal: toLocalIsoWithOffset(new Date()),
+              entriesByItemId: nextEntries
+            }
+          };
+        });
+      },
       clearDraft: () => {
         setData((prev) => ({ ...prev, trainingDraft: null }));
       },
@@ -135,7 +273,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               return {
                 id: id('entry'),
                 menuItemId: entry.menuItemId,
-                machineName: menuItem?.machineName ?? '不明マシン',
+                trainingName: menuItem?.trainingName ?? '不明トレーニング',
                 weightKg: entry.weightKg ?? 0,
                 reps: entry.reps ?? 0,
                 sets: entry.sets ?? 0,
@@ -154,7 +292,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             date,
             startedAtLocal: draft.startedAtLocal,
             endedAtLocal: nowLocal,
-            timeZoneId: prev.timeZoneId,
+            timeZoneId: prev.userProfile.timeZoneId,
             entries
           };
 
@@ -169,7 +307,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               [date]: {
                 ...dailyRecord,
                 date,
-                timeZoneId: prev.timeZoneId
+                timeZoneId: prev.userProfile.timeZoneId
               }
             }
           };
@@ -188,7 +326,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                 ...current,
                 ...patch,
                 date,
-                timeZoneId: prev.timeZoneId,
+                timeZoneId: prev.userProfile.timeZoneId,
                 otherActivities: patch.otherActivities ?? current.otherActivities
               }
             }
@@ -206,7 +344,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                 ...current,
                 conditionRating: rating,
                 date,
-                timeZoneId: prev.timeZoneId
+                timeZoneId: prev.userProfile.timeZoneId
               }
             }
           };
@@ -295,16 +433,21 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             .sort((a, b) => a.order - b.order)
         }));
       },
+      updateUserProfile: (patch) => {
+        setData((prev) => ({
+          ...prev,
+          userProfile: {
+            ...prev.userProfile,
+            ...patch
+          }
+        }));
+      },
       updateAiCharacterProfile: (patch) => {
         setData((prev) => ({
           ...prev,
           aiCharacterProfile: {
             ...prev.aiCharacterProfile,
-            ...patch,
-            expressions: {
-              ...prev.aiCharacterProfile.expressions,
-              ...(patch.expressions ?? {})
-            }
+            ...patch
           }
         }));
       },
@@ -332,7 +475,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           };
         });
       },
-      createAssistantMessage: (expressionKey) => {
+      createAssistantMessage: () => {
         const messageId = id('chat-ai');
         setData((prev) => {
           const sessionId = prev.activeAiChatSessionId;
@@ -346,8 +489,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                 id: messageId,
                 role: 'assistant',
                 content: '',
-                createdAtLocal: toLocalIsoWithOffset(new Date()),
-                expressionKey
+                createdAtLocal: toLocalIsoWithOffset(new Date())
               };
               return {
                 ...session,
@@ -379,7 +521,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           };
         });
       },
-      finalizeAssistantMessage: (messageId, expressionKey) => {
+      finalizeAssistantMessage: (messageId) => {
         setData((prev) => {
           const sessionId = prev.activeAiChatSessionId;
           return {
@@ -388,11 +530,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               if (session.id !== sessionId) {
                 return session;
               }
+              const exists = session.messages.some((message) => message.id === messageId);
+              if (!exists) {
+                return session;
+              }
               return {
                 ...session,
-                messages: session.messages.map((message) =>
-                  message.id === messageId ? { ...message, expressionKey } : message
-                ),
+                messages: session.messages,
                 updatedAtLocal: toLocalIsoWithOffset(new Date())
               };
             })

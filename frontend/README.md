@@ -5,6 +5,7 @@
 仕様確認用のモックSPAです。
 - framework: React + Vite + TypeScript
 - 主要画面: dashboard / training-session / training-menu / calendar / daily / ai-chat
+- 主要画面: dashboard / training-session / training-menu / calendar / daily / ai-chat / settings
 - データ保存: localStorage（`kintrain-mock-ui-v1`）
 
 ## 起動

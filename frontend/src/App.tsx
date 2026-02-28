@@ -4,6 +4,7 @@ import { AiChatPage } from './pages/AiChatPage';
 import { CalendarPage } from './pages/CalendarPage';
 import { DailyPage } from './pages/DailyPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { TrainingMenuAiGeneratePage } from './pages/TrainingMenuAiGeneratePage';
 import { TrainingMenuPage } from './pages/TrainingMenuPage';
 import { TrainingSessionPage } from './pages/TrainingSessionPage';
@@ -31,6 +32,7 @@ export function App() {
         <Route path="/history" element={<PlaceholderPage title="履歴" />} />
         <Route path="/progress" element={<PlaceholderPage title="進捗" />} />
         <Route path="/ai-chat" element={<AiChatPage />} />
+        <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>

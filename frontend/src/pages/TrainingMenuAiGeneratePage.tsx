@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../AppState';
 
 interface Candidate {
-  machineName: string;
+  trainingName: string;
   defaultWeightKg: number;
   defaultReps: number;
   defaultSets: number;
@@ -18,15 +18,15 @@ export function TrainingMenuAiGeneratePage() {
 
   const candidates = useMemo<Candidate[]>(() => {
     const base = [
-      { machineName: 'チェストプレス', defaultWeightKg: 25, defaultReps: 12, defaultSets: 3 },
-      { machineName: 'ラットプルダウン', defaultWeightKg: 30, defaultReps: 10, defaultSets: 3 },
-      { machineName: 'レッグプレス', defaultWeightKg: 80, defaultReps: 12, defaultSets: 3 },
-      { machineName: 'ショルダープレス', defaultWeightKg: 15, defaultReps: 10, defaultSets: 3 },
-      { machineName: 'シーテッドロー', defaultWeightKg: 27.5, defaultReps: 12, defaultSets: 3 }
+      { trainingName: 'チェストプレス', defaultWeightKg: 25, defaultReps: 12, defaultSets: 3 },
+      { trainingName: 'ラットプルダウン', defaultWeightKg: 30, defaultReps: 10, defaultSets: 3 },
+      { trainingName: 'レッグプレス', defaultWeightKg: 80, defaultReps: 12, defaultSets: 3 },
+      { trainingName: 'ショルダープレス', defaultWeightKg: 15, defaultReps: 10, defaultSets: 3 },
+      { trainingName: 'シーテッドロー', defaultWeightKg: 27.5, defaultReps: 12, defaultSets: 3 }
     ];
     if (machinePolicy === 'machine-and-free') {
-      base.push({ machineName: 'ダンベルベンチプレス', defaultWeightKg: 16, defaultReps: 10, defaultSets: 3 });
-      base.push({ machineName: 'ルーマニアンデッドリフト', defaultWeightKg: 40, defaultReps: 8, defaultSets: 3 });
+      base.push({ trainingName: 'ダンベルベンチプレス', defaultWeightKg: 16, defaultReps: 10, defaultSets: 3 });
+      base.push({ trainingName: 'ルーマニアンデッドリフト', defaultWeightKg: 40, defaultReps: 8, defaultSets: 3 });
     }
     if (goal === 'diet') {
       return base.map((item) => ({ ...item, defaultReps: Math.max(12, item.defaultReps), defaultSets: 3 }));
@@ -67,11 +67,11 @@ export function TrainingMenuAiGeneratePage() {
       </section>
 
       <section className="card">
-        <h2>提案プレビュー</h2>
+          <h2>提案プレビュー</h2>
         <ul className="simple-list">
           {candidates.map((item) => (
-            <li key={item.machineName}>
-              {item.machineName} {item.defaultWeightKg}kg x {item.defaultReps}回 x {item.defaultSets}set
+            <li key={item.trainingName}>
+              {item.trainingName} {item.defaultWeightKg}kg x {item.defaultReps}回 x {item.defaultSets}set
             </li>
           ))}
         </ul>
@@ -84,7 +84,7 @@ export function TrainingMenuAiGeneratePage() {
               replaceMenuItems(
                 candidates.map((item, index) => ({
                   id: `ai-${index + 1}`,
-                  machineName: item.machineName,
+                  trainingName: item.trainingName,
                   defaultWeightKg: item.defaultWeightKg,
                   defaultReps: item.defaultReps,
                   defaultSets: item.defaultSets,
@@ -112,7 +112,7 @@ export function TrainingMenuAiGeneratePage() {
             .sort((a, b) => a.order - b.order)
             .map((item) => (
               <li key={item.id}>
-                {item.order}. {item.machineName}
+                {item.order}. {item.trainingName}
               </li>
             ))}
         </ul>
