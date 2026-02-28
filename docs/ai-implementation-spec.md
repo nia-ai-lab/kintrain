@@ -43,6 +43,9 @@
 ## 3.2 UI -> API Gateway
 
 - API Gateway は Cognito JWT Authorizer で保護する。
+- Core API 全メソッドに `authorizationScopes` を設定し、アクセストークンの `scope` で認可する。
+- 必須スコープは `aws.cognito.signin.user.admin` とする。
+- IDトークンは Core API の認可トークンとして使用しない。
 - JWT の `sub` をユーザー識別子として扱う。
 
 ## 3.3 UI -> AgentCore Runtime

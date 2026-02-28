@@ -10,7 +10,8 @@ export interface TrainingMenuItem {
   id: string;
   trainingName: string;
   defaultWeightKg: number;
-  defaultReps: number;
+  defaultRepsMin: number;
+  defaultRepsMax: number;
   defaultSets: number;
   order: number;
   isActive: boolean;

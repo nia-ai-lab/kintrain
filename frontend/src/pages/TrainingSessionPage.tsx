@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import type { SetDetail } from '../types';
-import { ymdToDisplay } from '../utils/date';
+import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
 
 function toPositiveNumberOrUndefined(value: string): number | undefined {
@@ -29,6 +29,17 @@ function toCountNumber(value: string): number | undefined {
   return Math.floor(num);
 }
 
+function formatRepsTarget(min: number, max: number): string {
+  if (min === max) {
+    return `${min}回`;
+  }
+  return `${min}~${max}回`;
+}
+
+function formatRepsInputLabel(min: number, max: number): string {
+  return `回数 (${min}回 - ${max}回)`;
+}
+
 export function TrainingSessionPage() {
   const { data, setDraftEntry, setDraftSetDetails, clearDraftEntry, clearDraft, finalizeTrainingSession } = useAppState();
   const today = useTodayYmd();
@@ -42,10 +53,9 @@ export function TrainingSessionPage() {
       getPrioritizedMenuItems({
         menuItems: data.menuItems,
         gymVisits: data.gymVisits,
-        todayYmd: today,
-        draftEntriesByItemId: draftEntries
+        todayYmd: today
       }),
-    [data.menuItems, data.gymVisits, today, draftEntries]
+    [data.menuItems, data.gymVisits, today]
   );
 
   function initSetDetails(menuItemId: string, sets: number, weightKg: number, reps: number) {
@@ -85,6 +95,9 @@ export function TrainingSessionPage() {
         {prioritized.map((item, index) => {
           const draft = draftEntries[item.id];
           const last = getLastPerformance(item.id, data.gymVisits);
+          const seedWeightKg = last?.weightKg ?? item.defaultWeightKg;
+          const seedReps = last?.reps ?? item.defaultRepsMax;
+          const seedSets = last?.sets ?? item.defaultSets;
           const weightValue = draft?.weightKg;
           const repsValue = draft?.reps;
           const setsValue = draft?.sets;
@@ -97,7 +110,10 @@ export function TrainingSessionPage() {
                   <p className="priority-chip">優先 {index + 1}</p>
                   <h2>{item.trainingName}</h2>
                   <p className="muted">
-                    直近: {last ? `${ymdToDisplay(last.date)} ${last.weightKg}kg x ${last.reps}回 x ${last.sets}set` : '実績なし'}
+                    直近:{' '}
+                    {last
+                      ? `${isoToDisplayDateTime(last.endedAtLocal)} ${last.weightKg}kg x ${last.reps}回 x ${last.sets}set`
+                      : `未実施（メニュー: ${item.defaultWeightKg}kg x ${formatRepsTarget(item.defaultRepsMin, item.defaultRepsMax)} x ${item.defaultSets}set）`}
                   </p>
                 </div>
                 <div className="session-actions">
@@ -105,18 +121,18 @@ export function TrainingSessionPage() {
                     type="button"
                     className="btn subtle copy-last-button"
                     onClick={() => {
-                      if (!last) {
-                        return;
-                      }
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
-                        weightKg: last.weightKg,
-                        reps: last.reps,
-                        sets: last.sets
+                        weightKg: seedWeightKg,
+                        reps: seedReps,
+                        sets: seedSets
                       });
-                      setStatusText(`${item.trainingName} に前回値を入力しました。`);
+                      setStatusText(
+                        last
+                          ? `${item.trainingName} に前回値を入力しました。`
+                          : `${item.trainingName} にメニュー既定値を入力しました。`
+                      );
                     }}
-                    disabled={!last}
                   >
                     前回と同じ
                   </button>
@@ -142,7 +158,7 @@ export function TrainingSessionPage() {
                     min={0}
                     step={0.01}
                     value={weightValue ?? ''}
-                    placeholder={String(item.defaultWeightKg)}
+                    placeholder="未入力"
                     onChange={(e) =>
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
@@ -152,13 +168,13 @@ export function TrainingSessionPage() {
                   />
                 </label>
                 <label>
-                  回数
+                  {formatRepsInputLabel(item.defaultRepsMin, item.defaultRepsMax)}
                   <input
                     type="number"
                     min={0}
                     step={1}
                     value={repsValue ?? ''}
-                    placeholder={String(item.defaultReps)}
+                    placeholder="未入力"
                     onChange={(e) =>
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
@@ -174,7 +190,7 @@ export function TrainingSessionPage() {
                     min={0}
                     step={1}
                     value={setsValue ?? ''}
-                    placeholder={String(item.defaultSets)}
+                    placeholder="未入力"
                     onChange={(e) =>
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
@@ -193,10 +209,10 @@ export function TrainingSessionPage() {
                     const nowOpen = !isDetailOpen;
                     setOpenSetDetailIds((prev) => ({ ...prev, [item.id]: nowOpen }));
                     if (nowOpen && (!draft?.setDetails || draft.setDetails.length === 0)) {
-                      const seedSets = Math.max(1, setsValue ?? item.defaultSets);
-                      const seedWeight = weightValue ?? item.defaultWeightKg;
-                      const seedReps = repsValue ?? item.defaultReps;
-                      initSetDetails(item.id, seedSets, seedWeight, seedReps);
+                      const detailSets = Math.max(1, setsValue ?? seedSets);
+                      const detailWeight = weightValue ?? seedWeightKg;
+                      const detailReps = repsValue ?? seedReps;
+                      initSetDetails(item.id, detailSets, detailWeight, detailReps);
                     }
                   }}
                 >
@@ -250,12 +266,13 @@ export function TrainingSessionPage() {
         <button
           type="button"
           className="btn primary large"
-          onClick={() => {
-            const result = finalizeTrainingSession(today);
-            if (result.savedCount === 0) {
-              setStatusText('有効な入力がないため保存されませんでした。');
+          onClick={async () => {
+            const result = await finalizeTrainingSession(today);
+            if (!result.ok) {
+              setStatusText(result.message ?? '保存に失敗しました。');
               return;
             }
+            setStatusText('');
             navigate(`/daily/${today}`);
           }}
         >

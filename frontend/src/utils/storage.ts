@@ -1,4 +1,5 @@
-const STORAGE_KEY = 'kintrain-mock-ui-v1';
+// v2: clear legacy local mock snapshots that contained seeded training menu/history
+const STORAGE_KEY = 'kintrain-mock-ui-v2';
 
 export function loadFromStorage<T>(fallback: T): T {
   try {

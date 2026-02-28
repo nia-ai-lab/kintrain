@@ -1,5 +1,5 @@
 import { FormEvent, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../AuthState';
 
 interface LoginRouteState {
@@ -11,7 +11,7 @@ interface LoginRouteState {
 export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { login } = useAuth();
+  const { login, isLoading } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -20,11 +20,20 @@ export function LoginPage() {
   const state = location.state as LoginRouteState | null;
   const redirectTo = state?.from?.pathname || '/dashboard';
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError('');
-    const result = login(email, password);
+    const result = await login(email, password);
     if (!result.ok) {
+      if (result.nextAction === 'require_new_password') {
+        navigate('/password-reset', {
+          state: {
+            mode: 'new-password-required',
+            email: email.trim().toLowerCase()
+          }
+        });
+        return;
+      }
       setError(result.message ?? 'ログインに失敗しました。');
       return;
     }
@@ -65,9 +74,13 @@ export function LoginPage() {
 
           {error && <p className="status-text">{error}</p>}
 
-          <button type="submit" className="btn primary large">
-            ログイン
+          <button type="submit" className="btn primary large" disabled={isLoading}>
+            {isLoading ? 'ログイン中...' : 'ログイン'}
           </button>
+
+          <Link to="/password-reset" className="text-link">
+            パスワードを再設定する
+          </Link>
         </form>
       </section>
     </div>

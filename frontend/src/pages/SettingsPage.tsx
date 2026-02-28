@@ -17,7 +17,7 @@ const timeZoneCandidates = [
 export function SettingsPage() {
   const navigate = useNavigate();
   const { logout } = useAuth();
-  const { data, updateUserProfile, updateAiCharacterProfile } = useAppState();
+  const { data, updateUserProfile, saveUserProfile, updateAiCharacterProfile, coreDataError, isCoreDataLoading } = useAppState();
   const [userStatus, setUserStatus] = useState('');
   const [aiStatus, setAiStatus] = useState('');
   const [aiCharacterName, setAiCharacterName] = useState(data.aiCharacterProfile.characterName);
@@ -111,13 +111,16 @@ export function SettingsPage() {
           <button
             type="button"
             className="btn primary"
-            onClick={() => {
-              setUserStatus('ユーザ設定を保存しました。');
+            onClick={async () => {
+              const result = await saveUserProfile();
+              setUserStatus(result.ok ? 'ユーザ設定を保存しました。' : result.message ?? '保存に失敗しました。');
             }}
+            disabled={isCoreDataLoading}
           >
-            保存
+            {isCoreDataLoading ? '保存中...' : '保存'}
           </button>
           {userStatus && <p className="status-text">{userStatus}</p>}
+          {!userStatus && coreDataError && <p className="status-text">{coreDataError}</p>}
         </div>
       </section>
 
@@ -161,8 +164,8 @@ export function SettingsPage() {
           <button
             type="button"
             className="btn danger"
-            onClick={() => {
-              logout();
+            onClick={async () => {
+              await logout();
               navigate('/login', { replace: true });
             }}
           >

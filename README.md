@@ -7,7 +7,7 @@
 
 - 要件定義/設計: ほぼ確定
 - フロントエンド: モックUI完成（React + Vite + TypeScript）
-- バックエンド: 仕様確定済み、実装はこれから
+- バックエンド: Amplify Gen2 + CDK の実装着手済み（初期スキャフォールド）
 - AI連携: AgentCore Runtime/Gateway方針を設計済み
 
 ## 主な機能（モックUI）
@@ -35,6 +35,18 @@
 - 1回のブランチデプロイでフロントエンドとバックエンドを同時反映
 - バックエンド拡張（AgentCore関連含む）はCDKカスタムリソースで管理
 
+## 実装済みバックエンド（土台）
+
+- `amplify/backend.ts`
+- Cognito（Amplify Auth）
+- API Gateway（Cognito authorizerつき）
+- Core API Lambda（`amplify/functions/core-api/handler.ts`）
+- DynamoDBテーブル
+- `KinTrainTrainingMenu`
+- `KinTrainTrainingHistory`（GSI1）
+- `KinTrainUserData`（GSI2）
+- `amplify.yml`（Amplifyフルスタックデプロイ設定）
+
 ## 主要ドキュメント
 
 - 全体要件: `docs/spec.md`
@@ -55,6 +67,15 @@ npm run dev
 cd frontend
 npm run build
 ```
+
+## Amplify Gen2 デプロイ（初期）
+
+```bash
+npm install
+npx ampx sandbox
+```
+
+フルスタックCI/CDは `amplify.yml` を使用し、Amplify Hostingのブランチデプロイで実行します。
 
 ## 補足
 

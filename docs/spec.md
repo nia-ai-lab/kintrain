@@ -35,6 +35,16 @@
 - デプロイ単位はブランチ単位とし、フロントとバックで別タイミングの手動デプロイを標準運用にしないこと。
 - 将来 custom pipeline を採用する場合でも、最終的に1回のパイプライン実行でフロント/バックが反映される設計を維持すること。
 
+### 3.2 Core APIのサービス分割
+
+- API Gateway は `ANY /{proxy+}` を使用せず、リソース/メソッドを明示定義する。
+- Lambda は機能単位で分割する。
+- `profile-api`: `/me/profile`
+- `training-menu-api`: `/training-menu-items` 系
+- `training-history-api`: `/gym-visits`, `/training-session-view`
+- `daily-record-api`: `/daily-records`, `/calendar`
+- `ai-settings-api`: `/ai-character-profile`
+
 ## 4. ドメイン定義（ユビキタス言語）
 
 - `User`: 認証済み利用者
@@ -90,6 +100,7 @@
 
 - メールアドレス+パスワードでログインできること（MVP）。
 - ログイン済みユーザーのみAPI利用可能であること。
+- Core API の認可トークンは Cognito **アクセストークン**（JWT）を必須とし、IDトークンは認可に使用しないこと。
 - ユーザーはログアウトできること。
 - サインアップ/メールアドレス確認は将来機能として扱い、MVPには含めないこと。
 
@@ -100,7 +111,8 @@
 - `trainingMenuItemId`
 - `trainingName`
 - `defaultWeightKg`
-- `defaultReps`
+- `defaultRepsMin`
+- `defaultRepsMax`
 - `defaultSets`
 - `displayOrder`
 - `isActive`
@@ -232,7 +244,8 @@
 - `trainingMenuItemId: string`
 - `trainingName: string`
 - `defaultWeightKg: number`（小数2桁まで）
-- `defaultReps: number`
+- `defaultRepsMin: number`
+- `defaultRepsMax: number`
 - `defaultSets: number`
 - `displayOrder: number`
 - `isActive: boolean`
@@ -247,18 +260,20 @@
 - `POST /training-menu-items` リクエスト:
 - `trainingName`
 - `defaultWeightKg`
-- `defaultReps`
+- `defaultRepsMin`
+- `defaultRepsMax`
 - `defaultSets`
 - `PUT /training-menu-items/{trainingMenuItemId}` リクエスト:
 - `trainingName`
 - `defaultWeightKg`
-- `defaultReps`
+- `defaultRepsMin`
+- `defaultRepsMax`
 - `defaultSets`
 - `isActive`（任意）
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, defaultWeightKg, defaultReps, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 
 ### 6.3 UIモック項目名とのマッピング
@@ -302,79 +317,91 @@
 
 ### 7.3 DynamoDB物理設計（モデル別テーブル）
 
-#### 7.3.1 TrainingMenuテーブル
+#### 7.3.1 UserProfileテーブル
 
-- テーブル名: `KinTrainTrainingMenu`
+- テーブル名: `KinTrainUserProfileV2`
 - 主キー:
-- `PK = USER#{userId}`
-- `SK = <MENU_ENTITY>#...`
-- 代表SK:
-- `TRAINING_MENU_ITEM#{trainingMenuItemId}`
-- `TRAINING_MENU_NAME#{normalizedTrainingName}`（同一ユーザー内の一意制約用）
+- `userId`（パーティションキー、Cognito `sub`）
 - 主な属性:
-- `trainingMenuItemId`
-- `trainingName`
-- `defaultWeightKg`
-- `defaultReps`
-- `defaultSets`
-- `displayOrder`
-- `isActive`
-- `lastPerformanceSnapshotPerformedAtUtc`（任意）
-- `lastPerformanceSnapshotWeightKg`（任意）
-- `lastPerformanceSnapshotReps`（任意）
-- `lastPerformanceSnapshotSets`（任意）
-- `lastPerformanceSnapshotVisitDateLocal`（任意）
+- `userName`
+- `sex`
+- `birthDate`
+- `heightCm`
+- `timeZoneId`
 - `createdAt`
 - `updatedAt`
 
-#### 7.3.2 TrainingHistoryテーブル
+#### 7.3.2 TrainingMenuテーブル
 
-- テーブル名: `KinTrainTrainingHistory`
+- テーブル名: `KinTrainTrainingMenuV2`
 - 主キー:
-- `PK = USER#{userId}`
-- `SK = <HISTORY_ENTITY>#...`
-- 代表SK:
-- `GYM_VISIT_DATE#{visitDateLocal}#VISIT#{visitId}`
-- `GYM_VISIT_ID#{visitId}`
-- `EXERCISE_ENTRY#{visitId}#{entryId}`
-- `GYM_VISIT` 主な属性:
-- `visitId`
+- `userId`（パーティションキー）
+- `trainingMenuItemId`（ソートキー）
+- 主な属性:
+- `trainingName`
+- `normalizedTrainingName`
+- `defaultWeightKg`
+- `defaultRepsMin`
+- `defaultRepsMax`
+- `defaultSets`
+- `displayOrder`
+- `isActive`
+- `createdAt`
+- `updatedAt`
+- GSI:
+- `UserDisplayOrderIndex`（`userId`, `displayOrder`）
+- `UserTrainingNameIndex`（`userId`, `normalizedTrainingName`）
+
+#### 7.3.3 TrainingHistoryテーブル
+
+- テーブル名: `KinTrainTrainingHistoryV2`
+- 主キー:
+- `userId`（パーティションキー）
+- `visitId`（ソートキー）
+- 主な属性:
 - `startedAtUtc`
 - `endedAtUtc`
 - `timeZoneId`
 - `visitDateLocal`
-- `performedTrainingMenuItemIds: string[]`（当日実施種目ID集合）
-- `entrySummaries: [{ trainingMenuItemId, trainingNameSnapshot, weightKg, reps, sets, performedAtUtc }]`
-- `EXERCISE_ENTRY` 主な属性:
-- `entryId`
-- `visitId`
-- `trainingMenuItemId`
-- `trainingNameSnapshot`
-- `weightKg`
-- `reps`
-- `sets`
-- `performedAtUtc`
-- `setDetails`（任意）
-- `GSI1PK`
-- `GSI1SK`
-- `GYM_VISIT_DATE#...` と `GYM_VISIT_ID#...` は同一内容を冗長保持し、`TransactWriteItems` で同時更新する。
+- `entries: ExerciseEntry[]`
+- `note`
+- `createdAt`
+- `updatedAt`
+- GSI:
+- `UserStartedAtIndex`（`userId`, `startedAtUtc`）
 
-#### 7.3.3 UserDataテーブル
+#### 7.3.4 DailyRecordテーブル
 
-- テーブル名: `KinTrainUserData`
+- テーブル名: `KinTrainDailyRecordV2`
 - 主キー:
-- `PK = USER#{userId}`
-- `SK = <USER_ENTITY>#...`
-- 代表SK:
-- `PROFILE`
-- `DAILY_RECORD#{yyyy-MM-dd}`
-- `GOAL#CURRENT`
-- `AI_CHARACTER_PROFILE`
-- `AI_CHAT_SESSION#{chatSessionId}`
-- `AI_CHAT_MESSAGE#{chatSessionId}#{timestamp}`
-- `AI_ADVICE#{timestamp}#{adviceId}`
-- `AI_CHARACTER_PROFILE` には `characterId`, `characterName`, `avatarImageUrl`, `tonePreset`, `updatedAt` を保持する。
-- `AI_CHARACTER_PROFILE` が未作成のユーザーは `assets/characters/nyaruko/character-profile.json` を既定として扱う。
+- `userId`（パーティションキー）
+- `recordDate`（ソートキー、`YYYY-MM-DD`）
+- 主な属性:
+- `bodyWeightKg`
+- `bodyFatPercent`
+- `bodyMetricMeasuredAtUtc`
+- `bodyMetricMeasuredAtLocal`
+- `bodyMetricMeasuredTimeLocal`
+- `timeZoneId`
+- `conditionRating`
+- `conditionComment`
+- `diary`
+- `otherActivities`
+- `createdAt`
+- `updatedAt`
+
+#### 7.3.5 AiSettingテーブル
+
+- テーブル名: `KinTrainAiSettingV2`
+- 主キー:
+- `userId`（パーティションキー）
+- 主な属性:
+- `characterId`
+- `characterName`
+- `avatarImageUrl`
+- `tonePreset`
+- `createdAt`
+- `updatedAt`
 
 ### 7.4 日付・時刻フォーマット規約（共通）
 
@@ -392,50 +419,39 @@
 
 ### 7.5 GSI設計（すべてuserIdを含む）
 
-- `TrainingHistory.GSI1`（TrainingMenuItem履歴検索）
-- `GSI1PK = USER#{userId}`
-- `GSI1SK = TRAINING_MENU_ITEM#{trainingMenuItemId}#PERFORMED_AT#{yyyy-MM-ddTHH:mm:ssZ}#VISIT#{visitId}#ENTRY#{entryId}`
-- 用途: `trainingMenuItemId` 単位で過去履歴を時系列取得
+- `TrainingMenu.UserDisplayOrderIndex`
+- `userId` + `displayOrder`
+- 用途: 実施順表示のためにメニューを順序で取得
 
-- `UserData.GSI2`（チャットセッション一覧）
-- `GSI2PK = USER#{userId}`
-- `GSI2SK = CHAT#UPDATED_AT#{timestamp}#SESSION#{chatSessionId}`
-- 用途: AIチャットセッションを新しい順に取得
+- `TrainingMenu.UserTrainingNameIndex`
+- `userId` + `normalizedTrainingName`
+- 用途: 同一ユーザー内のトレーニング名重複チェック
+
+- `TrainingHistory.UserStartedAtIndex`
+- `userId` + `startedAtUtc`
+- 用途: GymVisitを時系列で取得（一覧・期間検索・月次表示）
 
 ### 7.6 アクセスパターンとクエリ設計（Scan禁止）
 
-- AP-01 プロファイル取得（UserData）: `GetItem(PK=USER#{sub}, SK=PROFILE)`
-- AP-02 プロファイル更新（UserData）: `UpdateItem(PK=USER#{sub}, SK=PROFILE)`
-- AP-03 トレーニングメニュー一覧（TrainingMenu）: `Query PK=USER#{sub} AND begins_with(SK, 'TRAINING_MENU_ITEM#')`
-- AP-04 トレーニングメニュー作成（TrainingMenu）: `TransactWriteItems`（`TRAINING_MENU_ITEM` と `TRAINING_MENU_NAME` を同時作成、`TRAINING_MENU_NAME` は `attribute_not_exists(PK)` で重複拒否）
-- AP-05 トレーニングメニュー更新（TrainingMenu）: `TransactWriteItems`（名称変更時は旧 `TRAINING_MENU_NAME` 削除 + 新 `TRAINING_MENU_NAME` 作成 + `TRAINING_MENU_ITEM` 更新）
-- AP-06 トレーニングメニュー削除（TrainingMenu）: `TransactWriteItems`（`TRAINING_MENU_ITEM.isActive=false` 更新 + `TRAINING_MENU_NAME` 削除）
-- AP-07 トレーニングメニュー並び替え（TrainingMenu）: `TransactWriteItems` で複数 `TRAINING_MENU_ITEM` の `displayOrder` を更新
-- AP-08 GymVisit日付範囲（TrainingHistory）: `Query PK=USER#{sub} AND SK BETWEEN 'GYM_VISIT_DATE#{from}#' AND 'GYM_VISIT_DATE#{to}#~'`
-- AP-09 GymVisit詳細（TrainingHistory）: `GetItem(PK=USER#{sub}, SK=GYM_VISIT_ID#{visitId})`（`entrySummaries` を含む単一Item）
-- AP-10 前日実施トレーニング（TrainingHistory）: AP-08で前日範囲を取得し、各Itemの `performedTrainingMenuItemIds` を集合化
-- AP-11 TrainingMenuItem別履歴（TrainingHistory.GSI1）: `Query GSI1PK=USER#{sub} AND GSI1SK BETWEEN 'TRAINING_MENU_ITEM#{trainingMenuItemId}#PERFORMED_AT#' AND 'TRAINING_MENU_ITEM#{trainingMenuItemId}#PERFORMED_AT#~'`（最新1件は `ScanIndexForward=false` + `Limit=1`）
-- AP-12 DailyRecord範囲（UserData）: `Query PK=USER#{sub} AND SK BETWEEN 'DAILY_RECORD#{from}' AND 'DAILY_RECORD#{to}~'`
-- AP-13 DailyRecord単日取得（UserData）: `GetItem(PK=USER#{sub}, SK=DAILY_RECORD#{date})`
-- AP-14 DailyRecord単日更新（UserData）: `PutItem(PK=USER#{sub}, SK=DAILY_RECORD#{date})`
-- AP-15 月次カレンダー表示（UserData + TrainingHistory）: AP-12で体調、AP-08で実施有無を取得して合成
-- AP-16 AIキャラクター設定取得（UserData）: `GetItem(PK=USER#{sub}, SK=AI_CHARACTER_PROFILE)`
-- AP-17 AIキャラクター設定更新（UserData）: `PutItem(PK=USER#{sub}, SK=AI_CHARACTER_PROFILE)`
-- AP-18 目標値取得（UserData）: `GetItem(PK=USER#{sub}, SK=GOAL#CURRENT)`
-- AP-19 AIチャットメッセージ（UserData）: `Query PK=USER#{sub} AND begins_with(SK, 'AI_CHAT_MESSAGE#{chatSessionId}#')`
-- AP-20 AIチャットセッション一覧（UserData.GSI2）: `Query GSI2PK=USER#{sub} AND begins_with(GSI2SK, 'CHAT#')`（GSI2）
-- AP-21 AIアドバイス履歴（UserData）: `Query PK=USER#{sub} AND begins_with(SK, 'AI_ADVICE#')`
-- AP-22 実施画面初期表示（Core API）:
-- 1) `Query TrainingMenu`（AP-03）で `TrainingMenuItem` と `LastPerformanceSnapshot` を取得
-- 2) `Query TrainingHistory`（AP-08）を `from=date,to=date` で実行し、`performedTrainingMenuItemIds` から `todayDoneTrainingMenuItemIds` を作成
-- AP-23 GymVisit確定保存時:
-- 1) `TrainingHistory` へ `GYM_VISIT` / `EXERCISE_ENTRY` を `TransactWriteItems`
-- 2) 各 `trainingMenuItemId` の `lastPerformanceSnapshot*` を `TrainingMenu` 側へ `UpdateItem`
-- 3) これにより実施画面の「直近実績」をN件個別Queryせずに取得可能とする
-- AP-24 Daily画面当日詳細（Core API）:
-- 1) `GetItem DailyRecord`（AP-13）
-- 2) `Query TrainingHistory`（AP-08）を `from=date,to=date` で実行
-- 3) `entrySummaries` を時刻順に整形して当日筋トレ内容として返却
+- AP-01 プロファイル取得（UserProfile）: `GetItem(userId=sub)`
+- AP-02 プロファイル更新（UserProfile）: `PutItem(userId=sub)`
+- AP-03 トレーニングメニュー一覧（TrainingMenu）: `Query UserDisplayOrderIndex(userId=sub)`
+- AP-04 トレーニングメニュー重複チェック（TrainingMenu）: `Query UserTrainingNameIndex(userId=sub, normalizedTrainingName=...)`
+- AP-05 トレーニングメニュー作成（TrainingMenu）: `PutItem(userId=sub, trainingMenuItemId=uuid)`
+- AP-06 トレーニングメニュー更新（TrainingMenu）: `UpdateItem(userId=sub, trainingMenuItemId=...)`
+- AP-07 トレーニングメニュー削除（TrainingMenu）: `DeleteItem(userId=sub, trainingMenuItemId=...)`
+- AP-08 トレーニングメニュー並び替え（TrainingMenu）: `TransactWriteItems` で複数 `displayOrder` 更新
+- AP-09 GymVisit作成（TrainingHistory）: `PutItem(userId=sub, visitId=uuid)`
+- AP-10 GymVisit一覧（TrainingHistory）: `Query UserStartedAtIndex(userId=sub, startedAtUtc BETWEEN fromUtc AND toUtc)`
+- AP-11 GymVisit詳細（TrainingHistory）: `GetItem(userId=sub, visitId=...)`
+- AP-12 GymVisit更新（TrainingHistory）: `PutItem(userId=sub, visitId=...)`
+- AP-13 GymVisit削除（TrainingHistory）: `DeleteItem(userId=sub, visitId=...)`
+- AP-14 DailyRecord範囲（DailyRecord）: `Query(userId=sub, recordDate BETWEEN from AND to)`
+- AP-15 DailyRecord単日取得（DailyRecord）: `GetItem(userId=sub, recordDate=...)`
+- AP-16 DailyRecord単日更新（DailyRecord）: `PutItem(userId=sub, recordDate=...)`
+- AP-17 カレンダー（月次）: `Query DailyRecord` + `Query TrainingHistory.UserStartedAtIndex` を合成
+- AP-18 AIキャラクター設定取得（AiSetting）: `GetItem(userId=sub)`
+- AP-19 AIキャラクター設定更新（AiSetting）: `PutItem(userId=sub)`
 
 ### 7.7 クエリ上限・ページング規約（コスト制御）
 
@@ -460,6 +476,8 @@
 ## 8. セキュリティ要件
 
 - API GatewayはCognito JWT Authorizerで保護すること。
+- Core API の全メソッドは API Gateway の `authorizationScopes` を設定し、アクセストークンの `scope` で認可すること。
+- MVPで必須とするスコープは `aws.cognito.signin.user.admin` とする。
 - Runtime -> Gateway -> LambdaはIAM最小権限で接続すること。
 - 他ユーザーのデータ参照は不可能であること。
 
@@ -586,11 +604,10 @@
 
 ### 14.5 DynamoDB命名
 
-- テーブル名: `PascalCase`（例: `KinTrainTrainingMenu`, `KinTrainTrainingHistory`, `KinTrainUserData`）
-- パーティション/ソートキー属性名: `PK`, `SK`（大文字固定）
-- GSIキー属性名: `GSI1PK`, `GSI1SK`, `GSI2PK`, `GSI2SK`（大文字固定）
+- テーブル名: `PascalCase`（例: `KinTrainTrainingMenuV2`, `KinTrainTrainingHistoryV2`）
+- パーティション/ソートキー属性名はドメイン語彙を使用する（例: `userId`, `trainingMenuItemId`, `visitId`, `recordDate`）
+- GSIキー属性名もドメイン語彙を使用する（例: `displayOrder`, `normalizedTrainingName`, `startedAtUtc`）
 - エンティティ属性名: `camelCase`（例: `createdAt`, `trainingNameSnapshot`）
-- 識別子プレフィックス: 大文字スネーク風トークン + `#`（例: `USER#`, `GYM_VISIT_DATE#`）
 - DynamoDB属性名にハイフンは使用しない。
 
 ## 15. 参考（公式）

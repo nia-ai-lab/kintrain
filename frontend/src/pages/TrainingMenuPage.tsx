@@ -1,22 +1,28 @@
+import { FormEvent, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppState } from '../AppState';
 import type { TrainingMenuItem } from '../types';
 
 export function TrainingMenuPage() {
-  const { data, addMenuItem, updateMenuItem, deleteMenuItem, moveMenuItem } = useAppState();
+  const { data, addMenuItem, updateMenuItem, deleteMenuItem, moveMenuItem, coreDataError, isCoreDataLoading } = useAppState();
+  const [statusText, setStatusText] = useState('');
   const sorted = [...data.menuItems].sort((a, b) => a.order - b.order);
 
-  function onAdd(formData: FormData) {
+  function onAdd(formData: FormData): boolean {
     const trainingName = String(formData.get('trainingName') ?? '').trim();
     if (!trainingName) {
-      return;
+      setStatusText('トレーニング名を入力してください。');
+      return false;
     }
     addMenuItem({
       trainingName,
       defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
-      defaultReps: Number(formData.get('defaultReps') ?? 0),
+      defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
+      defaultRepsMax: Number(formData.get('defaultRepsMax') ?? 0),
       defaultSets: Number(formData.get('defaultSets') ?? 0)
     });
+    setStatusText('追加をリクエストしました。');
+    return true;
   }
 
   return (
@@ -34,11 +40,12 @@ export function TrainingMenuPage() {
         <h2>新規追加</h2>
         <form
           className="menu-add-form"
-          onSubmit={(e) => {
+          onSubmit={(e: FormEvent<HTMLFormElement>) => {
             e.preventDefault();
             const form = e.currentTarget;
-            onAdd(new FormData(form));
-            form.reset();
+            if (onAdd(new FormData(form))) {
+              form.reset();
+            }
           }}
         >
           <label className="menu-training-name-field">
@@ -51,17 +58,23 @@ export function TrainingMenuPage() {
               <input name="defaultWeightKg" type="number" step="0.01" min="0" required />
             </label>
             <label>
-              回数
-              <input name="defaultReps" type="number" step="1" min="1" required />
+              回数 最小
+              <input name="defaultRepsMin" type="number" step="1" min="1" required />
+            </label>
+            <label>
+              回数 最大
+              <input name="defaultRepsMax" type="number" step="1" min="1" required />
             </label>
             <label>
               セット
               <input name="defaultSets" type="number" step="1" min="1" required />
             </label>
           </div>
-          <button className="btn primary menu-add-button" type="submit">
-            追加
+          <button className="btn primary menu-add-button" type="submit" disabled={isCoreDataLoading}>
+            {isCoreDataLoading ? '同期中...' : '追加'}
           </button>
+          {statusText && <p className="status-text">{statusText}</p>}
+          {coreDataError && <p className="status-text">{coreDataError}</p>}
         </form>
       </section>
 
@@ -128,13 +141,23 @@ function MenuItemCard({
             />
           </label>
           <label>
-            回数
+            回数 最小
             <input
               type="number"
               min={1}
               step={1}
-              value={item.defaultReps}
-              onChange={(e) => onUpdate({ defaultReps: Number(e.target.value) })}
+              value={item.defaultRepsMin}
+              onChange={(e) => onUpdate({ defaultRepsMin: Number(e.target.value) })}
+            />
+          </label>
+          <label>
+            回数 最大
+            <input
+              type="number"
+              min={1}
+              step={1}
+              value={item.defaultRepsMax}
+              onChange={(e) => onUpdate({ defaultRepsMax: Number(e.target.value) })}
             />
           </label>
           <label>

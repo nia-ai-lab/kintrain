@@ -1,8 +1,9 @@
-import type { DraftEntry, GymVisit, TrainingMenuItem } from '../types';
+import type { GymVisit, TrainingMenuItem } from '../types';
 import { diffDays } from './date';
 
 export interface LastPerformance {
   date: string;
+  endedAtLocal: string;
   weightKg: number;
   reps: number;
   sets: number;
@@ -15,6 +16,7 @@ export function getLastPerformance(menuItemId: string, gymVisits: GymVisit[]): L
     if (entry) {
       return {
         date: sorted[i].date,
+        endedAtLocal: sorted[i].endedAtLocal,
         weightKg: entry.weightKg,
         reps: entry.reps,
         sets: entry.sets
@@ -68,9 +70,8 @@ function scoreItem(params: {
   gymVisits: GymVisit[];
   yesterdayIds: Set<string>;
   todayDoneIds: Set<string>;
-  draftEntry?: DraftEntry;
 }): number {
-  const { item, todayYmd, gymVisits, yesterdayIds, todayDoneIds, draftEntry } = params;
+  const { item, todayYmd, gymVisits, yesterdayIds, todayDoneIds } = params;
   const last = getLastPerformance(item.id, gymVisits);
   let score = 1000 - item.order * 2;
 
@@ -89,10 +90,6 @@ function scoreItem(params: {
     score -= 60;
   }
 
-  if ((draftEntry?.weightKg ?? 0) > 0) {
-    score -= 20;
-  }
-
   return score;
 }
 
@@ -100,9 +97,8 @@ export function getPrioritizedMenuItems(params: {
   menuItems: TrainingMenuItem[];
   gymVisits: GymVisit[];
   todayYmd: string;
-  draftEntriesByItemId: Record<string, DraftEntry>;
 }): TrainingMenuItem[] {
-  const { menuItems, gymVisits, todayYmd, draftEntriesByItemId } = params;
+  const { menuItems, gymVisits, todayYmd } = params;
   const yesterdayIds = getYesterdayMenuIds(todayYmd, gymVisits);
   const todayDoneIds = getTodayDoneIds(todayYmd, gymVisits);
 
@@ -114,16 +110,14 @@ export function getPrioritizedMenuItems(params: {
         todayYmd,
         gymVisits,
         yesterdayIds,
-        todayDoneIds,
-        draftEntry: draftEntriesByItemId[a.id]
+        todayDoneIds
       });
       const scoreB = scoreItem({
         item: b,
         todayYmd,
         gymVisits,
         yesterdayIds,
-        todayDoneIds,
-        draftEntry: draftEntriesByItemId[b.id]
+        todayDoneIds
       });
       if (scoreA !== scoreB) {
         return scoreB - scoreA;

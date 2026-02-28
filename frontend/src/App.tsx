@@ -6,6 +6,7 @@ import { CalendarPage } from './pages/CalendarPage';
 import { DailyPage } from './pages/DailyPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
+import { PasswordResetPage } from './pages/PasswordResetPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { TrainingMenuAiGeneratePage } from './pages/TrainingMenuAiGeneratePage';
 import { TrainingMenuPage } from './pages/TrainingMenuPage';
@@ -20,9 +21,22 @@ function PlaceholderPage({ title }: { title: string }) {
   );
 }
 
+function AuthLoadingPage() {
+  return (
+    <div className="login-root">
+      <section className="login-card">
+        <p className="muted">認証状態を確認しています...</p>
+      </section>
+    </div>
+  );
+}
+
 function RequireAuth({ children }: { children: JSX.Element }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
   const location = useLocation();
+  if (isLoading) {
+    return <AuthLoadingPage />;
+  }
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
@@ -30,11 +44,15 @@ function RequireAuth({ children }: { children: JSX.Element }) {
 }
 
 export function App() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) {
+    return <AuthLoadingPage />;
+  }
   return (
     <Routes>
       <Route path="/" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />
       <Route path="/login" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} />
+      <Route path="/password-reset" element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <PasswordResetPage />} />
       <Route
         element={
           <RequireAuth>

@@ -1,0 +1,35 @@
+{
+  "name": "kintrain",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "frontend"
+  ],
+  "scripts": {
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "backend:typecheck": "tsc -p tsconfig.backend.json --noEmit",
+    "test:api-ui-spec": "node tests/api-ui-spec.e2e.mjs",
+    "build": "npm run frontend:build",
+    "amplify:sandbox": "npx ampx sandbox",
+    "amplify:pipeline-deploy": "npx ampx pipeline-deploy",
+    "test:ui-spec": "playwright test -c playwright.config.mjs"
+  },
+  "devDependencies": {
+    "@aws-amplify/backend": "^1.18.1",
+    "@aws-amplify/backend-cli": "^1.8.2",
+    "@playwright/test": "^1.58.2",
+    "@types/aws-lambda": "^8.10.147",
+    "@types/node": "^25.3.2",
+    "aws-cdk-lib": "^2.188.0",
+    "constructs": "^10.4.2",
+    "typescript": "^5.8.2"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cognito-identity-provider": "^3.840.0",
+    "@aws-sdk/client-dynamodb": "^3.840.0",
+    "@aws-sdk/lib-dynamodb": "^3.840.0",
+    "amazon-cognito-identity-js": "^6.3.16"
+  }
+}

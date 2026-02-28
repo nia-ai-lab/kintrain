@@ -5,7 +5,8 @@ import { useAppState } from '../AppState';
 interface Candidate {
   trainingName: string;
   defaultWeightKg: number;
-  defaultReps: number;
+  defaultRepsMin: number;
+  defaultRepsMax: number;
   defaultSets: number;
 }
 
@@ -18,21 +19,31 @@ export function TrainingMenuAiGeneratePage() {
 
   const candidates = useMemo<Candidate[]>(() => {
     const base = [
-      { trainingName: 'チェストプレス', defaultWeightKg: 25, defaultReps: 12, defaultSets: 3 },
-      { trainingName: 'ラットプルダウン', defaultWeightKg: 30, defaultReps: 10, defaultSets: 3 },
-      { trainingName: 'レッグプレス', defaultWeightKg: 80, defaultReps: 12, defaultSets: 3 },
-      { trainingName: 'ショルダープレス', defaultWeightKg: 15, defaultReps: 10, defaultSets: 3 },
-      { trainingName: 'シーテッドロー', defaultWeightKg: 27.5, defaultReps: 12, defaultSets: 3 }
+      { trainingName: 'チェストプレス', defaultWeightKg: 25, defaultRepsMin: 8, defaultRepsMax: 12, defaultSets: 3 },
+      { trainingName: 'ラットプルダウン', defaultWeightKg: 30, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 },
+      { trainingName: 'レッグプレス', defaultWeightKg: 80, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 },
+      { trainingName: 'ショルダープレス', defaultWeightKg: 15, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 },
+      { trainingName: 'シーテッドロー', defaultWeightKg: 27.5, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 }
     ];
     if (machinePolicy === 'machine-and-free') {
-      base.push({ trainingName: 'ダンベルベンチプレス', defaultWeightKg: 16, defaultReps: 10, defaultSets: 3 });
-      base.push({ trainingName: 'ルーマニアンデッドリフト', defaultWeightKg: 40, defaultReps: 8, defaultSets: 3 });
+      base.push({ trainingName: 'ダンベルベンチプレス', defaultWeightKg: 16, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 });
+      base.push({ trainingName: 'ルーマニアンデッドリフト', defaultWeightKg: 40, defaultRepsMin: 6, defaultRepsMax: 8, defaultSets: 3 });
     }
     if (goal === 'diet') {
-      return base.map((item) => ({ ...item, defaultReps: Math.max(12, item.defaultReps), defaultSets: 3 }));
+      return base.map((item) => ({
+        ...item,
+        defaultRepsMin: Math.max(item.defaultRepsMin, 12),
+        defaultRepsMax: Math.max(item.defaultRepsMax, 15),
+        defaultSets: 3
+      }));
     }
     if (goal === 'muscle') {
-      return base.map((item) => ({ ...item, defaultReps: Math.min(10, item.defaultReps), defaultSets: 4 }));
+      return base.map((item) => ({
+        ...item,
+        defaultRepsMin: Math.min(item.defaultRepsMin, 8),
+        defaultRepsMax: Math.min(item.defaultRepsMax, 10),
+        defaultSets: 4
+      }));
     }
     return base;
   }, [machinePolicy, goal]);
@@ -71,7 +82,7 @@ export function TrainingMenuAiGeneratePage() {
         <ul className="simple-list">
           {candidates.map((item) => (
             <li key={item.trainingName}>
-              {item.trainingName} {item.defaultWeightKg}kg x {item.defaultReps}回 x {item.defaultSets}set
+              {item.trainingName} {item.defaultWeightKg}kg x {item.defaultRepsMin}~{item.defaultRepsMax}回 x {item.defaultSets}set
             </li>
           ))}
         </ul>
@@ -86,7 +97,8 @@ export function TrainingMenuAiGeneratePage() {
                   id: `ai-${index + 1}`,
                   trainingName: item.trainingName,
                   defaultWeightKg: item.defaultWeightKg,
-                  defaultReps: item.defaultReps,
+                  defaultRepsMin: item.defaultRepsMin,
+                  defaultRepsMax: item.defaultRepsMax,
                   defaultSets: item.defaultSets,
                   order: index + 1,
                   isActive: true

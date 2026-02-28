@@ -20,6 +20,14 @@ export function ymdToDisplay(ymd: string): string {
   return `${y}/${m}/${d}`;
 }
 
+export function isoToDisplayDateTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  return `${date.getFullYear()}/${pad2(date.getMonth() + 1)}/${pad2(date.getDate())} ${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
+}
+
 export function startOfMonth(ym: string): Date {
   const [y, m] = ym.split('-').map(Number);
   return new Date(y, m - 1, 1);
