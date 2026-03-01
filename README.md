@@ -60,7 +60,14 @@
 
 ```bash
 npm install
+npm run sync:branch-outputs
 npm run frontend:dev
+```
+
+`dev` ブランチのバックエンドへ接続した状態で起動する場合:
+
+```bash
+npm run frontend:dev:with-dev-backend
 ```
 
 ## 推奨デプロイ方式（main/dev Branch Deploy）
@@ -127,6 +134,8 @@ cp .env.example .env.local
 ```ini
 AWS_PROFILE=your-aws-profile
 AWS_REGION=ap-northeast-1
+AWS_APP_ID=your-amplify-app-id
+AMPLIFY_BRANCH=dev
 AMPLIFY_IDENTIFIER=dev
 FRONTEND_S3_BUCKET=your-frontend-bucket-name
 ```

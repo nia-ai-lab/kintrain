@@ -60,6 +60,7 @@ interface AppStateContextValue {
   updateUserProfile: (patch: Partial<UserProfile>) => void;
   saveUserProfile: () => Promise<{ ok: boolean; message?: string }>;
   updateAiCharacterProfile: (patch: Partial<AiCharacterProfile>) => void;
+  restartActiveAiChatSession: () => void;
   appendUserMessage: (content: string) => void;
   createAssistantMessage: () => string;
   appendAssistantChunk: (messageId: string, chunk: string) => void;
@@ -994,6 +995,24 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             ...patch
           }
         }));
+      },
+      restartActiveAiChatSession: () => {
+        setData((prev) => {
+          const now = toLocalIsoWithOffset(new Date());
+          const newSession = {
+            id: id('chat-session'),
+            title: '新規チャット',
+            messages: [],
+            updatedAtLocal: now
+          };
+          return {
+            ...prev,
+            aiChatSessions: prev.aiChatSessions.map((session) =>
+              session.id === prev.activeAiChatSessionId ? newSession : session
+            ),
+            activeAiChatSessionId: newSession.id
+          };
+        });
       },
       appendUserMessage: (content) => {
         setData((prev) => {

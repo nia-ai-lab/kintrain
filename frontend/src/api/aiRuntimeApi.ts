@@ -248,6 +248,7 @@ export async function invokeAiRuntimeStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let finalRuntimeSessionId: string | undefined;
+  let receivedDoneEvent = false;
 
   while (true) {
     const { done, value } = await reader.read();
@@ -287,7 +288,15 @@ export async function invokeAiRuntimeStream(
           finalRuntimeSessionId = chunkEvent.runtimeSessionId;
         }
         onEvent(chunkEvent);
+        if (chunkEvent.type === "done") {
+          receivedDoneEvent = true;
+          break;
+        }
       }
+    }
+
+    if (receivedDoneEvent) {
+      break;
     }
 
     if (done) {
@@ -310,6 +319,9 @@ export async function invokeAiRuntimeStream(
               finalRuntimeSessionId = chunkEvent.runtimeSessionId;
             }
             onEvent(chunkEvent);
+            if (chunkEvent.type === "done") {
+              receivedDoneEvent = true;
+            }
           }
         }
       }
@@ -317,10 +329,18 @@ export async function invokeAiRuntimeStream(
     }
   }
 
-  onEvent({
-    type: "done",
-    runtimeSessionId: finalRuntimeSessionId
-  });
+  if (receivedDoneEvent) {
+    try {
+      await reader.cancel();
+    } catch {
+      // Ignore cancellation errors; stream is effectively complete for the UI.
+    }
+  } else {
+    onEvent({
+      type: "done",
+      runtimeSessionId: finalRuntimeSessionId
+    });
+  }
 
   return {
     runtimeSessionId: finalRuntimeSessionId

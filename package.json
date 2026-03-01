@@ -8,8 +8,10 @@
   ],
   "scripts": {
     "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:dev:with-dev-backend": "npm run sync:branch-outputs && npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "backend:typecheck": "tsc -p tsconfig.backend.json --noEmit",
+    "sync:branch-outputs": "./scripts/sync-branch-outputs.sh",
     "test:api-ui-spec": "node tests/api-ui-spec.e2e.mjs",
     "build": "npm run frontend:build",
     "amplify:sandbox": "npx ampx sandbox",
