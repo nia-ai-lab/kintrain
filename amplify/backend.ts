@@ -276,7 +276,7 @@ if (enableAgentCoreResources) {
     agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromCodeAsset({
       path: path.join(process.cwd(), "amplify", "agentcore", "runtime"),
       runtime: agentcore.AgentCoreRuntime.PYTHON_3_12,
-      entrypoint: ["opentelemetry-instrument", "main.py"]
+      entrypoint: ["python", "main.py"]
     }),
     authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingJWT(
       cognitoDiscoveryUrl,
