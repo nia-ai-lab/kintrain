@@ -316,7 +316,7 @@ if (enableAgentCoreResources) {
   const rawBranchName = process.env.AWS_BRANCH ?? process.env.AMPLIFY_BRANCH ?? "local";
   const branchSuffix = toAgentCoreNameSuffix(rawBranchName);
   const strictSuffix = toAgentCoreStrictSuffix(rawBranchName);
-  const gatewayName = process.env.AI_COACH_GATEWAY_NAME ?? `kintrain_ai_coach_gateway_${strictSuffix}`;
+  const gatewayName = process.env.AI_COACH_GATEWAY_NAME ?? `kintrain-ai-coach-gateway-${branchSuffix}`;
   const memoryName = process.env.AI_COACH_MEMORY_NAME ?? `kintrainCoachMemory_${strictSuffix}`;
   const runtimeName = process.env.AI_COACH_RUNTIME_NAME ?? `kintrainCoachRuntime_${strictSuffix}`;
 
