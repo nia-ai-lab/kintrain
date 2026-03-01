@@ -305,9 +305,9 @@ function toAgentCoreNameSuffix(value: string): string {
   return normalized || "local";
 }
 
-function toAgentCoreMemorySuffix(value: string): string {
-  const normalized = value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 16);
-  return normalized || "Local";
+function toAgentCoreStrictSuffix(value: string): string {
+  const normalized = value.replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_").replace(/^_+|_+$/g, "").slice(0, 16);
+  return normalized || "local";
 }
 
 if (enableAgentCoreResources) {
@@ -315,10 +315,10 @@ if (enableAgentCoreResources) {
   const cognitoDiscoveryUrl = `https://cognito-idp.${Stack.of(agentCoreStack).region}.amazonaws.com/${backend.auth.resources.userPool.userPoolId}/.well-known/openid-configuration`;
   const rawBranchName = process.env.AWS_BRANCH ?? process.env.AMPLIFY_BRANCH ?? "local";
   const branchSuffix = toAgentCoreNameSuffix(rawBranchName);
-  const memorySuffix = toAgentCoreMemorySuffix(rawBranchName);
+  const strictSuffix = toAgentCoreStrictSuffix(rawBranchName);
   const gatewayName = process.env.AI_COACH_GATEWAY_NAME ?? `kintrain-ai-coach-gateway-${branchSuffix}`;
-  const memoryName = process.env.AI_COACH_MEMORY_NAME ?? `kintrainCoachMemory${memorySuffix}`;
-  const runtimeName = process.env.AI_COACH_RUNTIME_NAME ?? `kintrain-coach-runtime-${branchSuffix}`;
+  const memoryName = process.env.AI_COACH_MEMORY_NAME ?? `kintrainCoachMemory_${strictSuffix}`;
+  const runtimeName = process.env.AI_COACH_RUNTIME_NAME ?? `kintrainCoachRuntime_${strictSuffix}`;
 
   const aiCoachGateway = new agentcore.Gateway(agentCoreStack, "AiCoachGateway", {
     gatewayName,
