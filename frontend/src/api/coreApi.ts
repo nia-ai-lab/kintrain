@@ -30,6 +30,21 @@ type ListTrainingMenuItemsResponse = {
   nextToken?: string;
 };
 
+export type TrainingMenuSetDto = {
+  trainingMenuSetId: string;
+  setName: string;
+  menuSetOrder: number;
+  isDefault: boolean;
+  isActive: boolean;
+  itemIds: string[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+type ListTrainingMenuSetsResponse = {
+  items: TrainingMenuSetDto[];
+};
+
 type GymVisitEntryInput = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
@@ -191,6 +206,55 @@ export async function deleteTrainingMenuItem(trainingMenuItemId: string): Promis
 
 export async function reorderTrainingMenuItems(items: Array<{ trainingMenuItemId: string; displayOrder: number }>): Promise<void> {
   await coreApiFetch<void>('/training-menu-items/reorder', {
+    method: 'PUT',
+    body: JSON.stringify({ items })
+  });
+}
+
+export async function listTrainingMenuSets(): Promise<ListTrainingMenuSetsResponse> {
+  return coreApiFetch<ListTrainingMenuSetsResponse>('/training-menu-sets', {
+    method: 'GET'
+  });
+}
+
+export async function createTrainingMenuSet(input: { setName: string; isDefault?: boolean }): Promise<TrainingMenuSetDto> {
+  return coreApiFetch<TrainingMenuSetDto>('/training-menu-sets', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
+export async function updateTrainingMenuSet(
+  trainingMenuSetId: string,
+  input: Partial<{
+    setName: string;
+    isDefault: boolean;
+  }>
+): Promise<TrainingMenuSetDto> {
+  return coreApiFetch<TrainingMenuSetDto>(`/training-menu-sets/${trainingMenuSetId}`, {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  });
+}
+
+export async function addTrainingMenuItemToSet(trainingMenuSetId: string, trainingMenuItemId: string): Promise<void> {
+  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items`, {
+    method: 'POST',
+    body: JSON.stringify({ trainingMenuItemId })
+  });
+}
+
+export async function removeTrainingMenuItemFromSet(trainingMenuSetId: string, trainingMenuItemId: string): Promise<void> {
+  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items/${trainingMenuItemId}`, {
+    method: 'DELETE'
+  });
+}
+
+export async function reorderTrainingMenuSetItems(
+  trainingMenuSetId: string,
+  items: Array<{ trainingMenuItemId: string; displayOrder: number }>
+): Promise<void> {
+  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items/reorder`, {
     method: 'PUT',
     body: JSON.stringify({ items })
   });

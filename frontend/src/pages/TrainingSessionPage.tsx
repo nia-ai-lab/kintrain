@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
-import type { SetDetail } from '../types';
+import type { SetDetail, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
 
@@ -48,15 +48,33 @@ export function TrainingSessionPage() {
   const [statusText, setStatusText] = useState('');
 
   const draftEntries = data.trainingDraft?.entriesByItemId ?? {};
-  const prioritized = useMemo(
-    () =>
-      getPrioritizedMenuItems({
-        menuItems: data.menuItems,
-        gymVisits: data.gymVisits,
-        todayYmd: today
-      }),
-    [data.menuItems, data.gymVisits, today]
-  );
+  const defaultMenuSet = useMemo(() => {
+    return data.menuSets.find((set) => set.isDefault) ?? data.menuSets[0] ?? null;
+  }, [data.menuSets]);
+
+  const prioritized = useMemo(() => {
+    if (!defaultMenuSet) {
+      return [];
+    }
+    const selectedItems = defaultMenuSet.itemIds
+      .map((itemId, index) => {
+        const base = data.menuItems.find((item) => item.id === itemId);
+        if (!base) {
+          return null;
+        }
+        return {
+          ...base,
+          order: index + 1
+        };
+      })
+      .filter((item): item is TrainingMenuItem => item !== null);
+
+    return getPrioritizedMenuItems({
+      menuItems: selectedItems,
+      gymVisits: data.gymVisits,
+      todayYmd: today
+    });
+  }, [data.menuItems, data.gymVisits, data.menuSets, defaultMenuSet, today]);
 
   function initSetDetails(menuItemId: string, sets: number, weightKg: number, reps: number) {
     const details: SetDetail[] = Array.from({ length: Math.max(1, sets) }).map((_, idx) => ({
@@ -74,6 +92,7 @@ export function TrainingSessionPage() {
           <div>
             <h1>トレーニング実施</h1>
             <p className="session-date">{ymdToDisplay(today)}</p>
+            {defaultMenuSet && <p className="muted">メニューセット: {defaultMenuSet.setName}</p>}
           </div>
           <button
             type="button"

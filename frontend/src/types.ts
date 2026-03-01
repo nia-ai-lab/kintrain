@@ -18,6 +18,15 @@ export interface TrainingMenuItem {
   isActive: boolean;
 }
 
+export interface TrainingMenuSet {
+  id: string;
+  setName: string;
+  order: number;
+  isDefault: boolean;
+  isActive: boolean;
+  itemIds: string[];
+}
+
 export interface ExerciseEntry {
   id: string;
   menuItemId: string;
@@ -105,6 +114,8 @@ export interface ChatSession {
 export interface AppData {
   userProfile: UserProfile;
   menuItems: TrainingMenuItem[];
+  menuSets: TrainingMenuSet[];
+  activeTrainingMenuSetId: string;
   gymVisits: GymVisit[];
   dailyRecords: Record<string, DailyRecord>;
   trainingDraft: TrainingSessionDraft | null;

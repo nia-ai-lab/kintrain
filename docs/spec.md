@@ -47,7 +47,8 @@
 ### 3.1 デプロイ方式（フロント/バック一括反映）
 
 - 標準デプロイ方式は Amplify Gen2 の Fullstack Branch Deployment とする。
-- `main` / `dev` / `staging`（必要に応じて `feature/*`）をフルスタックブランチとして運用する。
+- 標準ブランチ運用は `dev` / `main` の2系統とする（`dev`: 検証、`main`: 本番）。
+- 必須フローは `dev` で実装・検証後に `main` へ反映する順序とする。
 - 1回のブランチデプロイ（Git push起点）で、以下を同時に反映すること。
 - バックエンド（Cognito / API Gateway / Lambda / DynamoDB / AgentCore関連リソース）
 - フロントエンド（SPAビルド成果物のHosting反映）

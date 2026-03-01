@@ -75,6 +75,13 @@ npm run frontend:dev:with-dev-backend
 今後の標準運用は、Amplify Hosting の Fullstack Branch Deployment（`main`/`dev`）です。  
 ローカルの `sandbox + s3 sync` は補助用途として扱います。
 
+### 必須運用ルール（固定）
+
+- 開発作業は必ず `dev` ブランチで行う。
+- 変更は必ず `dev` に `commit / push` して、`dev` 環境で動作確認する。
+- `dev` で確認完了後にのみ、`main` へ取り込んで `commit / push` する。
+- `main` へ直接作業・直接pushはしない。
+
 ### あなたが次にやる手順
 
 1. GitHubブランチを用意する

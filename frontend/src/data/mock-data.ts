@@ -19,6 +19,17 @@ export const initialAppData: AppData = {
     timeZoneId: 'Asia/Tokyo'
   },
   menuItems: [],
+  menuSets: [
+    {
+      id: 'menu-set-main',
+      setName: 'メインメニュー',
+      order: 1,
+      isDefault: true,
+      isActive: true,
+      itemIds: []
+    }
+  ],
+  activeTrainingMenuSetId: 'menu-set-main',
   gymVisits: [],
   dailyRecords: {},
   trainingDraft: null,
