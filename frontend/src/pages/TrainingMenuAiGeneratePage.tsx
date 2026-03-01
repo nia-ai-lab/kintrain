@@ -96,6 +96,7 @@ export function TrainingMenuAiGeneratePage() {
                 candidates.map((item, index) => ({
                   id: `ai-${index + 1}`,
                   trainingName: item.trainingName,
+                  bodyPart: '',
                   defaultWeightKg: item.defaultWeightKg,
                   defaultRepsMin: item.defaultRepsMin,
                   defaultRepsMax: item.defaultRepsMax,

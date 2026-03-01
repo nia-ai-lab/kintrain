@@ -9,6 +9,12 @@ export interface LastPerformance {
   sets: number;
 }
 
+export function formatTrainingLabel(trainingName: string, bodyPart?: string): string {
+  const name = (trainingName ?? '').trim();
+  const part = (bodyPart ?? '').trim();
+  return `${name} : ${part || '未設定'}`;
+}
+
 export function getLastPerformance(menuItemId: string, gymVisits: GymVisit[]): LastPerformance | null {
   const sorted = [...gymVisits].sort((a, b) => a.date.localeCompare(b.date));
   for (let i = sorted.length - 1; i >= 0; i -= 1) {

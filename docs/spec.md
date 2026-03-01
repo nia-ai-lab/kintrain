@@ -1,6 +1,6 @@
 # KinTrain 要件定義書（MVP）
 
-最終更新日: 2026-02-28
+最終更新日: 2026-03-01
 
 ## 1. 目的
 
@@ -97,7 +97,7 @@
 ### 4.2 用語の明確化（UI仕様整合）
 
 - `TrainingMenu`: 日次固定ではない実施候補リスト。優先順位計算の入力元。
-- `TrainingMenuItem`: メニュー内の1項目（トレーニング名、既定重量/回数/セット、手動順序）。
+- `TrainingMenuItem`: メニュー内の1項目（トレーニング名、鍛える部位、既定重量/回数/セット、手動順序）。
 - `TrainingMenu` と `TrainingHistory` の違い:
 - `TrainingMenu` は「これから実施する計画値（既定値/順序）」を管理するモデル。
 - `TrainingHistory` は「実際に実施した結果（重量/回数/セット/時刻）」を保持するモデル。
@@ -127,6 +127,7 @@
 - `TrainingMenuItem` は以下を保持すること。
 - `trainingMenuItemId`
 - `trainingName`
+- `bodyPart`（任意、鍛える部位）
 - `defaultWeightKg`
 - `defaultRepsMin`
 - `defaultRepsMax`
@@ -147,6 +148,7 @@
 - ExerciseEntryは以下を保持すること。
 - `trainingMenuItemId`
 - `trainingNameSnapshot`
+- `bodyPartSnapshot`（任意、保存時点の部位名スナップショット）
 - `weightKg`
 - `reps`
 - `sets`
@@ -156,6 +158,7 @@
 - `weightKg > 0`、`reps > 0`、`sets > 0` を満たすこと。
 - `0` は有効値として扱わないこと（削除マーカーとしても使用しない）。
 - 前日実施トレーニングを参照できること。
+- UIの種目表示は `トレーニング名 : 部位` とし、`bodyPart` 未設定時はトレーニング名のみ表示すること。
 
 ### 5.4 履歴参照
 
@@ -260,6 +263,7 @@
 - `GET /training-menu-items` の `TrainingMenuItem` レスポンスモデル:
 - `trainingMenuItemId: string`
 - `trainingName: string`
+- `bodyPart: string`（任意。未設定時は空文字）
 - `defaultWeightKg: number`（小数2桁まで）
 - `defaultRepsMin: number`
 - `defaultRepsMax: number`
@@ -271,6 +275,7 @@
 - `updatedAt: RFC3339 UTC`
 - `POST /training-menu-items` リクエスト:
 - `trainingName`
+- `bodyPart`（任意）
 - `defaultWeightKg`
 - `defaultRepsMin`
 - `defaultRepsMax`
@@ -278,6 +283,7 @@
 - `defaultSets`
 - `PUT /training-menu-items/{trainingMenuItemId}` リクエスト:
 - `trainingName`
+- `bodyPart`（任意）
 - `defaultWeightKg`
 - `defaultRepsMin`
 - `defaultRepsMax`
@@ -287,14 +293,16 @@
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, bodyPart, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`
+- `bodyPartSnapshot: string`（任意）
 - `weightKg: number`
 - `reps: number`
 - `sets: number`
 - `visitDateLocal: YYYY-MM-DD`
+- UI表示で種目名を組み立てる場合は `trainingName` と `bodyPart`（または `bodyPartSnapshot`）を使用し、`トレーニング名 : 部位` 形式で表示すること。
 
 ### 6.3 UIモック項目名とのマッピング
 
@@ -359,6 +367,7 @@
 - `trainingMenuItemId`（ソートキー）
 - 主な属性:
 - `trainingName`
+- `bodyPart`
 - `normalizedTrainingName`
 - `defaultWeightKg`
 - `defaultRepsMin`
@@ -548,6 +557,7 @@
 - 未ログイン時は `/login` へ遷移し、認証後に保護画面へアクセスできること。
 - `/dashboard` に `トレーニング開始` と `本日の日記をつける` 導線を設けること。
 - トレーニング一覧は日次固定ではなく履歴ベースで優先順表示すること。
+- トレーニング種目名は `トレーニング名 : 部位` 形式で表示すること（部位未設定時はトレーニング名のみ）。
 - 一覧行で `重量/回数/セット` を直接入力できること。
 - `前回と同じ` のワンクリック入力を提供すること。
 - 各種目に `入力クリア` を提供し、当該種目を `TrainingSessionDraft` から削除できること。
@@ -575,7 +585,7 @@
 - メールアドレス+パスワードでログインできること（サインアップ画面はMVP対象外）。
 - ログアウト後は保護画面に直接アクセスできず、`/login` へ遷移すること。
 - GymVisit/ExerciseEntryの作成・更新・削除が可能であること。
-- 「トレーニング名・重量・回数・セット」を保存し再参照できること。
+- 「トレーニング名・部位・重量・回数・セット」を保存し再参照できること。
 - カレンダーで日別の実施内容を確認できること。
 - 体調を5段階+コメントで記録できること。
 - 体調をアイコンタップのみで記録できること。

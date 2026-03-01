@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { ConditionRatingPicker } from '../components/ConditionRatingPicker';
 import { ymdToDisplay } from '../utils/date';
+import { formatTrainingLabel } from '../utils/training';
 
 export function DailyPage() {
   const { date } = useParams<{ date: string }>();
@@ -172,7 +173,7 @@ export function DailyPage() {
           <ol className="simple-list numbered-list">
             {visitEntries.map((entry) => (
               <li key={entry.id}>
-                {entry.trainingName} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
+                {formatTrainingLabel(entry.trainingName, entry.bodyPart)} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
               </li>
             ))}
           </ol>

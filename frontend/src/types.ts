@@ -9,6 +9,7 @@ export interface SetDetail {
 export interface TrainingMenuItem {
   id: string;
   trainingName: string;
+  bodyPart: string;
   defaultWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
@@ -21,6 +22,7 @@ export interface ExerciseEntry {
   id: string;
   menuItemId: string;
   trainingName: string;
+  bodyPart: string;
   weightKg: number;
   reps: number;
   sets: number;

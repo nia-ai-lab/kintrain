@@ -10,12 +10,14 @@ export function TrainingMenuPage() {
 
   function onAdd(formData: FormData): boolean {
     const trainingName = String(formData.get('trainingName') ?? '').trim();
+    const bodyPart = String(formData.get('bodyPart') ?? '').trim();
     if (!trainingName) {
       setStatusText('トレーニング名を入力してください。');
       return false;
     }
     addMenuItem({
       trainingName,
+      bodyPart,
       defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
       defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
       defaultRepsMax: Number(formData.get('defaultRepsMax') ?? 0),
@@ -51,6 +53,10 @@ export function TrainingMenuPage() {
           <label className="menu-training-name-field">
             トレーニング名
             <input name="trainingName" required />
+          </label>
+          <label className="menu-training-name-field">
+            鍛える部位
+            <input name="bodyPart" placeholder="例: 胸 / 背中 / 脚" />
           </label>
           <div className="menu-metrics-row">
             <label>
@@ -128,6 +134,14 @@ function MenuItemCard({
         <label className="menu-training-name-field">
           トレーニング名
           <input value={item.trainingName} onChange={(e) => onUpdate({ trainingName: e.target.value })} />
+        </label>
+        <label className="menu-training-name-field">
+          鍛える部位
+          <input
+            value={item.bodyPart}
+            onChange={(e) => onUpdate({ bodyPart: e.target.value })}
+            placeholder="例: 胸 / 背中 / 脚"
+          />
         </label>
         <div className="menu-metrics-row">
           <label>

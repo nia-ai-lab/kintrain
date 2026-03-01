@@ -26,6 +26,7 @@ type RepsRange = {
 
 type TrainingMenuItemInput = RepsRangeInput & {
   trainingName: string;
+  bodyPart?: string;
   defaultWeightKg: number;
   defaultSets: number;
 };
@@ -39,6 +40,13 @@ function toPositiveInt(value: unknown): number | undefined {
     return undefined;
   }
   return Math.floor(value);
+}
+
+function toTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return value.trim();
 }
 
 function toRepsRangeFromItem(item: Record<string, unknown>): RepsRange {
@@ -83,6 +91,7 @@ function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, u
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: item.trainingName,
+    bodyPart: typeof item.bodyPart === "string" ? item.bodyPart : "",
     defaultWeightKg: item.defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
@@ -191,6 +200,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
   if (!trainingName) {
     return response(400, { message: "trainingName is required." });
   }
+  const bodyPart = toTrimmedString(body.bodyPart) ?? "";
 
   const repsRange = resolveRepsRange(body);
   if (!repsRange) {
@@ -222,6 +232,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
         userId,
         trainingMenuItemId,
         trainingName,
+        bodyPart,
         normalizedTrainingName,
         defaultWeightKg,
         defaultRepsMin: repsRange.defaultRepsMin,
@@ -240,6 +251,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
   return response(201, {
     trainingMenuItemId,
     trainingName,
+    bodyPart,
     defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
@@ -278,7 +290,10 @@ async function updateTrainingMenuItem(
 
   const current = existing.Item as Record<string, unknown>;
   const currentName = String(current.trainingName ?? "");
+  const currentBodyPart = typeof current.bodyPart === "string" ? current.bodyPart : "";
   const nextName = toNonEmptyString(body.trainingName) ?? currentName;
+  const nextBodyPartInput = toTrimmedString(body.bodyPart);
+  const nextBodyPart = body.bodyPart !== undefined ? nextBodyPartInput ?? "" : currentBodyPart;
   const nextNormalizedName = normalizeTrainingName(nextName);
   const repsRange = resolveRepsRange(body, current);
 
@@ -305,6 +320,7 @@ async function updateTrainingMenuItem(
   const updatedAt = nowIsoSeconds();
   const updated = {
     trainingName: nextName,
+    bodyPart: nextBodyPart,
     normalizedTrainingName: nextNormalizedName,
     defaultWeightKg:
       body.defaultWeightKg !== undefined
@@ -326,9 +342,10 @@ async function updateTrainingMenuItem(
         trainingMenuItemId
       },
       UpdateExpression:
-        "SET trainingName = :trainingName, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
+        "SET trainingName = :trainingName, bodyPart = :bodyPart, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
       ExpressionAttributeValues: {
         ":trainingName": updated.trainingName,
+        ":bodyPart": updated.bodyPart,
         ":normalizedTrainingName": updated.normalizedTrainingName,
         ":defaultWeightKg": updated.defaultWeightKg,
         ":defaultRepsMin": updated.defaultRepsMin,

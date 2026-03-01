@@ -161,6 +161,7 @@ function normalizeAppData(rawData: AppData): AppData {
   const normalizedMenuItems = sourceMenuItems.map((item) => ({
     ...item,
     trainingName: item.trainingName ?? item.machineName ?? '未設定トレーニング',
+    bodyPart: item.bodyPart ?? '',
     ...normalizeRepsRange(item)
   }));
 
@@ -176,7 +177,8 @@ function normalizeAppData(rawData: AppData): AppData {
     ...visit,
     entries: visit.entries.map((entry) => ({
       ...entry,
-      trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング'
+      trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング',
+      bodyPart: entry.bodyPart ?? ''
     }))
   }));
 
@@ -219,6 +221,7 @@ function toUtcIsoSeconds(localIso: string): string {
 function mapRemoteMenuItem(item: {
   trainingMenuItemId: string;
   trainingName: string;
+  bodyPart?: string;
   defaultWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
@@ -231,6 +234,7 @@ function mapRemoteMenuItem(item: {
   return {
     id: item.trainingMenuItemId,
     trainingName: item.trainingName,
+    bodyPart: item.bodyPart ?? '',
     defaultWeightKg: Number(item.defaultWeightKg),
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
@@ -257,6 +261,7 @@ function mapRemoteGymVisit(visit: {
   entries?: Array<{
     trainingMenuItemId?: string;
     trainingNameSnapshot?: string;
+    bodyPartSnapshot?: string;
     weightKg?: number;
     reps?: number;
     sets?: number;
@@ -273,6 +278,7 @@ function mapRemoteGymVisit(visit: {
     id: `${visit.visitId}-entry-${index + 1}`,
     menuItemId: entry.trainingMenuItemId ?? '',
     trainingName: entry.trainingNameSnapshot ?? '不明トレーニング',
+    bodyPart: entry.bodyPartSnapshot ?? '',
     weightKg: Number(entry.weightKg ?? 0),
     reps: Number(entry.reps ?? 0),
     sets: Number(entry.sets ?? 0)
@@ -620,6 +626,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               id: id('entry'),
               menuItemId: entry.menuItemId,
               trainingName: menuItem?.trainingName ?? '不明トレーニング',
+              bodyPart: menuItem?.bodyPart ?? '',
               weightKg: entry.weightKg ?? 0,
               reps: entry.reps ?? 0,
               sets: entry.sets ?? 0,
@@ -649,6 +656,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             entries: entries.map((entry) => ({
               trainingMenuItemId: entry.menuItemId,
               trainingNameSnapshot: entry.trainingName,
+              bodyPartSnapshot: entry.bodyPart.trim() || undefined,
               weightKg: entry.weightKg,
               reps: entry.reps,
               sets: entry.sets,
@@ -821,6 +829,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         const payload = {
           trainingName: item.trainingName.trim(),
+          bodyPart: item.bodyPart.trim(),
           defaultWeightKg: Math.round(item.defaultWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(item.defaultRepsMin),
           defaultRepsMax: Math.floor(item.defaultRepsMax),
@@ -882,6 +891,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         void updateTrainingMenuItemApi(itemId, {
           trainingName: nextItem.trainingName.trim(),
+          bodyPart: nextItem.bodyPart.trim(),
           defaultWeightKg: Math.round(nextItem.defaultWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(nextItem.defaultRepsMin),
           defaultRepsMax: Math.floor(nextItem.defaultRepsMax),

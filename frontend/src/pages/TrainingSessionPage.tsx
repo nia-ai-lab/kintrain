@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import type { SetDetail } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
-import { getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
+import { formatTrainingLabel, getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
 
 function toPositiveNumberOrUndefined(value: string): number | undefined {
   if (value.trim() === '') {
@@ -108,7 +108,7 @@ export function TrainingSessionPage() {
               <div className="training-item-head">
                 <div>
                   <p className="priority-chip">優先 {index + 1}</p>
-                  <h2>{item.trainingName}</h2>
+                  <h2>{formatTrainingLabel(item.trainingName, item.bodyPart)}</h2>
                   <p className="muted">
                     直近:{' '}
                     {last
