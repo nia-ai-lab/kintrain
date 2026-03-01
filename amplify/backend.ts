@@ -22,7 +22,6 @@ const backend = defineBackend({
 const stack = backend.profileApiFunction.resources.lambda.stack;
 
 const userProfileTable = new dynamodb.Table(stack, "UserProfileTable", {
-  tableName: "KinTrainUserProfileV2",
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -30,7 +29,6 @@ const userProfileTable = new dynamodb.Table(stack, "UserProfileTable", {
 });
 
 const trainingMenuTable = new dynamodb.Table(stack, "TrainingMenuTable", {
-  tableName: "KinTrainTrainingMenuV2",
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "trainingMenuItemId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -51,7 +49,6 @@ trainingMenuTable.addGlobalSecondaryIndex({
 });
 
 const trainingHistoryTable = new dynamodb.Table(stack, "TrainingHistoryTable", {
-  tableName: "KinTrainTrainingHistoryV2",
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "visitId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -66,7 +63,6 @@ trainingHistoryTable.addGlobalSecondaryIndex({
 });
 
 const dailyRecordTable = new dynamodb.Table(stack, "DailyRecordTable", {
-  tableName: "KinTrainDailyRecordV2",
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "recordDate", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -75,7 +71,6 @@ const dailyRecordTable = new dynamodb.Table(stack, "DailyRecordTable", {
 });
 
 const goalTable = new dynamodb.Table(stack, "GoalTable", {
-  tableName: "KinTrainGoalV2",
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -83,7 +78,6 @@ const goalTable = new dynamodb.Table(stack, "GoalTable", {
 });
 
 const aiSettingTable = new dynamodb.Table(stack, "AiSettingTable", {
-  tableName: "KinTrainAiSettingV2",
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },

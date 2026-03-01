@@ -47,12 +47,12 @@
   - `daily-record-api`
   - `ai-settings-api`
 - DynamoDB
-  - `KinTrainUserProfileV2`
-  - `KinTrainTrainingMenuV2`
-  - `KinTrainTrainingHistoryV2`
-  - `KinTrainDailyRecordV2`
-  - `KinTrainGoalV2`
-  - `KinTrainAiSettingV2`
+  - `UserProfileTable`（物理名はCloudFormation自動命名）
+  - `TrainingMenuTable`（物理名はCloudFormation自動命名）
+  - `TrainingHistoryTable`（物理名はCloudFormation自動命名）
+  - `DailyRecordTable`（物理名はCloudFormation自動命名）
+  - `GoalTable`（物理名はCloudFormation自動命名）
+  - `AiSettingTable`（物理名はCloudFormation自動命名）
 
 ## ローカル実行
 
@@ -61,7 +61,49 @@ npm install
 npm run frontend:dev
 ```
 
-## 利用者向けAWSデプロイ手順
+## 推奨デプロイ方式（main/dev Branch Deploy）
+
+今後の標準運用は、Amplify Hosting の Fullstack Branch Deployment（`main`/`dev`）です。  
+ローカルの `sandbox + s3 sync` は補助用途として扱います。
+
+### あなたが次にやる手順
+
+1. GitHubブランチを用意する
+
+```bash
+git checkout -b dev
+git push -u origin dev
+git checkout main
+git push -u origin main
+```
+
+2. Amplify Console でこのGitHubリポジトリを接続する
+- Hosting type は SSR ではなく通常の Web app（このアプリはSPA）を選択
+- Build settings はリポジトリの `amplify.yml` を使用
+
+3. `main` と `dev` を両方 Branch Deploy 対象にする
+- `main`: 本番
+- `dev`: 検証
+
+4. それぞれを Fullstack branch として有効化する
+- フロントエンド + バックエンドを同時デプロイ
+- 既存 `amplify.yml` の `ampx pipeline-deploy` を利用
+
+5. GitHub保護ルールを設定する
+- `main` 直push禁止（PR必須）
+- 推奨: `feature/* -> dev -> main`
+
+6. 動作確認
+- `dev` へコミットして検証環境が更新されること
+- `main` へマージして本番環境が更新されること
+
+### Branch Deploy運用の注意
+
+- Branch Deploy運用では `AMPLIFY_IDENTIFIER` は使用しません（sandbox専用）。
+- `tableName` は未指定のため、`main` と `dev` で DynamoDB物理テーブルは分離されます。
+- 機密情報（AWSキー等）はGitHubに置かないでください。
+
+## ローカル手動デプロイ（任意）
 
 ### 1. 前提
 
@@ -100,7 +142,7 @@ npm install
 aws sts get-caller-identity
 ```
 
-### 5. バックエンド反映（Amplify Gen2 Sandbox）
+### 5. バックエンド反映（sandbox）
 
 ```bash
 ./scripts/deploy-backend.sh
@@ -126,10 +168,9 @@ aws s3 sync frontend/dist "s3://$FRONTEND_S3_BUCKET" --delete
 - `--delete` はS3側の不要ファイルを削除します。
 - `amplify_outputs.json` / `frontend/src/amplify_outputs.json` は環境固有ファイルのためgit管理しません。
 
-## Amplify Hosting運用（目標）
+## 補足
 
-`amplify.yml` は Amplify Gen2 Fullstack Branch Deployment 用に構成済みです。  
-Amplify Console で GitHub 連携すると、1回のブランチデプロイでフロント/バックを同時反映できます。
+`amplify.yml` は Amplify Gen2 Fullstack Branch Deployment 用に構成済みです。
 
 ## 主要ドキュメント
 

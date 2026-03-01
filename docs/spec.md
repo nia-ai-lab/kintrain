@@ -339,7 +339,7 @@
 
 #### 7.3.1 UserProfileテーブル
 
-- テーブル名: `KinTrainUserProfileV2`
+- テーブル名: CloudFormation自動命名（論理ID: `UserProfileTable`）
 - 主キー:
 - `userId`（パーティションキー、Cognito `sub`）
 - 主な属性:
@@ -353,7 +353,7 @@
 
 #### 7.3.2 TrainingMenuテーブル
 
-- テーブル名: `KinTrainTrainingMenuV2`
+- テーブル名: CloudFormation自動命名（論理ID: `TrainingMenuTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - `trainingMenuItemId`（ソートキー）
@@ -374,7 +374,7 @@
 
 #### 7.3.3 TrainingHistoryテーブル
 
-- テーブル名: `KinTrainTrainingHistoryV2`
+- テーブル名: CloudFormation自動命名（論理ID: `TrainingHistoryTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - `visitId`（ソートキー）
@@ -392,7 +392,7 @@
 
 #### 7.3.4 DailyRecordテーブル
 
-- テーブル名: `KinTrainDailyRecordV2`
+- テーブル名: CloudFormation自動命名（論理ID: `DailyRecordTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - `recordDate`（ソートキー、`YYYY-MM-DD`）
@@ -412,7 +412,7 @@
 
 #### 7.3.5 AiSettingテーブル
 
-- テーブル名: `KinTrainAiSettingV2`
+- テーブル名: CloudFormation自動命名（論理ID: `AiSettingTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - 主な属性:
@@ -632,7 +632,7 @@
 
 ### 14.5 DynamoDB命名
 
-- テーブル名: `PascalCase`（例: `KinTrainTrainingMenuV2`, `KinTrainTrainingHistoryV2`）
+- テーブル名: 物理名はCloudFormation自動命名を使用し、論理IDは `PascalCase`（例: `TrainingMenuTable`, `TrainingHistoryTable`）
 - パーティション/ソートキー属性名はドメイン語彙を使用する（例: `userId`, `trainingMenuItemId`, `visitId`, `recordDate`）
 - GSIキー属性名もドメイン語彙を使用する（例: `displayOrder`, `normalizedTrainingName`, `startedAtUtc`）
 - エンティティ属性名: `camelCase`（例: `createdAt`, `trainingNameSnapshot`）
