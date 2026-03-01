@@ -420,6 +420,7 @@ async function run() {
             {
               trainingMenuItemId: state.menuItemB,
               trainingNameSnapshot: "ラットプルダウン",
+              bodyPartSnapshot: "背中",
               weightKg: 32.5,
               reps: 10,
               sets: 3,
@@ -431,6 +432,7 @@ async function run() {
       });
       assert.equal(res.status, 201);
       assert.ok(res.json.visitId);
+      assert.equal(res.json.entries?.[0]?.bodyPartSnapshot, "背中");
       state.visitId = res.json.visitId;
     });
 
@@ -477,6 +479,7 @@ async function run() {
             {
               trainingMenuItemId: state.menuItemA,
               trainingNameSnapshot: "チェストプレス改",
+              bodyPartSnapshot: "胸",
               weightKg: 27.5,
               reps: 10,
               sets: 3,
@@ -488,6 +491,7 @@ async function run() {
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.note, "updated");
+      assert.equal(res.json.entries?.[0]?.bodyPartSnapshot, "胸");
     });
 
     // /daily

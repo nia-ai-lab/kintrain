@@ -177,7 +177,8 @@ function normalizeAppData(rawData: AppData): AppData {
     ...visit,
     entries: visit.entries.map((entry) => ({
       ...entry,
-      trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング'
+      trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング',
+      bodyPart: entry.bodyPart ?? ''
     }))
   }));
 
@@ -260,6 +261,7 @@ function mapRemoteGymVisit(visit: {
   entries?: Array<{
     trainingMenuItemId?: string;
     trainingNameSnapshot?: string;
+    bodyPartSnapshot?: string;
     weightKg?: number;
     reps?: number;
     sets?: number;
@@ -276,6 +278,7 @@ function mapRemoteGymVisit(visit: {
     id: `${visit.visitId}-entry-${index + 1}`,
     menuItemId: entry.trainingMenuItemId ?? '',
     trainingName: entry.trainingNameSnapshot ?? '不明トレーニング',
+    bodyPart: entry.bodyPartSnapshot ?? '',
     weightKg: Number(entry.weightKg ?? 0),
     reps: Number(entry.reps ?? 0),
     sets: Number(entry.sets ?? 0)
@@ -623,6 +626,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               id: id('entry'),
               menuItemId: entry.menuItemId,
               trainingName: menuItem?.trainingName ?? '不明トレーニング',
+              bodyPart: menuItem?.bodyPart ?? '',
               weightKg: entry.weightKg ?? 0,
               reps: entry.reps ?? 0,
               sets: entry.sets ?? 0,
@@ -652,6 +656,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             entries: entries.map((entry) => ({
               trainingMenuItemId: entry.menuItemId,
               trainingNameSnapshot: entry.trainingName,
+              bodyPartSnapshot: entry.bodyPart.trim() || undefined,
               weightKg: entry.weightKg,
               reps: entry.reps,
               sets: entry.sets,

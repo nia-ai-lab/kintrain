@@ -33,6 +33,7 @@ type ListTrainingMenuItemsResponse = {
 type GymVisitEntryInput = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
+  bodyPartSnapshot?: string;
   weightKg: number;
   reps: number;
   sets: number;

@@ -22,6 +22,7 @@ export interface ExerciseEntry {
   id: string;
   menuItemId: string;
   trainingName: string;
+  bodyPart: string;
   weightKg: number;
   reps: number;
   sets: number;

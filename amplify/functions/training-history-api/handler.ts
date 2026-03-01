@@ -10,6 +10,7 @@ const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 type ExerciseEntry = {
   trainingMenuItemId?: string;
   trainingNameSnapshot: string;
+  bodyPartSnapshot?: string;
   weightKg: number;
   reps: number;
   sets: number;
@@ -44,6 +45,14 @@ function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
 
+function toTrimmedString(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : "";
+}
+
 function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
   if (!Array.isArray(entries)) {
     return false;
@@ -56,8 +65,20 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       isPositiveNumber(entry.reps) &&
       isPositiveNumber(entry.sets) &&
       typeof entry.performedAtUtc === "string" &&
-      entry.performedAtUtc.length > 0
+      entry.performedAtUtc.length > 0 &&
+      (entry.bodyPartSnapshot === undefined || typeof entry.bodyPartSnapshot === "string")
     );
+  });
+}
+
+function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
+  return entries.map((entry) => {
+    const bodyPartSnapshot = toTrimmedString(entry.bodyPartSnapshot);
+    return {
+      ...entry,
+      trainingNameSnapshot: entry.trainingNameSnapshot.trim(),
+      bodyPartSnapshot
+    };
   });
 }
 
@@ -72,6 +93,7 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
 
   const visitId = body.visitId?.trim() || randomUUID();
   const ts = nowIsoSeconds();
+  const normalizedEntries = normalizeEntries(body.entries);
 
   await ddb.send(
     new PutCommand({
@@ -83,7 +105,7 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
         endedAtUtc: body.endedAtUtc,
         timeZoneId: body.timeZoneId,
         visitDateLocal: body.visitDateLocal,
-        entries: body.entries,
+        entries: normalizedEntries,
         note: body.note ?? "",
         createdAt: ts,
         updatedAt: ts
@@ -98,7 +120,7 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
     endedAtUtc: body.endedAtUtc,
     timeZoneId: body.timeZoneId,
     visitDateLocal: body.visitDateLocal,
-    entries: body.entries,
+    entries: normalizedEntries,
     note: body.note ?? "",
     createdAt: ts,
     updatedAt: ts
@@ -180,6 +202,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
           weightKg: matched.weightKg,
           reps: matched.reps,
           sets: matched.sets,
+          bodyPartSnapshot: matched.bodyPartSnapshot ?? "",
           visitDateLocal: visit.visitDateLocal
         };
         break;
@@ -189,6 +212,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
     return {
       trainingMenuItemId,
       trainingName: menu.trainingName,
+      bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
       defaultWeightKg: menu.defaultWeightKg,
       defaultRepsMin: repsRange.defaultRepsMin,
       defaultRepsMax: repsRange.defaultRepsMax,
@@ -280,6 +304,7 @@ async function putGymVisit(
   }
 
   const ts = nowIsoSeconds();
+  const normalizedEntries = normalizeEntries(body.entries);
   await ddb.send(
     new PutCommand({
       TableName: trainingHistoryTableName,
@@ -290,7 +315,7 @@ async function putGymVisit(
         endedAtUtc: body.endedAtUtc,
         timeZoneId: body.timeZoneId,
         visitDateLocal: body.visitDateLocal,
-        entries: body.entries,
+        entries: normalizedEntries,
         note: body.note ?? "",
         createdAt: existing.Item.createdAt ?? ts,
         updatedAt: ts
@@ -305,7 +330,7 @@ async function putGymVisit(
     endedAtUtc: body.endedAtUtc,
     timeZoneId: body.timeZoneId,
     visitDateLocal: body.visitDateLocal,
-    entries: body.entries,
+    entries: normalizedEntries,
     note: body.note ?? "",
     createdAt: existing.Item.createdAt ?? ts,
     updatedAt: ts

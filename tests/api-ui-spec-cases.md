@@ -40,6 +40,8 @@
 - `GET /gym-visits/{visitId}`
 - `PUT /gym-visits/{visitId}`
 - `DELETE /gym-visits/{visitId}`
+- 補足:
+- `entries[].bodyPartSnapshot`（任意）を保存・参照できること
 
 6. Daily画面の当日取得/更新/範囲取得
 - UI根拠: `ui-spec.md` 10

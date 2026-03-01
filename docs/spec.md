@@ -148,6 +148,7 @@
 - ExerciseEntryは以下を保持すること。
 - `trainingMenuItemId`
 - `trainingNameSnapshot`
+- `bodyPartSnapshot`（任意、保存時点の部位名スナップショット）
 - `weightKg`
 - `reps`
 - `sets`
@@ -291,10 +292,11 @@
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, bodyPart, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`
+- `bodyPartSnapshot: string`（任意）
 - `weightKg: number`
 - `reps: number`
 - `sets: number`

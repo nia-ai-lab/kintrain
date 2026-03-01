@@ -109,6 +109,7 @@ export function TrainingSessionPage() {
                 <div>
                   <p className="priority-chip">優先 {index + 1}</p>
                   <h2>{item.trainingName}</h2>
+                  <p className="muted">部位: {item.bodyPart || '未設定'}</p>
                   <p className="muted">
                     直近:{' '}
                     {last
