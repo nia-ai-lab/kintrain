@@ -269,8 +269,8 @@ if (enableAgentCoreResources) {
     ]
   });
 
-  const aiCoachRuntime = new agentcore.Runtime(agentCoreStack, "AiCoachRuntimeV2", {
-    runtimeName: process.env.AI_COACH_RUNTIME_NAME ?? "kintrainCoachRuntimeV2",
+  const aiCoachRuntime = new agentcore.Runtime(agentCoreStack, "AiCoachRuntime", {
+    runtimeName: process.env.AI_COACH_RUNTIME_NAME ?? "kintrainCoachRuntime",
     description: "KinTrain AI coach runtime (Strands / Python)",
     protocolConfiguration: agentcore.ProtocolType.HTTP,
     agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromCodeAsset({
