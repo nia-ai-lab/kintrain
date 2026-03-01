@@ -502,6 +502,9 @@
 - MVPで必須とするスコープは `aws.cognito.signin.user.admin` とする。
 - Runtime -> Gateway -> LambdaはIAM最小権限で接続すること。
 - 他ユーザーのデータ参照は不可能であること。
+- パブリックリポジトリ運用のため、リソース識別子（バケット名、API URL、User Pool IDなど）や認証情報をソースコード/ドキュメントへハードコードしないこと。
+- 環境固有値は `.env.local` などのローカル設定ファイルで管理し、`.gitignore` でコミット除外すること。
+- 公開可能なテンプレートは `.env.example` を使用すること。
 
 ## 9. AgentCore Runtime / Gateway 要件
 

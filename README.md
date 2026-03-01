@@ -69,42 +69,62 @@ npm run frontend:dev
 - Node.js 20+ / npm 10+
 - AWS CLI v2
 
-### 2. 依存関係インストール
+### 2. セキュア設定ファイル作成（必須）
+
+本リポジトリでは、固有情報（バケット名、プロファイル名、識別子等）をハードコードしません。  
+`.env.local` に設定してください（`.gitignore` でコミット除外）。
+
+```bash
+cp .env.example .env.local
+```
+
+`.env.local` の例:
+
+```ini
+AWS_PROFILE=your-aws-profile
+AWS_REGION=ap-northeast-1
+AMPLIFY_IDENTIFIER=dev
+FRONTEND_S3_BUCKET=your-frontend-bucket-name
+```
+
+### 3. 依存関係インストール
 
 ```bash
 cd /path/to/KinTrain
 npm install
 ```
 
-### 3. AWS認証確認
+### 4. AWS認証確認
 
 ```bash
 aws sts get-caller-identity
 ```
 
-### 4. バックエンド反映（Amplify Gen2 Sandbox）
+### 5. バックエンド反映（Amplify Gen2 Sandbox）
 
 ```bash
-npx ampx sandbox --once --identifier <your-identifier>
+./scripts/deploy-backend.sh
+```
+
+### 6. フロントエンド反映（S3）
+
+```bash
+./scripts/deploy-frontend.sh
+```
+
+### 7. 手動で実行したい場合（任意）
+
+```bash
+npx ampx sandbox --once --identifier "$AMPLIFY_IDENTIFIER"
 npx ampx generate outputs
 cp amplify_outputs.json frontend/src/amplify_outputs.json
-```
-
-### 5. フロントエンドビルド
-
-```bash
 npm run frontend:build
-```
-
-### 6. S3へ配信（現行運用）
-
-```bash
-aws s3 sync frontend/dist s3://<your-frontend-bucket> --delete
+aws s3 sync frontend/dist "s3://$FRONTEND_S3_BUCKET" --delete
 ```
 
 補足:
-- 既存環境でも実バケット名はドキュメントに直書きせず、`s3://<your-frontend-bucket>` の形式で管理してください。
 - `--delete` はS3側の不要ファイルを削除します。
+- `amplify_outputs.json` / `frontend/src/amplify_outputs.json` は環境固有ファイルのためgit管理しません。
 
 ## Amplify Hosting運用（目標）
 
