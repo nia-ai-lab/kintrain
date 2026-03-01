@@ -103,7 +103,7 @@ aws s3 sync frontend/dist s3://<your-frontend-bucket> --delete
 ```
 
 補足:
-- 既存環境では `s3://kintrain-web-335723620954-ap-northeast-1` を使用しています。
+- 既存環境でも実バケット名はドキュメントに直書きせず、`s3://<your-frontend-bucket>` の形式で管理してください。
 - `--delete` はS3側の不要ファイルを削除します。
 
 ## Amplify Hosting運用（目標）
