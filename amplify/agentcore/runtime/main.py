@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -24,6 +25,10 @@ SOUL_FILE_PATH = os.getenv("SOUL_FILE_PATH", "config/prompts/SOUL.md")
 RUNTIME_HOST = os.getenv("RUNTIME_HOST", "0.0.0.0")
 RUNTIME_PORT = int(os.getenv("RUNTIME_PORT", "8080"))
 MAX_HISTORY_MESSAGES = int(os.getenv("MAX_HISTORY_MESSAGES", "10"))
+VENDOR_DIR = (Path(__file__).resolve().parent / "vendor").resolve()
+
+if VENDOR_DIR.exists():
+    sys.path.insert(0, str(VENDOR_DIR))
 
 
 SESSION_MESSAGES: dict[str, list[dict[str, str]]] = {}
@@ -48,14 +53,14 @@ def _load_system_prompt() -> str:
 SYSTEM_PROMPT = _load_system_prompt()
 
 
-def _get_bedrock_client() -> Any | None:
+def _get_bedrock_client() -> Any:
     region = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-northeast-1"
     try:
         import boto3  # type: ignore
 
         return boto3.client("bedrock-runtime", region_name=region)
-    except Exception:
-        return None
+    except Exception as exc:
+        raise RuntimeError("boto3 is not available in runtime package.") from exc
 
 
 def _to_model_messages(session_id: str, user_text: str) -> list[dict[str, Any]]:
@@ -85,14 +90,6 @@ def _iter_model_text(session_id: str, user_text: str) -> tuple[list[str], str]:
     client = _get_bedrock_client()
     messages = _to_model_messages(session_id, user_text)
     _append_history(session_id, "user", user_text)
-
-    if client is None:
-        mock_text = (
-            "ローカル検証モードです。boto3 が未導入のためモデル呼び出しはスキップしました。"
-            " AWS Runtime 上では Bedrock モデルを呼び出します。"
-        )
-        _append_history(session_id, "assistant", mock_text)
-        return [mock_text], mock_text
 
     response = client.converse_stream(
         modelId=MODEL_ID,
