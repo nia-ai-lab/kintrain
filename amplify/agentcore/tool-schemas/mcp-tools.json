@@ -1,0 +1,132 @@
+[
+  {
+    "name": "get_recent_gym_visits",
+    "description": "指定期間の直近ジム実施履歴を取得する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "days": {
+          "type": "integer",
+          "description": "何日前まで取得するか（1-365）"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "取得件数上限（1-100）"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_training_history",
+    "description": "特定トレーニングメニューの過去実施履歴を取得する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "trainingMenuItemId": {
+          "type": "string",
+          "description": "対象トレーニングメニューID"
+        },
+        "limit": {
+          "type": "integer",
+          "description": "取得件数上限（1-100）"
+        }
+      },
+      "required": ["trainingMenuItemId"]
+    }
+  },
+  {
+    "name": "get_daily_records",
+    "description": "日付範囲のDaily記録を取得する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "from": {
+          "type": "string",
+          "description": "開始日（YYYY-MM-DD）"
+        },
+        "to": {
+          "type": "string",
+          "description": "終了日（YYYY-MM-DD）"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_daily_record",
+    "description": "指定日のDaily記録を取得する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "date": {
+          "type": "string",
+          "description": "対象日（YYYY-MM-DD）"
+        }
+      },
+      "required": ["date"]
+    }
+  },
+  {
+    "name": "get_goal",
+    "description": "体重・体脂肪率の目標情報を取得する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        }
+      }
+    }
+  },
+  {
+    "name": "get_ai_character_profile",
+    "description": "AIコーチキャラクター設定を取得する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        }
+      }
+    }
+  },
+  {
+    "name": "save_advice_log",
+    "description": "生成したアドバイスの監査ログを保存する",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "requestId": {
+          "type": "string",
+          "description": "Runtime側要求ID"
+        },
+        "advice": {
+          "type": "string",
+          "description": "保存するアドバイス本文"
+        }
+      },
+      "required": ["advice"]
+    }
+  }
+]

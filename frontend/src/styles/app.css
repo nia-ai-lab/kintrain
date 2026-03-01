@@ -898,6 +898,10 @@ a {
   justify-content: flex-end;
 }
 
+.message-row.status {
+  justify-content: center;
+}
+
 .message-bubble {
   max-width: min(88%, 640px);
   padding: 9px 12px;
@@ -914,6 +918,12 @@ a {
 .message-bubble.user {
   background: rgba(14, 122, 115, 0.1);
   border-color: rgba(14, 122, 115, 0.25);
+}
+
+.message-bubble.status {
+  background: #f8fafc;
+  border-color: rgba(87, 96, 112, 0.25);
+  width: min(92%, 680px);
 }
 
 .message-name {

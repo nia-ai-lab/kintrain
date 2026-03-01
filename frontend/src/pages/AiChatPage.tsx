@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppState } from '../AppState';
+import { invokeAiRuntimeStream, isAiRuntimeConfigured } from '../api/aiRuntimeApi';
+import { useAuth } from '../AuthState';
 import type { TonePreset } from '../types';
 
 function buildMockAdvice(input: string, tone: TonePreset): string {
@@ -20,6 +22,7 @@ function buildMockAdvice(input: string, tone: TonePreset): string {
 }
 
 export function AiChatPage() {
+  const { isAuthenticated } = useAuth();
   const {
     data,
     appendUserMessage,
@@ -30,6 +33,8 @@ export function AiChatPage() {
 
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
+  const [statusEvents, setStatusEvents] = useState<Array<{ id: string; status: string; message: string }>>([]);
+  const runtimeSessionIdByChatSessionRef = useRef<Record<string, string>>({});
 
   const session = useMemo(
     () => data.aiChatSessions.find((s) => s.id === data.activeAiChatSessionId) ?? data.aiChatSessions[0],
@@ -43,12 +48,44 @@ export function AiChatPage() {
       return;
     }
     listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [session.messages.length, isStreaming]);
+  }, [session.messages.length, isStreaming, statusEvents.length]);
 
-  function onSubmit(e: FormEvent<HTMLFormElement>) {
+  function appendStatus(status: string, message: string) {
+    setStatusEvents((prev) => {
+      const next = [
+        ...prev,
+        {
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          status,
+          message
+        }
+      ];
+      return next.slice(-8);
+    });
+  }
+
+  async function streamMockResponse(messageId: string, inputText: string): Promise<void> {
+    appendStatus('status', 'Runtime未接続のためモック応答を使用します。');
+    const full = buildMockAdvice(inputText, data.aiCharacterProfile.tonePreset);
+    const chunks = full.match(/.{1,18}/g) ?? [full];
+
+    await new Promise<void>((resolve) => {
+      let cursor = 0;
+      const timer = window.setInterval(() => {
+        appendAssistantChunk(messageId, chunks[cursor]);
+        cursor += 1;
+        if (cursor >= chunks.length) {
+          window.clearInterval(timer);
+          resolve();
+        }
+      }, 80);
+    });
+  }
+
+  async function onSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const text = input.trim();
-    if (!text || isStreaming) {
+    if (!text || isStreaming || !isAuthenticated) {
       return;
     }
 
@@ -56,20 +93,50 @@ export function AiChatPage() {
     appendUserMessage(text);
 
     const messageId = createAssistantMessage();
-    const full = buildMockAdvice(text, data.aiCharacterProfile.tonePreset);
-    const chunks = full.match(/.{1,18}/g) ?? [full];
-
     setIsStreaming(true);
-    let cursor = 0;
-    const timer = window.setInterval(() => {
-      appendAssistantChunk(messageId, chunks[cursor]);
-      cursor += 1;
-      if (cursor >= chunks.length) {
-        window.clearInterval(timer);
-        finalizeAssistantMessage(messageId);
-        setIsStreaming(false);
+    setStatusEvents([]);
+
+    try {
+      if (!isAiRuntimeConfigured()) {
+        await streamMockResponse(messageId, text);
+      } else {
+        appendStatus('status', 'AI Runtimeへ接続しています...');
+        const currentRuntimeSessionId = runtimeSessionIdByChatSessionRef.current[session.id];
+        const result = await invokeAiRuntimeStream(
+          {
+            aiChatSessionId: session.id,
+            runtimeSessionId: currentRuntimeSessionId,
+            userMessage: text,
+            timeZoneId: data.userProfile.timeZoneId,
+            characterName: data.aiCharacterProfile.characterName
+          },
+          (event) => {
+            if (event.type === 'status') {
+              appendStatus(event.status, event.message);
+              return;
+            }
+            if (event.type === 'chunk') {
+              appendAssistantChunk(messageId, event.chunk);
+              return;
+            }
+            if (event.type === 'done' && event.runtimeSessionId) {
+              runtimeSessionIdByChatSessionRef.current[session.id] = event.runtimeSessionId;
+            }
+          }
+        );
+
+        if (result.runtimeSessionId) {
+          runtimeSessionIdByChatSessionRef.current[session.id] = result.runtimeSessionId;
+        }
       }
-    }, 80);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'AI Runtimeとの通信に失敗しました。';
+      appendStatus('error', message);
+      appendAssistantChunk(messageId, `エラー: ${message}`);
+    } finally {
+      finalizeAssistantMessage(messageId);
+      setIsStreaming(false);
+    }
   }
 
   const avatar = data.aiCharacterProfile.avatarImageUrl;
@@ -103,6 +170,14 @@ export function AiChatPage() {
             </div>
           );
         })}
+        {statusEvents.map((event) => (
+          <div key={event.id} className="message-row status">
+            <div className="message-bubble status">
+              <p className="message-name">Runtime {event.status}</p>
+              <p>{event.message}</p>
+            </div>
+          </div>
+        ))}
       </section>
 
       <form className="card chat-input" onSubmit={onSubmit}>
@@ -114,7 +189,7 @@ export function AiChatPage() {
         />
         <div className="row-between">
           <p className="muted">{isStreaming ? '応答中...' : '送信ボタンでメッセージを送信'}</p>
-          <button className="btn primary" type="submit" disabled={isStreaming || !input.trim()}>
+          <button className="btn primary" type="submit" disabled={isStreaming || !input.trim() || !isAuthenticated}>
             送信
           </button>
         </div>
