@@ -118,6 +118,27 @@ function parseSseEvent(raw: string): { eventName: string; data: string } | null 
   };
 }
 
+function extractSseFrame(buffer: string): { frame: string; rest: string } | null {
+  const lfBoundaryIndex = buffer.indexOf("\n\n");
+  const crlfBoundaryIndex = buffer.indexOf("\r\n\r\n");
+
+  if (lfBoundaryIndex < 0 && crlfBoundaryIndex < 0) {
+    return null;
+  }
+
+  if (lfBoundaryIndex >= 0 && (crlfBoundaryIndex < 0 || lfBoundaryIndex < crlfBoundaryIndex)) {
+    return {
+      frame: buffer.slice(0, lfBoundaryIndex),
+      rest: buffer.slice(lfBoundaryIndex + 2)
+    };
+  }
+
+  return {
+    frame: buffer.slice(0, crlfBoundaryIndex),
+    rest: buffer.slice(crlfBoundaryIndex + 4)
+  };
+}
+
 function toStatusEvent(eventName: string, payload: unknown): AiRuntimeStreamEvent | null {
   const knownStatusEvents = new Set(["status", "thinking", "tool_calling", "tool_succeeded", "tool_failed"]);
   if (!knownStatusEvents.has(eventName)) {
@@ -231,19 +252,18 @@ export async function invokeAiRuntimeStream(
   while (true) {
     const { done, value } = await reader.read();
     if (done) {
-      break;
+      buffer += decoder.decode();
+    } else {
+      buffer += decoder.decode(value, { stream: true });
     }
 
-    buffer += decoder.decode(value, { stream: true });
     while (true) {
-      const boundaryIndex = buffer.indexOf("\n\n");
-      if (boundaryIndex < 0) {
+      const frame = extractSseFrame(buffer);
+      if (!frame) {
         break;
       }
-      const rawEvent = buffer.slice(0, boundaryIndex);
-      buffer = buffer.slice(boundaryIndex + 2);
-
-      const parsed = parseSseEvent(rawEvent);
+      buffer = frame.rest;
+      const parsed = parseSseEvent(frame.frame);
       if (!parsed) {
         continue;
       }
@@ -268,6 +288,32 @@ export async function invokeAiRuntimeStream(
         }
         onEvent(chunkEvent);
       }
+    }
+
+    if (done) {
+      const tail = parseSseEvent(buffer.trim());
+      if (tail) {
+        let payload: unknown = tail.data;
+        try {
+          payload = JSON.parse(tail.data);
+        } catch {
+          // Keep raw text payload.
+        }
+
+        const statusEvent = toStatusEvent(tail.eventName, payload);
+        if (statusEvent) {
+          onEvent(statusEvent);
+        } else {
+          const chunkEvent = toChunkEvent(tail.eventName, payload);
+          if (chunkEvent) {
+            if (chunkEvent.type === "done" && chunkEvent.runtimeSessionId) {
+              finalRuntimeSessionId = chunkEvent.runtimeSessionId;
+            }
+            onEvent(chunkEvent);
+          }
+        }
+      }
+      break;
     }
   }
 
