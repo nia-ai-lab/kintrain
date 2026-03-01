@@ -1,5 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  addTrainingMenuItemToSet as addTrainingMenuItemToSetApi,
+  createTrainingMenuSet as createTrainingMenuSetApi,
   createGymVisit,
   createTrainingMenuItem,
   deleteTrainingMenuItem as deleteTrainingMenuItemApi,
@@ -7,9 +9,14 @@ import {
   listDailyRecords as listDailyRecordsApi,
   listGymVisits,
   listTrainingMenuItems,
+  listTrainingMenuSets,
   putDailyRecord as putDailyRecordApi,
   putProfile,
+  removeTrainingMenuItemFromSet as removeTrainingMenuItemFromSetApi,
+  reorderTrainingMenuSetItems as reorderTrainingMenuSetItemsApi,
   reorderTrainingMenuItems,
+  TrainingMenuSetDto,
+  updateTrainingMenuSet as updateTrainingMenuSetApi,
   updateTrainingMenuItem as updateTrainingMenuItemApi
 } from './api/coreApi';
 import { useAuth } from './AuthState';
@@ -57,14 +64,14 @@ interface AppStateContextValue {
   updateMenuItem: (itemId: string, patch: Partial<TrainingMenuItem>) => void;
   deleteMenuItem: (itemId: string) => void;
   moveMenuItem: (itemId: string, direction: -1 | 1) => void;
-  createMenuSet: (setName: string) => string | null;
-  renameMenuSet: (setId: string, setName: string) => void;
+  createMenuSet: (setName: string, options?: { isDefault?: boolean }) => Promise<string | null>;
+  renameMenuSet: (setId: string, setName: string) => Promise<void>;
   deleteMenuSet: (setId: string) => void;
-  setDefaultMenuSet: (setId: string) => void;
+  setDefaultMenuSet: (setId: string) => Promise<void>;
   setActiveMenuSet: (setId: string) => void;
-  assignMenuItemToSet: (setId: string, itemId: string) => void;
-  unassignMenuItemFromSet: (setId: string, itemId: string) => void;
-  moveMenuItemInSet: (setId: string, itemId: string, direction: -1 | 1) => void;
+  assignMenuItemToSet: (setId: string, itemId: string) => Promise<void>;
+  unassignMenuItemFromSet: (setId: string, itemId: string) => Promise<void>;
+  moveMenuItemInSet: (setId: string, itemId: string, direction: -1 | 1) => Promise<void>;
   replaceMenuItems: (items: TrainingMenuItem[]) => void;
   updateUserProfile: (patch: Partial<UserProfile>) => void;
   saveUserProfile: () => Promise<{ ok: boolean; message?: string }>;
@@ -326,6 +333,17 @@ function mapRemoteMenuItem(item: {
   };
 }
 
+function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
+  return {
+    id: item.trainingMenuSetId,
+    setName: item.setName,
+    order: Number(item.menuSetOrder),
+    isDefault: Boolean(item.isDefault),
+    isActive: item.isActive !== false,
+    itemIds: Array.isArray(item.itemIds) ? item.itemIds.filter((id): id is string => typeof id === 'string') : []
+  };
+}
+
 function utcToLocalIsoWithOffset(utcIso: string): string {
   const date = new Date(utcIso);
   if (Number.isNaN(date.getTime())) {
@@ -451,15 +469,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
     setIsCoreDataLoading(true);
     try {
-      const [profile, menu, visits, dailyRecordsResponse] = await Promise.all([
+      const [profile, menu, menuSetsResponse, visits, dailyRecordsResponse] = await Promise.all([
         getProfile(),
         listTrainingMenuItems(),
+        listTrainingMenuSets(),
         listGymVisits({ limit: 200 }),
         listDailyRecordsApi({ from: '1970-01-01', to: '2100-12-31' })
       ]);
       const menuItems = menu.items
         .filter((item) => item.isActive)
         .map((item) => mapRemoteMenuItem(item))
+        .sort((a, b) => a.order - b.order);
+      const remoteMenuSets = menuSetsResponse.items
+        .map((item) => mapRemoteMenuSet(item))
+        .filter((set) => set.isActive)
         .sort((a, b) => a.order - b.order);
       const gymVisits = visits.items
         .map((item) => mapRemoteGymVisit(item))
@@ -470,7 +493,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       const remoteDailyRecordMap = Object.fromEntries(remoteDailyEntries.map((item) => [item.date, item]));
       setData((prev) => ({
         ...(() => {
-          const nextMenuSetState = normalizeMenuSets(menuItems, prev.menuSets, prev.activeTrainingMenuSetId);
+          const nextMenuSetState = normalizeMenuSets(menuItems, remoteMenuSets, prev.activeTrainingMenuSetId);
           return {
             ...prev,
             userProfile: {
@@ -936,37 +959,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           setCoreDataError('トレーニング名と重量/回数（最小/最大）/セットは正しい値で入力してください。');
           return;
         }
+        const fallbackSetId = options?.targetSetId || data.activeTrainingMenuSetId || getDefaultMenuSetId(data.menuSets);
         void createTrainingMenuItem(payload)
-          .then((created) => {
-            setData((prev) => {
-              const withoutDup = prev.menuItems.filter((m) => m.id !== created.trainingMenuItemId);
-              const nextMenuItems = [...withoutDup, mapRemoteMenuItem(created)].sort((a, b) => a.order - b.order);
-              const targetSetId =
-                options?.targetSetId || prev.activeTrainingMenuSetId || getDefaultMenuSetId(prev.menuSets);
-              const menuSets = prev.menuSets.map((set) => {
-                if (set.id !== targetSetId) {
-                  return set;
-                }
-                if (set.itemIds.includes(created.trainingMenuItemId)) {
-                  return set;
-                }
-                return {
-                  ...set,
-                  itemIds: [...set.itemIds, created.trainingMenuItemId]
-                };
-              });
-              const nextMenuSetState = normalizeMenuSets(nextMenuItems, menuSets, prev.activeTrainingMenuSetId);
-              return {
-                ...prev,
-                menuItems: nextMenuItems,
-                menuSets: nextMenuSetState.menuSets,
-                activeTrainingMenuSetId: nextMenuSetState.activeTrainingMenuSetId
-              };
-            });
+          .then(async (created) => {
+            const targetSetId =
+              options?.targetSetId || data.activeTrainingMenuSetId || getDefaultMenuSetId(data.menuSets) || fallbackSetId;
+            if (targetSetId) {
+              await addTrainingMenuItemToSetApi(targetSetId, created.trainingMenuItemId);
+            }
+            await refreshCoreData();
             setCoreDataError('');
           })
           .catch((error) => {
             setCoreDataError(toErrorMessage(error, 'トレーニングメニュー追加に失敗しました。'));
+            void refreshCoreData();
           });
       },
       updateMenuItem: (itemId, patch) => {
@@ -1065,41 +1071,51 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             void refreshCoreData();
           });
       },
-      createMenuSet: (setName) => {
+      createMenuSet: async (setName, options) => {
+        if (!isAuthenticated) {
+          return null;
+        }
         const trimmedName = setName.trim();
         if (!trimmedName) {
           return null;
         }
-        const newSetId = id('menu-set');
-        setData((prev) => {
-          const nextOrder = prev.menuSets.length + 1;
-          return {
+        try {
+          const created = await createTrainingMenuSetApi({
+            setName: trimmedName,
+            isDefault: options?.isDefault
+          });
+          await refreshCoreData();
+          setData((prev) => ({
             ...prev,
-            menuSets: [
-              ...prev.menuSets,
-              {
-                id: newSetId,
-                setName: trimmedName,
-                order: nextOrder,
-                isDefault: false,
-                isActive: true,
-                itemIds: []
-              }
-            ],
-            activeTrainingMenuSetId: newSetId
-          };
-        });
-        return newSetId;
+            activeTrainingMenuSetId: created.trainingMenuSetId
+          }));
+          setCoreDataError('');
+          return created.trainingMenuSetId;
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'メニューセット作成に失敗しました。'));
+          return null;
+        }
       },
-      renameMenuSet: (setId, setName) => {
+      renameMenuSet: async (setId, setName) => {
+        if (!isAuthenticated) {
+          return;
+        }
         const trimmedName = setName.trim();
         if (!trimmedName) {
           return;
         }
-        setData((prev) => ({
-          ...prev,
-          menuSets: prev.menuSets.map((set) => (set.id === setId ? { ...set, setName: trimmedName } : set))
-        }));
+        try {
+          await updateTrainingMenuSetApi(setId, { setName: trimmedName });
+          setData((prev) => ({
+            ...prev,
+            menuSets: prev.menuSets.map((set) => (set.id === setId ? { ...set, setName: trimmedName } : set))
+          }));
+          setCoreDataError('');
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'メニューセット名更新に失敗しました。'));
+          void refreshCoreData();
+          throw error;
+        }
       },
       deleteMenuSet: (setId) => {
         setData((prev) => {
@@ -1129,14 +1145,25 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           };
         });
       },
-      setDefaultMenuSet: (setId) => {
-        setData((prev) => ({
-          ...prev,
-          menuSets: prev.menuSets.map((set) => ({
-            ...set,
-            isDefault: set.id === setId
-          }))
-        }));
+      setDefaultMenuSet: async (setId) => {
+        if (!isAuthenticated) {
+          return;
+        }
+        try {
+          await updateTrainingMenuSetApi(setId, { isDefault: true });
+          setData((prev) => ({
+            ...prev,
+            menuSets: prev.menuSets.map((set) => ({
+              ...set,
+              isDefault: set.id === setId
+            }))
+          }));
+          setCoreDataError('');
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'デフォルトメニューセット更新に失敗しました。'));
+          void refreshCoreData();
+          throw error;
+        }
       },
       setActiveMenuSet: (setId) => {
         setData((prev) => {
@@ -1149,56 +1176,98 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           };
         });
       },
-      assignMenuItemToSet: (setId, itemId) => {
-        setData((prev) => ({
-          ...prev,
-          menuSets: prev.menuSets.map((set) => {
-            if (set.id !== setId) {
-              return set;
-            }
-            if (set.itemIds.includes(itemId)) {
-              return set;
-            }
-            return {
-              ...set,
-              itemIds: [...set.itemIds, itemId]
-            };
-          })
-        }));
+      assignMenuItemToSet: async (setId, itemId) => {
+        if (!isAuthenticated) {
+          return;
+        }
+        try {
+          await addTrainingMenuItemToSetApi(setId, itemId);
+          setData((prev) => ({
+            ...prev,
+            menuSets: prev.menuSets.map((set) => {
+              if (set.id !== setId || set.itemIds.includes(itemId)) {
+                return set;
+              }
+              return {
+                ...set,
+                itemIds: [...set.itemIds, itemId]
+              };
+            })
+          }));
+          setCoreDataError('');
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'メニューセットへの種目追加に失敗しました。'));
+          void refreshCoreData();
+          throw error;
+        }
       },
-      unassignMenuItemFromSet: (setId, itemId) => {
+      unassignMenuItemFromSet: async (setId, itemId) => {
+        if (!isAuthenticated) {
+          return;
+        }
+        try {
+          await removeTrainingMenuItemFromSetApi(setId, itemId);
+          setData((prev) => ({
+            ...prev,
+            menuSets: prev.menuSets.map((set) =>
+              set.id === setId
+                ? {
+                    ...set,
+                    itemIds: set.itemIds.filter((id) => id !== itemId)
+                  }
+                : set
+            )
+          }));
+          setCoreDataError('');
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'メニューセットからの種目削除に失敗しました。'));
+          void refreshCoreData();
+          throw error;
+        }
+      },
+      moveMenuItemInSet: async (setId, itemId, direction) => {
+        const targetSet = data.menuSets.find((set) => set.id === setId);
+        if (!targetSet) {
+          return;
+        }
+        const index = targetSet.itemIds.findIndex((id) => id === itemId);
+        const nextIndex = index + direction;
+        if (index < 0 || nextIndex < 0 || nextIndex >= targetSet.itemIds.length) {
+          return;
+        }
+        const reordered = [...targetSet.itemIds];
+        [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
+
         setData((prev) => ({
           ...prev,
           menuSets: prev.menuSets.map((set) =>
             set.id === setId
               ? {
                   ...set,
-                  itemIds: set.itemIds.filter((id) => id !== itemId)
+                  itemIds: reordered
                 }
               : set
           )
         }));
-      },
-      moveMenuItemInSet: (setId, itemId, direction) => {
-        setData((prev) => ({
-          ...prev,
-          menuSets: prev.menuSets.map((set) => {
-            if (set.id !== setId) {
-              return set;
-            }
-            const index = set.itemIds.findIndex((id) => id === itemId);
-            const nextIndex = index + direction;
-            if (index < 0 || nextIndex < 0 || nextIndex >= set.itemIds.length) {
-              return set;
-            }
-            const reordered = [...set.itemIds];
-            [reordered[index], reordered[nextIndex]] = [reordered[nextIndex], reordered[index]];
-            return {
-              ...set,
-              itemIds: reordered
-            };
-          })
-        }));
+
+        if (!isAuthenticated) {
+          return;
+        }
+
+        try {
+          await reorderTrainingMenuSetItemsApi(
+            setId,
+            reordered.map((menuItemId, idx) => ({
+              trainingMenuItemId: menuItemId,
+              displayOrder: idx + 1
+            }))
+          );
+          setCoreDataError('');
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'メニューセット内の並び替え保存に失敗しました。'));
+          void refreshCoreData();
+          throw error;
+        }
       },
       replaceMenuItems: (items) => {
         setData((prev) => {

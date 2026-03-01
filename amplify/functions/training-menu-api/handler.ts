@@ -6,12 +6,15 @@ import {
   TransactWriteCommand,
   UpdateCommand
 } from "@aws-sdk/lib-dynamodb";
+import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, response, toNonEmptyString } from "../shared/http";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
+const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
+const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
 
 type RepsRangeInput = {
   defaultReps?: number;
@@ -29,6 +32,16 @@ type TrainingMenuItemInput = RepsRangeInput & {
   bodyPart?: string;
   defaultWeightKg: number;
   defaultSets: number;
+};
+
+type TrainingMenuSetInput = {
+  setName: string;
+  isDefault?: boolean;
+};
+
+type TrainingMenuSetUpdateInput = {
+  setName?: string;
+  isDefault?: boolean;
 };
 
 function normalizeTrainingName(name: string): string {
@@ -121,6 +134,131 @@ function encodeNextToken(lastEvaluatedKey?: Record<string, unknown>): string | u
     return undefined;
   }
   return Buffer.from(JSON.stringify(lastEvaluatedKey), "utf-8").toString("base64");
+}
+
+const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
+const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
+const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
+const setItemsBySetAndItemIndex = "UserSetItemsBySetAndItemIndex";
+const setItemsByMenuItemIndex = "UserSetItemsByMenuItemIndex";
+const defaultSetMarker = "DEFAULT";
+
+function zeroPadOrder(order: number): string {
+  const value = Number.isFinite(order) ? Math.max(0, Math.floor(order)) : 0;
+  return value.toString().padStart(6, "0");
+}
+
+function buildMenuSetOrderKey(trainingMenuSetId: string, displayOrder: number): string {
+  return `${trainingMenuSetId}#${zeroPadOrder(displayOrder)}`;
+}
+
+function buildMenuSetItemKey(trainingMenuSetId: string, trainingMenuItemId: string): string {
+  return `${trainingMenuSetId}#${trainingMenuItemId}`;
+}
+
+function toMenuSetResponse(
+  set: Record<string, unknown>,
+  setItemIdsBySetId: Record<string, string[]>
+): Record<string, unknown> {
+  const trainingMenuSetId = String(set.trainingMenuSetId ?? "");
+  return {
+    trainingMenuSetId,
+    setName: String(set.setName ?? ""),
+    menuSetOrder: Number(set.menuSetOrder ?? 0),
+    isDefault: Boolean(set.isDefault),
+    isActive: set.isActive !== false,
+    itemIds: setItemIdsBySetId[trainingMenuSetId] ?? [],
+    createdAt: set.createdAt,
+    updatedAt: set.updatedAt
+  };
+}
+
+async function getCurrentDefaultSetId(userId: string): Promise<string | null> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetTableName,
+      IndexName: defaultMenuSetIndex,
+      KeyConditionExpression: "userId = :userId AND defaultSetMarker = :defaultSetMarker",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":defaultSetMarker": defaultSetMarker
+      },
+      Limit: 1
+    })
+  );
+  const found = result.Items?.[0];
+  if (!found?.trainingMenuSetId || typeof found.trainingMenuSetId !== "string") {
+    return null;
+  }
+  return found.trainingMenuSetId;
+}
+
+async function getMaxMenuSetOrder(userId: string): Promise<number> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetTableName,
+      IndexName: menuSetByOrderIndex,
+      KeyConditionExpression: "userId = :userId",
+      ExpressionAttributeValues: {
+        ":userId": userId
+      },
+      ScanIndexForward: false,
+      Limit: 1
+    })
+  );
+  const max = Number(result.Items?.[0]?.menuSetOrder ?? 0);
+  return Number.isFinite(max) ? max : 0;
+}
+
+async function getSetItemLinkBySetAndItem(
+  userId: string,
+  trainingMenuSetId: string,
+  trainingMenuItemId: string
+): Promise<Record<string, unknown> | null> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetItemTableName,
+      IndexName: setItemsBySetAndItemIndex,
+      KeyConditionExpression: "userId = :userId AND menuSetItemKey = :menuSetItemKey",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":menuSetItemKey": buildMenuSetItemKey(trainingMenuSetId, trainingMenuItemId)
+      },
+      Limit: 1
+    })
+  );
+  return (result.Items?.[0] as Record<string, unknown> | undefined) ?? null;
+}
+
+async function getMaxSetItemDisplayOrder(userId: string, trainingMenuSetId: string): Promise<number> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetItemTableName,
+      IndexName: setItemsBySetOrderIndex,
+      KeyConditionExpression: "userId = :userId AND begins_with(menuSetOrderKey, :prefix)",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":prefix": `${trainingMenuSetId}#`
+      },
+      ScanIndexForward: false,
+      Limit: 1
+    })
+  );
+  const max = Number(result.Items?.[0]?.displayOrder ?? 0);
+  return Number.isFinite(max) ? max : 0;
+}
+
+async function getMenuSetById(userId: string, trainingMenuSetId: string): Promise<Record<string, unknown> | null> {
+  const result = await ddb.send(
+    new GetCommand({
+      TableName: trainingMenuSetTableName,
+      Key: {
+        userId,
+        trainingMenuSetId
+      }
+    })
+  );
+  return (result.Item as Record<string, unknown> | undefined) ?? null;
 }
 
 async function listTrainingMenuItems(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
@@ -367,6 +505,46 @@ async function updateTrainingMenuItem(
 }
 
 async function deleteTrainingMenuItem(userId: string, trainingMenuItemId: string): Promise<APIGatewayProxyResult> {
+  const linksResult = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetItemTableName,
+      IndexName: setItemsByMenuItemIndex,
+      KeyConditionExpression: "userId = :userId AND trainingMenuItemId = :trainingMenuItemId",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":trainingMenuItemId": trainingMenuItemId
+      }
+    })
+  );
+
+  const linkItems = (linksResult.Items ?? []).filter(
+    (item): item is Record<string, unknown> => typeof item.trainingMenuSetItemId === "string"
+  );
+
+  const transactDeleteItems = linkItems.map((item) => ({
+    Delete: {
+      TableName: trainingMenuSetItemTableName,
+      Key: {
+        userId,
+        trainingMenuSetItemId: item.trainingMenuSetItemId as string
+      },
+      ConditionExpression: "attribute_exists(userId) AND attribute_exists(trainingMenuSetItemId)"
+    }
+  }));
+
+  const chunks: Array<NonNullable<TransactWriteCommandInput["TransactItems"]>> = [];
+  for (let i = 0; i < transactDeleteItems.length; i += 25) {
+    chunks.push(transactDeleteItems.slice(i, i + 25));
+  }
+
+  for (const chunk of chunks) {
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: chunk
+      })
+    );
+  }
+
   await ddb.send(
     new DeleteCommand({
       TableName: trainingMenuTableName,
@@ -413,8 +591,407 @@ async function reorderTrainingMenuItems(event: APIGatewayProxyEvent, userId: str
   return response(200, { updatedCount: body.items.length });
 }
 
+async function listTrainingMenuSets(userId: string): Promise<APIGatewayProxyResult> {
+  const [setsResult, setItemsResult] = await Promise.all([
+    ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetTableName,
+        IndexName: menuSetByOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: {
+          ":userId": userId
+        }
+      })
+    ),
+    ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetItemTableName,
+        IndexName: setItemsBySetOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: {
+          ":userId": userId
+        }
+      })
+    )
+  ]);
+
+  const setItemsBySetId: Record<string, string[]> = {};
+  for (const item of setItemsResult.Items ?? []) {
+    const setId = typeof item.trainingMenuSetId === "string" ? item.trainingMenuSetId : "";
+    const menuItemId = typeof item.trainingMenuItemId === "string" ? item.trainingMenuItemId : "";
+    if (!setId || !menuItemId) {
+      continue;
+    }
+    if (!setItemsBySetId[setId]) {
+      setItemsBySetId[setId] = [];
+    }
+    setItemsBySetId[setId].push(menuItemId);
+  }
+
+  const items = (setsResult.Items ?? [])
+    .filter((set) => set.isActive !== false)
+    .map((set) => toMenuSetResponse(set as Record<string, unknown>, setItemsBySetId));
+
+  return response(200, { items });
+}
+
+async function createTrainingMenuSet(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
+  const body = parseBody<TrainingMenuSetInput>(event);
+  if (!body) {
+    return response(400, { message: "Invalid JSON body." });
+  }
+
+  const setName = toNonEmptyString(body.setName);
+  if (!setName) {
+    return response(400, { message: "setName is required." });
+  }
+
+  const trainingMenuSetId = randomUUID();
+  const menuSetOrder = (await getMaxMenuSetOrder(userId)) + 1;
+  const currentDefaultSetId = await getCurrentDefaultSetId(userId);
+  const shouldBeDefault = Boolean(body.isDefault) || !currentDefaultSetId;
+  const ts = nowIsoSeconds();
+
+  if (shouldBeDefault && currentDefaultSetId) {
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: [
+          {
+            Update: {
+              TableName: trainingMenuSetTableName,
+              Key: {
+                userId,
+                trainingMenuSetId: currentDefaultSetId
+              },
+              UpdateExpression: "SET isDefault = :isDefault, updatedAt = :updatedAt REMOVE defaultSetMarker",
+              ExpressionAttributeValues: {
+                ":isDefault": false,
+                ":updatedAt": ts
+              }
+            }
+          },
+          {
+            Put: {
+              TableName: trainingMenuSetTableName,
+              Item: {
+                userId,
+                trainingMenuSetId,
+                setName,
+                menuSetOrder,
+                isDefault: true,
+                isActive: true,
+                defaultSetMarker,
+                createdAt: ts,
+                updatedAt: ts
+              },
+              ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetId)"
+            }
+          }
+        ]
+      })
+    );
+  } else {
+    await ddb.send(
+      new PutCommand({
+        TableName: trainingMenuSetTableName,
+        Item: {
+          userId,
+          trainingMenuSetId,
+          setName,
+          menuSetOrder,
+          isDefault: shouldBeDefault,
+          isActive: true,
+          ...(shouldBeDefault ? { defaultSetMarker } : {}),
+          createdAt: ts,
+          updatedAt: ts
+        },
+        ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetId)"
+      })
+    );
+  }
+
+  return response(201, {
+    trainingMenuSetId,
+    setName,
+    menuSetOrder,
+    isDefault: shouldBeDefault,
+    isActive: true,
+    itemIds: [],
+    createdAt: ts,
+    updatedAt: ts
+  });
+}
+
+async function updateTrainingMenuSet(
+  event: APIGatewayProxyEvent,
+  userId: string,
+  trainingMenuSetId: string
+): Promise<APIGatewayProxyResult> {
+  const body = parseBody<TrainingMenuSetUpdateInput>(event);
+  if (!body) {
+    return response(400, { message: "Invalid JSON body." });
+  }
+
+  const current = await getMenuSetById(userId, trainingMenuSetId);
+  if (!current || current.isActive === false) {
+    return response(404, { message: "training menu set not found." });
+  }
+
+  const nextSetName = toNonEmptyString(body.setName) ?? String(current.setName ?? "");
+  const currentIsDefault = Boolean(current.isDefault);
+  const requestedDefault = body.isDefault;
+  const ts = nowIsoSeconds();
+
+  if (requestedDefault === false && currentIsDefault) {
+    return response(400, { message: "default set cannot be unset directly. choose another set as default." });
+  }
+
+  const shouldSwitchDefault = requestedDefault === true && !currentIsDefault;
+  if (shouldSwitchDefault) {
+    const currentDefaultSetId = await getCurrentDefaultSetId(userId);
+    const transactItems: NonNullable<TransactWriteCommandInput["TransactItems"]> = [];
+
+    if (currentDefaultSetId && currentDefaultSetId !== trainingMenuSetId) {
+      transactItems.push({
+        Update: {
+          TableName: trainingMenuSetTableName,
+          Key: {
+            userId,
+            trainingMenuSetId: currentDefaultSetId
+          },
+          UpdateExpression: "SET isDefault = :isDefault, updatedAt = :updatedAt REMOVE defaultSetMarker",
+          ExpressionAttributeValues: {
+            ":isDefault": false,
+            ":updatedAt": ts
+          }
+        }
+      });
+    }
+
+    transactItems.push({
+      Update: {
+        TableName: trainingMenuSetTableName,
+        Key: {
+          userId,
+          trainingMenuSetId
+        },
+        UpdateExpression:
+          "SET setName = :setName, isDefault = :isDefault, defaultSetMarker = :defaultSetMarker, updatedAt = :updatedAt",
+        ExpressionAttributeValues: {
+          ":setName": nextSetName,
+          ":isDefault": true,
+          ":defaultSetMarker": defaultSetMarker,
+          ":updatedAt": ts
+        }
+      }
+    });
+
+    await ddb.send(
+      new TransactWriteCommand({
+        TransactItems: transactItems
+      })
+    );
+
+    return response(200, {
+      trainingMenuSetId,
+      setName: nextSetName,
+      menuSetOrder: Number(current.menuSetOrder ?? 0),
+      isDefault: true,
+      isActive: true,
+      updatedAt: ts
+    });
+  }
+
+  const updateExpressionParts = ["setName = :setName", "updatedAt = :updatedAt"];
+  const expressionAttributeValues: Record<string, unknown> = {
+    ":setName": nextSetName,
+    ":updatedAt": ts
+  };
+
+  if (currentIsDefault) {
+    updateExpressionParts.push("isDefault = :isDefault", "defaultSetMarker = :defaultSetMarker");
+    expressionAttributeValues[":isDefault"] = true;
+    expressionAttributeValues[":defaultSetMarker"] = defaultSetMarker;
+  }
+
+  await ddb.send(
+    new UpdateCommand({
+      TableName: trainingMenuSetTableName,
+      Key: {
+        userId,
+        trainingMenuSetId
+      },
+      UpdateExpression: `SET ${updateExpressionParts.join(", ")}`,
+      ExpressionAttributeValues: expressionAttributeValues
+    })
+  );
+
+  return response(200, {
+    trainingMenuSetId,
+    setName: nextSetName,
+    menuSetOrder: Number(current.menuSetOrder ?? 0),
+    isDefault: currentIsDefault,
+    isActive: true,
+    updatedAt: ts
+  });
+}
+
+async function addTrainingMenuItemToSet(
+  event: APIGatewayProxyEvent,
+  userId: string,
+  trainingMenuSetId: string
+): Promise<APIGatewayProxyResult> {
+  const body = parseBody<{ trainingMenuItemId: string }>(event);
+  if (!body) {
+    return response(400, { message: "Invalid JSON body." });
+  }
+
+  const trainingMenuItemId = toNonEmptyString(body.trainingMenuItemId);
+  if (!trainingMenuItemId) {
+    return response(400, { message: "trainingMenuItemId is required." });
+  }
+
+  const [menuSet, menuItem, existingLink] = await Promise.all([
+    getMenuSetById(userId, trainingMenuSetId),
+    ddb.send(
+      new GetCommand({
+        TableName: trainingMenuTableName,
+        Key: { userId, trainingMenuItemId }
+      })
+    ),
+    getSetItemLinkBySetAndItem(userId, trainingMenuSetId, trainingMenuItemId)
+  ]);
+
+  if (!menuSet || menuSet.isActive === false) {
+    return response(404, { message: "training menu set not found." });
+  }
+  if (!menuItem.Item || menuItem.Item.isActive === false) {
+    return response(404, { message: "training menu item not found." });
+  }
+  if (existingLink) {
+    return response(409, { message: "training menu item already assigned to the set." });
+  }
+
+  const displayOrder = (await getMaxSetItemDisplayOrder(userId, trainingMenuSetId)) + 1;
+  const trainingMenuSetItemId = randomUUID();
+  const ts = nowIsoSeconds();
+
+  await ddb.send(
+    new PutCommand({
+      TableName: trainingMenuSetItemTableName,
+      Item: {
+        userId,
+        trainingMenuSetItemId,
+        trainingMenuSetId,
+        trainingMenuItemId,
+        displayOrder,
+        menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, displayOrder),
+        menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, trainingMenuItemId),
+        createdAt: ts,
+        updatedAt: ts
+      },
+      ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetItemId)"
+    })
+  );
+
+  return response(201, {
+    trainingMenuSetItemId,
+    trainingMenuSetId,
+    trainingMenuItemId,
+    displayOrder,
+    createdAt: ts,
+    updatedAt: ts
+  });
+}
+
+async function removeTrainingMenuItemFromSet(
+  userId: string,
+  trainingMenuSetId: string,
+  trainingMenuItemId: string
+): Promise<APIGatewayProxyResult> {
+  const link = await getSetItemLinkBySetAndItem(userId, trainingMenuSetId, trainingMenuItemId);
+  if (!link || typeof link.trainingMenuSetItemId !== "string") {
+    return response(404, { message: "training menu set item not found." });
+  }
+
+  await ddb.send(
+    new DeleteCommand({
+      TableName: trainingMenuSetItemTableName,
+      Key: {
+        userId,
+        trainingMenuSetItemId: link.trainingMenuSetItemId
+      },
+      ConditionExpression: "attribute_exists(userId) AND attribute_exists(trainingMenuSetItemId)"
+    })
+  );
+
+  return response(204, {});
+}
+
+async function reorderTrainingMenuSetItems(
+  event: APIGatewayProxyEvent,
+  userId: string,
+  trainingMenuSetId: string
+): Promise<APIGatewayProxyResult> {
+  const body = parseBody<{ items: Array<{ trainingMenuItemId: string; displayOrder: number }> }>(event);
+  if (!body || !Array.isArray(body.items) || body.items.length === 0) {
+    return response(400, { message: "items is required." });
+  }
+  if (body.items.length > 25) {
+    return response(400, { message: "items cannot exceed 25 per request." });
+  }
+
+  const ts = nowIsoSeconds();
+  const links = await Promise.all(
+    body.items.map(async (item) => {
+      const trainingMenuItemId = toNonEmptyString(item.trainingMenuItemId);
+      if (!trainingMenuItemId) {
+        return null;
+      }
+      const link = await getSetItemLinkBySetAndItem(userId, trainingMenuSetId, trainingMenuItemId);
+      if (!link || typeof link.trainingMenuSetItemId !== "string") {
+        return null;
+      }
+      return {
+        trainingMenuSetItemId: link.trainingMenuSetItemId,
+        trainingMenuItemId,
+        displayOrder: Math.max(1, Math.floor(item.displayOrder))
+      };
+    })
+  );
+
+  if (links.some((link) => link === null)) {
+    return response(404, { message: "one or more training menu set items were not found." });
+  }
+
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: (links as Array<{ trainingMenuSetItemId: string; trainingMenuItemId: string; displayOrder: number }>).map(
+        (link) => ({
+          Update: {
+            TableName: trainingMenuSetItemTableName,
+            Key: {
+              userId,
+              trainingMenuSetItemId: link.trainingMenuSetItemId
+            },
+            UpdateExpression:
+              "SET displayOrder = :displayOrder, menuSetOrderKey = :menuSetOrderKey, updatedAt = :updatedAt",
+            ExpressionAttributeValues: {
+              ":displayOrder": link.displayOrder,
+              ":menuSetOrderKey": buildMenuSetOrderKey(trainingMenuSetId, link.displayOrder),
+              ":updatedAt": ts
+            }
+          }
+        })
+      )
+    })
+  );
+
+  return response(200, { updatedCount: links.length });
+}
+
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {
-  if (!trainingMenuTableName) {
+  if (!trainingMenuTableName || !trainingMenuSetTableName || !trainingMenuSetItemTableName) {
     return response(500, { message: "Lambda environment is not configured." });
   }
 
@@ -425,6 +1002,33 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
 
   const path = normalizePath(event);
   const method = event.httpMethod.toUpperCase();
+
+  if ((path === "/training-menu-sets" || path === "/training-menu-sets/") && method === "GET") {
+    return listTrainingMenuSets(userId);
+  }
+  if ((path === "/training-menu-sets" || path === "/training-menu-sets/") && method === "POST") {
+    return createTrainingMenuSet(event, userId);
+  }
+
+  const menuSetMatch = path.match(/^\/training-menu-sets\/([^/]+)\/?$/);
+  if (menuSetMatch && method === "PUT") {
+    return updateTrainingMenuSet(event, userId, menuSetMatch[1]);
+  }
+
+  const menuSetItemsMatch = path.match(/^\/training-menu-sets\/([^/]+)\/items\/?$/);
+  if (menuSetItemsMatch && method === "POST") {
+    return addTrainingMenuItemToSet(event, userId, menuSetItemsMatch[1]);
+  }
+
+  const menuSetItemsReorderMatch = path.match(/^\/training-menu-sets\/([^/]+)\/items\/reorder\/?$/);
+  if (menuSetItemsReorderMatch && method === "PUT") {
+    return reorderTrainingMenuSetItems(event, userId, menuSetItemsReorderMatch[1]);
+  }
+
+  const menuSetItemDeleteMatch = path.match(/^\/training-menu-sets\/([^/]+)\/items\/([^/]+)\/?$/);
+  if (menuSetItemDeleteMatch && method === "DELETE") {
+    return removeTrainingMenuItemFromSet(userId, menuSetItemDeleteMatch[1], menuSetItemDeleteMatch[2]);
+  }
 
   if ((path === "/training-menu-items" || path === "/training-menu-items/") && method === "GET") {
     return listTrainingMenuItems(event, userId);

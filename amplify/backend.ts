@@ -53,6 +53,52 @@ trainingMenuTable.addGlobalSecondaryIndex({
   sortKey: { name: "normalizedTrainingName", type: dynamodb.AttributeType.STRING }
 });
 
+const trainingMenuSetTable = new dynamodb.Table(stack, "TrainingMenuSetTable", {
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "trainingMenuSetId", type: dynamodb.AttributeType.STRING },
+  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+  pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+  removalPolicy: RemovalPolicy.RETAIN
+});
+
+trainingMenuSetTable.addGlobalSecondaryIndex({
+  indexName: "UserMenuSetByOrderIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "menuSetOrder", type: dynamodb.AttributeType.NUMBER }
+});
+
+trainingMenuSetTable.addGlobalSecondaryIndex({
+  indexName: "UserDefaultMenuSetIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "defaultSetMarker", type: dynamodb.AttributeType.STRING }
+});
+
+const trainingMenuSetItemTable = new dynamodb.Table(stack, "TrainingMenuSetItemTable", {
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "trainingMenuSetItemId", type: dynamodb.AttributeType.STRING },
+  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+  pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+  removalPolicy: RemovalPolicy.RETAIN
+});
+
+trainingMenuSetItemTable.addGlobalSecondaryIndex({
+  indexName: "UserSetItemsBySetOrderIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "menuSetOrderKey", type: dynamodb.AttributeType.STRING }
+});
+
+trainingMenuSetItemTable.addGlobalSecondaryIndex({
+  indexName: "UserSetItemsBySetAndItemIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "menuSetItemKey", type: dynamodb.AttributeType.STRING }
+});
+
+trainingMenuSetItemTable.addGlobalSecondaryIndex({
+  indexName: "UserSetItemsByMenuItemIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "trainingMenuItemId", type: dynamodb.AttributeType.STRING }
+});
+
 const trainingHistoryTable = new dynamodb.Table(stack, "TrainingHistoryTable", {
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "visitId", type: dynamodb.AttributeType.STRING },
@@ -106,8 +152,12 @@ const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda
 
 userProfileTable.grantReadWriteData(profileApiLambda);
 trainingMenuTable.grantReadWriteData(trainingMenuApiLambda);
+trainingMenuSetTable.grantReadWriteData(trainingMenuApiLambda);
+trainingMenuSetItemTable.grantReadWriteData(trainingMenuApiLambda);
 trainingHistoryTable.grantReadWriteData(trainingHistoryApiLambda);
 trainingMenuTable.grantReadData(trainingHistoryApiLambda);
+trainingMenuSetTable.grantReadData(trainingHistoryApiLambda);
+trainingMenuSetItemTable.grantReadData(trainingHistoryApiLambda);
 dailyRecordTable.grantReadWriteData(dailyRecordApiLambda);
 trainingHistoryTable.grantReadData(dailyRecordApiLambda);
 goalTable.grantReadWriteData(dailyRecordApiLambda);
@@ -120,8 +170,12 @@ aiAdviceLogTable.grantWriteData(mcpToolsApiLambda);
 
 profileApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tableName);
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
+trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
+trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
+trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
+trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
 dailyRecordApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.tableName);
 dailyRecordApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 dailyRecordApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
@@ -196,6 +250,18 @@ trainingMenuReorderResource.addMethod("PUT", trainingMenuIntegration, authMethod
 const trainingMenuItemResource = trainingMenuItemsResource.addResource("{trainingMenuItemId}");
 trainingMenuItemResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
 trainingMenuItemResource.addMethod("DELETE", trainingMenuIntegration, authMethodOptions);
+
+const trainingMenuSetsResource = coreApi.root.addResource("training-menu-sets");
+trainingMenuSetsResource.addMethod("GET", trainingMenuIntegration, authMethodOptions);
+trainingMenuSetsResource.addMethod("POST", trainingMenuIntegration, authMethodOptions);
+const trainingMenuSetResource = trainingMenuSetsResource.addResource("{trainingMenuSetId}");
+trainingMenuSetResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
+const trainingMenuSetItemsResource = trainingMenuSetResource.addResource("items");
+trainingMenuSetItemsResource.addMethod("POST", trainingMenuIntegration, authMethodOptions);
+const trainingMenuSetItemsReorderResource = trainingMenuSetItemsResource.addResource("reorder");
+trainingMenuSetItemsReorderResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
+const trainingMenuSetItemResource = trainingMenuSetItemsResource.addResource("{trainingMenuItemId}");
+trainingMenuSetItemResource.addMethod("DELETE", trainingMenuIntegration, authMethodOptions);
 
 const trainingSessionViewResource = coreApi.root.addResource("training-session-view");
 trainingSessionViewResource.addMethod("GET", trainingHistoryIntegration, authMethodOptions);
@@ -332,6 +398,8 @@ backend.addOutput({
     dynamodb: {
       userProfileTableName: userProfileTable.tableName,
       trainingMenuTableName: trainingMenuTable.tableName,
+      trainingMenuSetTableName: trainingMenuSetTable.tableName,
+      trainingMenuSetItemTableName: trainingMenuSetItemTable.tableName,
       trainingHistoryTableName: trainingHistoryTable.tableName,
       dailyRecordTableName: dailyRecordTable.tableName,
       goalTableName: goalTable.tableName,

@@ -1,4 +1,4 @@
-import { DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
@@ -6,6 +6,12 @@ import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response 
 
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
+const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
+const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
+
+const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
+const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
+const defaultSetMarker = "DEFAULT";
 
 type ExerciseEntry = {
   trainingMenuItemId?: string;
@@ -128,7 +134,7 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
 }
 
 async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
-  if (!trainingMenuTableName) {
+  if (!trainingMenuTableName || !trainingMenuSetTableName || !trainingMenuSetItemTableName) {
     return response(500, { message: "Lambda environment is not configured." });
   }
 
@@ -137,20 +143,70 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
     return response(400, { message: "date is required in YYYY-MM-DD format." });
   }
 
-  const menuResult = await ddb.send(
+  const defaultMenuSetResult = await ddb.send(
     new QueryCommand({
-      TableName: trainingMenuTableName,
-      IndexName: "UserDisplayOrderIndex",
-      KeyConditionExpression: "userId = :userId",
+      TableName: trainingMenuSetTableName,
+      IndexName: defaultMenuSetIndex,
+      KeyConditionExpression: "userId = :userId AND defaultSetMarker = :defaultSetMarker",
       ExpressionAttributeValues: {
-        ":userId": userId
-      }
+        ":userId": userId,
+        ":defaultSetMarker": defaultSetMarker
+      },
+      Limit: 1
     })
   );
 
-  const activeMenuItems = (menuResult.Items ?? [])
-    .filter((item) => item.isActive !== false)
-    .sort((a, b) => Number(a.displayOrder ?? 0) - Number(b.displayOrder ?? 0));
+  const defaultMenuSetIdRaw = defaultMenuSetResult.Items?.[0]?.trainingMenuSetId;
+  const defaultMenuSetId = typeof defaultMenuSetIdRaw === "string" ? defaultMenuSetIdRaw : "";
+
+  let activeMenuItems: Array<Record<string, unknown>> = [];
+  if (defaultMenuSetId) {
+    const setItemsResult = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetItemTableName,
+        IndexName: setItemsBySetOrderIndex,
+        KeyConditionExpression: "userId = :userId AND begins_with(menuSetOrderKey, :setPrefix)",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":setPrefix": `${defaultMenuSetId}#`
+        }
+      })
+    );
+
+    const orderedMenuItemIds = (setItemsResult.Items ?? [])
+      .map((item) => (typeof item.trainingMenuItemId === "string" ? item.trainingMenuItemId : ""))
+      .filter((trainingMenuItemId) => trainingMenuItemId.length > 0);
+    const uniqueOrderedMenuItemIds = Array.from(new Set(orderedMenuItemIds));
+
+    if (uniqueOrderedMenuItemIds.length > 0) {
+      const menuItemsById = new Map<string, Record<string, unknown>>();
+      for (let i = 0; i < uniqueOrderedMenuItemIds.length; i += 100) {
+        const chunk = uniqueOrderedMenuItemIds.slice(i, i + 100);
+        const batchResult = await ddb.send(
+          new BatchGetCommand({
+            RequestItems: {
+              [trainingMenuTableName]: {
+                Keys: chunk.map((trainingMenuItemId) => ({
+                  userId,
+                  trainingMenuItemId
+                }))
+              }
+            }
+          })
+        );
+        const chunkItems = batchResult.Responses?.[trainingMenuTableName] ?? [];
+        for (const item of chunkItems) {
+          if (typeof item.trainingMenuItemId === "string") {
+            menuItemsById.set(item.trainingMenuItemId, item as Record<string, unknown>);
+          }
+        }
+      }
+
+      activeMenuItems = uniqueOrderedMenuItemIds
+        .map((trainingMenuItemId) => menuItemsById.get(trainingMenuItemId))
+        .filter((item): item is Record<string, unknown> => item !== undefined && item.isActive !== false);
+    }
+  }
 
   const todayVisitsResult = await ddb.send(
     new QueryCommand({

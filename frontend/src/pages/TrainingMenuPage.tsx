@@ -124,7 +124,7 @@ export function TrainingMenuPage() {
         <h2>メニューセット</h2>
         <form
           className="menu-set-single-form"
-          onSubmit={(e: FormEvent<HTMLFormElement>) => {
+          onSubmit={async (e: FormEvent<HTMLFormElement>) => {
             e.preventDefault();
             const trimmed = setNameDraft.trim();
             if (!trimmed) {
@@ -133,13 +133,10 @@ export function TrainingMenuPage() {
             }
 
             if (isCreateSetMode) {
-              const createdSetId = createMenuSet(trimmed);
+              const createdSetId = await createMenuSet(trimmed, { isDefault: setDefaultChecked });
               if (!createdSetId) {
                 setStatusText('メニューセット作成に失敗しました。');
                 return;
-              }
-              if (setDefaultChecked) {
-                setDefaultMenuSet(createdSetId);
               }
               setActiveMenuSet(createdSetId);
               setIsCreateSetMode(false);
@@ -151,18 +148,22 @@ export function TrainingMenuPage() {
               return;
             }
 
-            renameMenuSet(editingSet.id, trimmed);
-            if (setDefaultChecked) {
-              setDefaultMenuSet(editingSet.id);
-            } else if (editingSet.isDefault) {
-              const anotherSet = menuSets.find((set) => set.id !== editingSet.id);
-              if (anotherSet) {
-                setDefaultMenuSet(anotherSet.id);
-              } else {
-                setSetDefaultChecked(true);
+            try {
+              await renameMenuSet(editingSet.id, trimmed);
+              if (setDefaultChecked) {
+                await setDefaultMenuSet(editingSet.id);
+              } else if (editingSet.isDefault) {
+                const anotherSet = menuSets.find((set) => set.id !== editingSet.id);
+                if (anotherSet) {
+                  await setDefaultMenuSet(anotherSet.id);
+                } else {
+                  setSetDefaultChecked(true);
+                }
               }
+              setStatusText('メニューセットを更新しました。');
+            } catch {
+              setStatusText('メニューセット更新に失敗しました。');
             }
-            setStatusText('メニューセットを更新しました。');
           }}
         >
           <div className="menu-set-name-edit-row">
@@ -250,10 +251,14 @@ export function TrainingMenuPage() {
               type="button"
               className="btn subtle"
               disabled={!selectedExistingItemId}
-              onClick={() => {
-                assignMenuItemToSet(editingSet.id, selectedExistingItemId);
-                setSelectedExistingItemId('');
-                setStatusText('既存種目をセットへ追加しました。');
+              onClick={async () => {
+                try {
+                  await assignMenuItemToSet(editingSet.id, selectedExistingItemId);
+                  setSelectedExistingItemId('');
+                  setStatusText('既存種目をセットへ追加しました。');
+                } catch {
+                  setStatusText('既存種目の追加に失敗しました。');
+                }
               }}
             >
               セットに追加
@@ -278,12 +283,16 @@ export function TrainingMenuPage() {
               item={item}
               onUpdate={(patch) => updateMenuItem(item.id, patch)}
               onDelete={() => deleteMenuItem(item.id)}
-              onRemoveFromSet={() => {
-                unassignMenuItemFromSet(editingSet.id, item.id);
-                setStatusText(`「${item.trainingName}」をセットから外しました。`);
+              onRemoveFromSet={async () => {
+                try {
+                  await unassignMenuItemFromSet(editingSet.id, item.id);
+                  setStatusText(`「${item.trainingName}」をセットから外しました。`);
+                } catch {
+                  setStatusText(`「${item.trainingName}」をセットから外せませんでした。`);
+                }
               }}
-              onMoveUp={() => moveMenuItemInSet(editingSet.id, item.id, -1)}
-              onMoveDown={() => moveMenuItemInSet(editingSet.id, item.id, 1)}
+              onMoveUp={() => void moveMenuItemInSet(editingSet.id, item.id, -1).catch(() => undefined)}
+              onMoveDown={() => void moveMenuItemInSet(editingSet.id, item.id, 1).catch(() => undefined)}
             />
           ))}
       </section>
