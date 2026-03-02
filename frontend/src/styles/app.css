@@ -351,6 +351,12 @@ a {
   gap: 10px;
 }
 
+.menu-set-submit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
 .menu-set-name-edit-row {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -399,6 +405,41 @@ a {
   margin-top: 6px;
   color: var(--primary-strong);
   font-size: 0.9rem;
+}
+
+.overlay-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(12, 18, 24, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.overlay-modal-card {
+  width: min(100%, 420px);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 14px;
+  box-shadow: var(--shadow-strong);
+  display: grid;
+  gap: 10px;
+}
+
+.overlay-modal-card h3 {
+  font-size: 1.02rem;
+}
+
+.overlay-modal-card p {
+  color: var(--muted);
+}
+
+.overlay-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .simple-list {

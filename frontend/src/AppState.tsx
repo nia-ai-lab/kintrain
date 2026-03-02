@@ -4,6 +4,7 @@ import {
   createTrainingMenuSet as createTrainingMenuSetApi,
   createGymVisit,
   createTrainingMenuItem,
+  deleteTrainingMenuSet as deleteTrainingMenuSetApi,
   deleteTrainingMenuItem as deleteTrainingMenuItemApi,
   getProfile,
   listDailyRecords as listDailyRecordsApi,
@@ -66,7 +67,7 @@ interface AppStateContextValue {
   moveMenuItem: (itemId: string, direction: -1 | 1) => void;
   createMenuSet: (setName: string, options?: { isDefault?: boolean }) => Promise<string | null>;
   renameMenuSet: (setId: string, setName: string) => Promise<void>;
-  deleteMenuSet: (setId: string) => void;
+  deleteMenuSet: (setId: string) => Promise<void>;
   setDefaultMenuSet: (setId: string) => Promise<void>;
   setActiveMenuSet: (setId: string) => void;
   assignMenuItemToSet: (setId: string, itemId: string) => Promise<void>;
@@ -1117,33 +1118,37 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           throw error;
         }
       },
-      deleteMenuSet: (setId) => {
-        setData((prev) => {
-          if (prev.menuSets.length <= 1) {
-            return prev;
-          }
-          const target = prev.menuSets.find((set) => set.id === setId);
-          if (!target) {
-            return prev;
-          }
-          const remaining = prev.menuSets
-            .filter((set) => set.id !== setId)
-            .map((set, idx) => ({ ...set, order: idx + 1 }));
-          const nextDefaultId = target.isDefault ? remaining[0]?.id : getDefaultMenuSetId(remaining);
-          const normalized = remaining.map((set) => ({
-            ...set,
-            isDefault: set.id === nextDefaultId
-          }));
-          const nextActiveId =
-            prev.activeTrainingMenuSetId === setId
-              ? nextDefaultId || normalized[0]?.id || ''
-              : prev.activeTrainingMenuSetId;
-          return {
-            ...prev,
-            menuSets: normalized,
-            activeTrainingMenuSetId: nextActiveId
-          };
-        });
+      deleteMenuSet: async (setId) => {
+        if (!isAuthenticated) {
+          return;
+        }
+        try {
+          await deleteTrainingMenuSetApi(setId);
+          setData((prev) => {
+            const target = prev.menuSets.find((set) => set.id === setId);
+            if (!target) {
+              return prev;
+            }
+            const remaining = prev.menuSets.filter((set) => set.id !== setId).map((set, idx) => ({ ...set, order: idx + 1 }));
+            const nextDefaultId = getDefaultMenuSetId(remaining);
+            const normalized = remaining.map((set) => ({
+              ...set,
+              isDefault: set.id === nextDefaultId
+            }));
+            const nextActiveId =
+              prev.activeTrainingMenuSetId === setId ? nextDefaultId || normalized[0]?.id || '' : prev.activeTrainingMenuSetId;
+            return {
+              ...prev,
+              menuSets: normalized,
+              activeTrainingMenuSetId: nextActiveId
+            };
+          });
+          setCoreDataError('');
+        } catch (error) {
+          setCoreDataError(toErrorMessage(error, 'メニューセット削除に失敗しました。'));
+          void refreshCoreData();
+          throw error;
+        }
       },
       setDefaultMenuSet: async (setId) => {
         if (!isAuthenticated) {

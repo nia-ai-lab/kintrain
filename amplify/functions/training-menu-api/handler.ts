@@ -836,6 +836,72 @@ async function updateTrainingMenuSet(
   });
 }
 
+async function deleteTrainingMenuSet(userId: string, trainingMenuSetId: string): Promise<APIGatewayProxyResult> {
+  const current = await getMenuSetById(userId, trainingMenuSetId);
+  if (!current || current.isActive === false) {
+    return response(404, { message: "training menu set not found." });
+  }
+  if (Boolean(current.isDefault)) {
+    return response(400, { message: "default set cannot be deleted. choose another set as default first." });
+  }
+
+  const linkedSetItemIds: string[] = [];
+  let nextKey: Record<string, unknown> | undefined;
+  do {
+    const linksResult = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetItemTableName,
+        IndexName: setItemsBySetOrderIndex,
+        KeyConditionExpression: "userId = :userId AND begins_with(menuSetOrderKey, :prefix)",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":prefix": `${trainingMenuSetId}#`
+        },
+        ExclusiveStartKey: nextKey
+      })
+    );
+    for (const item of linksResult.Items ?? []) {
+      if (typeof item.trainingMenuSetItemId === "string") {
+        linkedSetItemIds.push(item.trainingMenuSetItemId);
+      }
+    }
+    nextKey = linksResult.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (nextKey);
+
+  if (linkedSetItemIds.length > 0) {
+    const deleteLinkTransactItems = linkedSetItemIds.map((trainingMenuSetItemId) => ({
+      Delete: {
+        TableName: trainingMenuSetItemTableName,
+        Key: {
+          userId,
+          trainingMenuSetItemId
+        },
+        ConditionExpression: "attribute_exists(userId) AND attribute_exists(trainingMenuSetItemId)"
+      }
+    }));
+    for (let i = 0; i < deleteLinkTransactItems.length; i += 25) {
+      await ddb.send(
+        new TransactWriteCommand({
+          TransactItems: deleteLinkTransactItems.slice(i, i + 25)
+        })
+      );
+    }
+  }
+
+  await ddb.send(
+    new DeleteCommand({
+      TableName: trainingMenuSetTableName,
+      Key: {
+        userId,
+        trainingMenuSetId
+      },
+      ConditionExpression: "attribute_exists(userId) AND attribute_exists(trainingMenuSetId)"
+    })
+  );
+
+  return response(204, {});
+}
+
 async function addTrainingMenuItemToSet(
   event: APIGatewayProxyEvent,
   userId: string,
@@ -1013,6 +1079,9 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   const menuSetMatch = path.match(/^\/training-menu-sets\/([^/]+)\/?$/);
   if (menuSetMatch && method === "PUT") {
     return updateTrainingMenuSet(event, userId, menuSetMatch[1]);
+  }
+  if (menuSetMatch && method === "DELETE") {
+    return deleteTrainingMenuSet(userId, menuSetMatch[1]);
   }
 
   const menuSetItemsMatch = path.match(/^\/training-menu-sets\/([^/]+)\/items\/?$/);

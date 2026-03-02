@@ -13,6 +13,7 @@ export function TrainingMenuPage() {
     deleteMenuItem,
     createMenuSet,
     renameMenuSet,
+    deleteMenuSet,
     setDefaultMenuSet,
     setActiveMenuSet,
     assignMenuItemToSet,
@@ -25,6 +26,7 @@ export function TrainingMenuPage() {
   const [setNameDraft, setSetNameDraft] = useState('');
   const [setDefaultChecked, setSetDefaultChecked] = useState(false);
   const [isCreateSetMode, setIsCreateSetMode] = useState(false);
+  const [showDeleteSetConfirm, setShowDeleteSetConfirm] = useState(false);
   const [selectedExistingItemId, setSelectedExistingItemId] = useState('');
 
   const menuSets = useMemo(() => [...data.menuSets].sort((a, b) => a.order - b.order), [data.menuSets]);
@@ -40,6 +42,7 @@ export function TrainingMenuPage() {
     setSetNameDraft(activeSet?.setName ?? '');
     setSetDefaultChecked(Boolean(activeSet?.isDefault));
     setSelectedExistingItemId('');
+    setShowDeleteSetConfirm(false);
   }, [activeSet?.id, activeSet?.setName, activeSet?.isDefault, isCreateSetMode]);
 
   const menuItemById = useMemo(() => {
@@ -152,13 +155,6 @@ export function TrainingMenuPage() {
               await renameMenuSet(editingSet.id, trimmed);
               if (setDefaultChecked) {
                 await setDefaultMenuSet(editingSet.id);
-              } else if (editingSet.isDefault) {
-                const anotherSet = menuSets.find((set) => set.id !== editingSet.id);
-                if (anotherSet) {
-                  await setDefaultMenuSet(anotherSet.id);
-                } else {
-                  setSetDefaultChecked(true);
-                }
               }
               setStatusText('メニューセットを更新しました。');
             } catch {
@@ -171,7 +167,12 @@ export function TrainingMenuPage() {
               <input
                 type="checkbox"
                 checked={setDefaultChecked}
-                onChange={(e) => setSetDefaultChecked(e.target.checked)}
+                onChange={(e) => {
+                  if (editingSet?.isDefault && !e.target.checked) {
+                    return;
+                  }
+                  setSetDefaultChecked(e.target.checked);
+                }}
               />
               <span>デフォルト</span>
             </label>
@@ -182,14 +183,52 @@ export function TrainingMenuPage() {
               maxLength={40}
             />
           </div>
-          <button type="submit" className="btn subtle">
-            {isCreateSetMode ? 'セット作成' : 'セット名更新'}
-          </button>
+          <div className="menu-set-submit-row">
+            <button type="submit" className="btn subtle">
+              {isCreateSetMode ? '作成' : '更新'}
+            </button>
+            {!isCreateSetMode && editingSet && (
+              <button type="button" className="btn danger" onClick={() => setShowDeleteSetConfirm(true)}>
+                削除
+              </button>
+            )}
+          </div>
         </form>
 
         {statusText && <p className="status-text">{statusText}</p>}
         {coreDataError && <p className="status-text">{coreDataError}</p>}
       </section>
+
+      {showDeleteSetConfirm && editingSet && (
+        <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="delete-menu-set-title">
+          <div className="overlay-modal-card">
+            <h3 id="delete-menu-set-title">メニューセットを削除しますか？</h3>
+            <p>「{editingSet.setName}」を削除すると、このセットへの紐付けが解除されます。</p>
+            <div className="overlay-modal-actions">
+              <button type="button" className="btn subtle" onClick={() => setShowDeleteSetConfirm(false)}>
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                onClick={async () => {
+                  try {
+                    await deleteMenuSet(editingSet.id);
+                    setStatusText(`メニューセット「${editingSet.setName}」を削除しました。`);
+                    setShowDeleteSetConfirm(false);
+                    setIsCreateSetMode(false);
+                  } catch {
+                    setStatusText('メニューセット削除に失敗しました。');
+                    setShowDeleteSetConfirm(false);
+                  }
+                }}
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {editingSet && (
         <section className="card stack-md">

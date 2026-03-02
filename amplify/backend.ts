@@ -256,6 +256,7 @@ trainingMenuSetsResource.addMethod("GET", trainingMenuIntegration, authMethodOpt
 trainingMenuSetsResource.addMethod("POST", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetResource = trainingMenuSetsResource.addResource("{trainingMenuSetId}");
 trainingMenuSetResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
+trainingMenuSetResource.addMethod("DELETE", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetItemsResource = trainingMenuSetResource.addResource("items");
 trainingMenuSetItemsResource.addMethod("POST", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetItemsReorderResource = trainingMenuSetItemsResource.addResource("reorder");

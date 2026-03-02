@@ -237,6 +237,12 @@ export async function updateTrainingMenuSet(
   });
 }
 
+export async function deleteTrainingMenuSet(trainingMenuSetId: string): Promise<void> {
+  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}`, {
+    method: 'DELETE'
+  });
+}
+
 export async function addTrainingMenuItemToSet(trainingMenuSetId: string, trainingMenuItemId: string): Promise<void> {
   await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items`, {
     method: 'POST',
