@@ -34,6 +34,19 @@ export function TrainingMenuPage() {
     return menuSets.find((set) => set.id === data.activeTrainingMenuSetId) ?? menuSets.find((set) => set.isDefault) ?? menuSets[0];
   }, [data.activeTrainingMenuSetId, menuSets]);
   const editingSet = isCreateSetMode ? null : activeSet;
+  const isFirstSetCreation = isCreateSetMode && menuSets.length === 0;
+
+  useEffect(() => {
+    if (menuSets.length > 0) {
+      return;
+    }
+    if (!isCreateSetMode) {
+      setIsCreateSetMode(true);
+    }
+    if (!setDefaultChecked) {
+      setSetDefaultChecked(true);
+    }
+  }, [isCreateSetMode, menuSets.length, setDefaultChecked]);
 
   useEffect(() => {
     if (isCreateSetMode) {
@@ -102,7 +115,7 @@ export function TrainingMenuPage() {
               if (nextValue === CREATE_NEW_SET_OPTION) {
                 setIsCreateSetMode(true);
                 setSetNameDraft('');
-                setSetDefaultChecked(false);
+                setSetDefaultChecked(menuSets.length === 0);
                 setSelectedExistingItemId('');
                 return;
               }
@@ -136,7 +149,7 @@ export function TrainingMenuPage() {
             }
 
             if (isCreateSetMode) {
-              const createdSetId = await createMenuSet(trimmed, { isDefault: setDefaultChecked });
+              const createdSetId = await createMenuSet(trimmed, { isDefault: isFirstSetCreation || setDefaultChecked });
               if (!createdSetId) {
                 setStatusText('メニューセット作成に失敗しました。');
                 return;
@@ -166,8 +179,11 @@ export function TrainingMenuPage() {
             <label className="menu-set-default-check">
               <input
                 type="checkbox"
-                checked={setDefaultChecked}
+                checked={isFirstSetCreation ? true : setDefaultChecked}
                 onChange={(e) => {
+                  if (isFirstSetCreation) {
+                    return;
+                  }
                   if (editingSet?.isDefault && !e.target.checked) {
                     return;
                   }
@@ -359,7 +375,7 @@ function MenuItemCard({
   return (
     <article className="card">
       <div className="menu-item-header-under">
-        <p className="priority-chip">順序 {order}</p>
+        <p className="priority-chip">優先 {order}</p>
         <div className="menu-item-actions-under">
           <button type="button" className="btn subtle menu-item-icon-button" onClick={onMoveUp} aria-label="上へ移動">
             ↑

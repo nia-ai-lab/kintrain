@@ -130,17 +130,6 @@ function normalizeRepsRange(input: {
   };
 }
 
-function createDefaultMenuSet(menuItems: TrainingMenuItem[]): TrainingMenuSet {
-  return {
-    id: 'menu-set-main',
-    setName: 'メインメニュー',
-    order: 1,
-    isDefault: true,
-    isActive: true,
-    itemIds: [...menuItems].sort((a, b) => a.order - b.order).map((item) => item.id)
-  };
-}
-
 function getDefaultMenuSetId(menuSets: TrainingMenuSet[]): string {
   return menuSets.find((set) => set.isDefault)?.id ?? menuSets[0]?.id ?? '';
 }
@@ -167,7 +156,13 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
       } as TrainingMenuSet;
     });
 
-  const menuSets = normalized.length > 0 ? normalized : [createDefaultMenuSet(menuItems)];
+  const menuSets = normalized;
+  if (menuSets.length === 0) {
+    return {
+      menuSets: [],
+      activeTrainingMenuSetId: ''
+    };
+  }
 
   const orphanItemIds = menuItems.map((item) => item.id).filter((itemId) => !menuSets.some((set) => set.itemIds.includes(itemId)));
 
