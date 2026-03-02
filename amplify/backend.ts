@@ -25,8 +25,20 @@ const backend = defineBackend({
 });
 
 const stack = backend.profileApiFunction.resources.lambda.stack;
+const rawDeploymentBranch = process.env.AWS_BRANCH ?? process.env.AMPLIFY_BRANCH ?? "local";
+const deploymentBranchSuffix =
+  rawDeploymentBranch
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "") || "local";
+
+function tableNameFor(baseName: string): string {
+  return `${baseName}-${deploymentBranchSuffix}`;
+}
 
 const userProfileTable = new dynamodb.Table(stack, "UserProfileTable", {
+  tableName: tableNameFor("UserProfileTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -34,6 +46,7 @@ const userProfileTable = new dynamodb.Table(stack, "UserProfileTable", {
 });
 
 const trainingMenuTable = new dynamodb.Table(stack, "TrainingMenuTable", {
+  tableName: tableNameFor("TrainingMenuTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "trainingMenuItemId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -54,6 +67,7 @@ trainingMenuTable.addGlobalSecondaryIndex({
 });
 
 const trainingMenuSetTable = new dynamodb.Table(stack, "TrainingMenuSetTable", {
+  tableName: tableNameFor("TrainingMenuSetTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "trainingMenuSetId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -74,6 +88,7 @@ trainingMenuSetTable.addGlobalSecondaryIndex({
 });
 
 const trainingMenuSetItemTable = new dynamodb.Table(stack, "TrainingMenuSetItemTable", {
+  tableName: tableNameFor("TrainingMenuSetItemTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "trainingMenuSetItemId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -100,6 +115,7 @@ trainingMenuSetItemTable.addGlobalSecondaryIndex({
 });
 
 const trainingHistoryTable = new dynamodb.Table(stack, "TrainingHistoryTable", {
+  tableName: tableNameFor("TrainingHistoryTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "visitId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -114,6 +130,7 @@ trainingHistoryTable.addGlobalSecondaryIndex({
 });
 
 const dailyRecordTable = new dynamodb.Table(stack, "DailyRecordTable", {
+  tableName: tableNameFor("DailyRecordTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "recordDate", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
@@ -122,6 +139,7 @@ const dailyRecordTable = new dynamodb.Table(stack, "DailyRecordTable", {
 });
 
 const goalTable = new dynamodb.Table(stack, "GoalTable", {
+  tableName: tableNameFor("GoalTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -129,6 +147,7 @@ const goalTable = new dynamodb.Table(stack, "GoalTable", {
 });
 
 const aiSettingTable = new dynamodb.Table(stack, "AiSettingTable", {
+  tableName: tableNameFor("AiSettingTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
@@ -136,6 +155,7 @@ const aiSettingTable = new dynamodb.Table(stack, "AiSettingTable", {
 });
 
 const aiAdviceLogTable = new dynamodb.Table(stack, "AiAdviceLogTable", {
+  tableName: tableNameFor("AiAdviceLogTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
   sortKey: { name: "adviceLogId", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
