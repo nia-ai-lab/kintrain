@@ -366,32 +366,6 @@ def _list_mcp_tools(mcp_client: Any) -> list[Any]:
     return tools
 
 
-class _UserIdInjectedToolProxy:
-    def __init__(self, inner_tool: Any, actor_id: str):
-        self._inner_tool = inner_tool
-        self._actor_id = actor_id
-
-    def __getattr__(self, item: str) -> Any:
-        return getattr(self._inner_tool, item)
-
-    async def stream(self, tool_use: Any, invocation_state: Any, **kwargs: Any) -> AsyncGenerator[Any, None]:
-        patched_tool_use = tool_use
-        if isinstance(tool_use, dict):
-            raw_input = tool_use.get("input")
-            tool_input: dict[str, Any] = dict(raw_input) if isinstance(raw_input, dict) else {}
-            tool_input["userId"] = self._actor_id
-            patched_tool_use = {
-                **tool_use,
-                "input": tool_input,
-            }
-        async for event in self._inner_tool.stream(patched_tool_use, invocation_state, **kwargs):
-            yield event
-
-
-def _inject_user_id_for_mcp_tools(mcp_tools: list[Any], actor_id: str) -> list[Any]:
-    return [_UserIdInjectedToolProxy(tool, actor_id) for tool in mcp_tools]
-
-
 def _run_agent_turn(
     session_id: str,
     actor_id: str,
@@ -416,6 +390,10 @@ def _run_agent_turn(
         agentcore_memory_config=memory_config,
         region_name=AWS_REGION,
     ) as session_manager:
+        system_prompt_for_turn = (
+            f"{system_prompt}\n\n"
+            f"Tool calling rule: MCP tool arguments must include userId=\"{actor_id}\" exactly."
+        )
         web_search_tools = _load_web_search_tools()
         mcp_url = _normalize_mcp_gateway_url(MCP_GATEWAY_URL)
         mcp_context = nullcontext()
@@ -444,11 +422,10 @@ def _run_agent_turn(
                 except Exception as exc:
                     print(f"mcp-tool-list-failed: {type(exc).__name__}: {exc}")
 
-            injected_mcp_tools = _inject_user_id_for_mcp_tools(mcp_tools, actor_id) if mcp_tools else []
-            tools = [*injected_mcp_tools, *web_search_tools]
+            tools = [*mcp_tools, *web_search_tools]
             agent_kwargs = {
                 "model": model,
-                "system_prompt": system_prompt,
+                "system_prompt": system_prompt_for_turn,
                 "session_manager": session_manager,
             }
             if tools:
