@@ -136,8 +136,8 @@ export function AiChatPage() {
             aiChatSessionId: session.id,
             runtimeSessionId: session.id,
             userMessage: text,
-            timeZoneId: data.userProfile.timeZoneId,
-            characterName: data.aiCharacterProfile.characterName
+            userProfile: data.userProfile,
+            aiCharacterProfile: data.aiCharacterProfile
           },
           (event) => {
             if (event.type === 'status') {
