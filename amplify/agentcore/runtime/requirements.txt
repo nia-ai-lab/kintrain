@@ -2,4 +2,3 @@ boto3==1.42.59
 strands-agents==1.28.0
 strands-agents-tools==0.2.21
 bedrock-agentcore==1.4.1
-aws-opentelemetry-distro==0.10.1

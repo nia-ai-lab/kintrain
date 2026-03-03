@@ -392,7 +392,7 @@ if (enableAgentCoreResources) {
     agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromCodeAsset({
       path: path.join(process.cwd(), "amplify", "agentcore", "runtime"),
       runtime: agentcore.AgentCoreRuntime.PYTHON_3_12,
-      entrypoint: ["otel_entrypoint.py"]
+      entrypoint: ["main.py"]
     }),
     authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingJWT(
       cognitoDiscoveryUrl,
@@ -402,7 +402,6 @@ if (enableAgentCoreResources) {
     ),
     environmentVariables: {
       MODEL_ID: process.env.MODEL_ID ?? "global.anthropic.claude-sonnet-4-6",
-      DISABLE_ADOT_OBSERVABILITY: process.env.DISABLE_ADOT_OBSERVABILITY ?? "false",
       APP_TIMEZONE_DEFAULT: process.env.APP_TIMEZONE_DEFAULT ?? "Asia/Tokyo",
       MCP_GATEWAY_URL: aiCoachGateway.gatewayUrl ?? "",
       ENABLE_MCP_TOOLS: process.env.ENABLE_MCP_TOOLS ?? "true",
