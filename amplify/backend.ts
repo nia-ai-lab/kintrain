@@ -400,9 +400,6 @@ if (enableAgentCoreResources) {
       undefined,
       ["aws.cognito.signin.user.admin"]
     ),
-    requestHeaderConfiguration: {
-      allowlistedHeaders: ["authorization", "x-amzn-bedrock-agentcore-runtime-session-id"]
-    },
     environmentVariables: {
       MODEL_ID: process.env.MODEL_ID ?? "global.anthropic.claude-sonnet-4-6",
       DISABLE_ADOT_OBSERVABILITY: process.env.DISABLE_ADOT_OBSERVABILITY ?? "false",

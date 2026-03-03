@@ -233,18 +233,12 @@ export async function invokeAiRuntimeStream(
 
   const session = await fetchAuthSession();
   const accessToken = getAiRuntimeAccessToken(session);
-  const runtimeSessionHeaderId = (input.runtimeSessionId || input.aiChatSessionId || "").trim();
   const response = await fetch(runtimeInvokeConfig.invokeUrl, {
     method: "POST",
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       Accept: "text/event-stream",
-      authorization: `Bearer ${accessToken}`,
-      ...(runtimeSessionHeaderId
-        ? {
-            "x-amzn-bedrock-agentcore-runtime-session-id": runtimeSessionHeaderId
-          }
-        : {})
+      authorization: `Bearer ${accessToken}`
     },
     body: JSON.stringify({
       inputText: input.userMessage,
