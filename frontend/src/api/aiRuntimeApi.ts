@@ -1,5 +1,6 @@
 import { fetchAuthSession } from "aws-amplify/auth";
 import amplifyOutputs from "../amplify_outputs.json";
+import type { AiCharacterProfile, UserProfile } from "../types";
 
 type RuntimeEndpointOutput = {
   auth?: {
@@ -32,8 +33,8 @@ export type InvokeAiRuntimeInput = {
   aiChatSessionId: string;
   runtimeSessionId?: string;
   userMessage: string;
-  timeZoneId: string;
-  characterName: string;
+  userProfile: UserProfile;
+  aiCharacterProfile: AiCharacterProfile;
 };
 
 type RuntimeInvokeConfig = {
@@ -244,8 +245,19 @@ export async function invokeAiRuntimeStream(
       sessionId: input.runtimeSessionId,
       metadata: {
         aiChatSessionId: input.aiChatSessionId,
-        timeZoneId: input.timeZoneId,
-        characterName: input.characterName
+        userProfile: {
+          userName: input.userProfile.userName,
+          sex: input.userProfile.sex,
+          birthDate: input.userProfile.birthDate,
+          heightCm: input.userProfile.heightCm,
+          timeZoneId: input.userProfile.timeZoneId
+        },
+        aiCharacterProfile: {
+          characterName: input.aiCharacterProfile.characterName,
+          tonePreset: input.aiCharacterProfile.tonePreset,
+          characterDescription: input.aiCharacterProfile.characterDescription,
+          speechEnding: input.aiCharacterProfile.speechEnding
+        }
       }
     })
   });

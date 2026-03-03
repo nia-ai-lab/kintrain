@@ -95,6 +95,8 @@ export interface AiCharacterProfile {
   characterName: string;
   avatarImageUrl: string;
   tonePreset: TonePreset;
+  characterDescription: string;
+  speechEnding: string;
 }
 
 export interface ChatMessage {

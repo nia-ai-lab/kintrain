@@ -22,6 +22,8 @@ export function SettingsPage() {
   const [aiStatus, setAiStatus] = useState('');
   const [aiCharacterName, setAiCharacterName] = useState(data.aiCharacterProfile.characterName);
   const [aiTonePreset, setAiTonePreset] = useState<TonePreset>(data.aiCharacterProfile.tonePreset);
+  const [aiCharacterDescription, setAiCharacterDescription] = useState(data.aiCharacterProfile.characterDescription);
+  const [aiSpeechEnding, setAiSpeechEnding] = useState(data.aiCharacterProfile.speechEnding);
 
   const profile = data.userProfile;
   const ageHint = useMemo(() => {
@@ -44,7 +46,14 @@ export function SettingsPage() {
   useEffect(() => {
     setAiCharacterName(data.aiCharacterProfile.characterName);
     setAiTonePreset(data.aiCharacterProfile.tonePreset);
-  }, [data.aiCharacterProfile.characterName, data.aiCharacterProfile.tonePreset]);
+    setAiCharacterDescription(data.aiCharacterProfile.characterDescription);
+    setAiSpeechEnding(data.aiCharacterProfile.speechEnding);
+  }, [
+    data.aiCharacterProfile.characterDescription,
+    data.aiCharacterProfile.characterName,
+    data.aiCharacterProfile.speechEnding,
+    data.aiCharacterProfile.tonePreset
+  ]);
 
   return (
     <div className="stack-lg">
@@ -146,6 +155,18 @@ export function SettingsPage() {
               <option value="strict-coach">コーチ強め</option>
             </select>
           </label>
+          <label>
+            キャラクター説明
+            <input
+              value={aiCharacterDescription}
+              onChange={(e) => setAiCharacterDescription(e.target.value)}
+              placeholder="例: 猫耳メイド"
+            />
+          </label>
+          <label>
+            語尾
+            <input value={aiSpeechEnding} onChange={(e) => setAiSpeechEnding(e.target.value)} placeholder="例: だニャ" />
+          </label>
         </div>
         <div className="row-wrap">
           <button
@@ -154,7 +175,9 @@ export function SettingsPage() {
             onClick={() => {
               updateAiCharacterProfile({
                 characterName: aiCharacterName.trim() || data.aiCharacterProfile.characterName,
-                tonePreset: aiTonePreset
+                tonePreset: aiTonePreset,
+                characterDescription: aiCharacterDescription.trim(),
+                speechEnding: aiSpeechEnding.trim()
               });
               setAiStatus('AIコーチキャラクター設定を反映しました。');
             }}

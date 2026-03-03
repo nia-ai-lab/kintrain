@@ -10,6 +10,8 @@ type AiCharacterProfile = {
   characterName: string;
   avatarImageUrl: string;
   tonePreset: string;
+  characterDescription: string;
+  speechEnding: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -19,7 +21,9 @@ function defaultAiCharacterProfile(): AiCharacterProfile {
     characterId: "nyaruko",
     characterName: "ニャル子",
     avatarImageUrl: "/assets/characters/nyaruko/expressions/default.png",
-    tonePreset: "friendly-coach"
+    tonePreset: "friendly-coach",
+    characterDescription: "猫耳メイド",
+    speechEnding: "だニャ"
   };
 }
 
@@ -40,6 +44,8 @@ async function getAiCharacterProfile(userId: string): Promise<APIGatewayProxyRes
     characterName: result.Item.characterName ?? "ニャル子",
     avatarImageUrl: result.Item.avatarImageUrl ?? "/assets/characters/nyaruko/expressions/default.png",
     tonePreset: result.Item.tonePreset ?? "friendly-coach",
+    characterDescription: result.Item.characterDescription ?? "猫耳メイド",
+    speechEnding: result.Item.speechEnding ?? "だニャ",
     updatedAt: result.Item.updatedAt
   });
 }
@@ -71,6 +77,12 @@ async function putAiCharacterProfile(
     avatarImageUrl:
       toNonEmptyString(body.avatarImageUrl) ?? (current.Item?.avatarImageUrl as string | undefined) ?? defaults.avatarImageUrl,
     tonePreset: toNonEmptyString(body.tonePreset) ?? (current.Item?.tonePreset as string | undefined) ?? defaults.tonePreset,
+    characterDescription:
+      toNonEmptyString(body.characterDescription) ??
+      (current.Item?.characterDescription as string | undefined) ??
+      defaults.characterDescription,
+    speechEnding:
+      toNonEmptyString(body.speechEnding) ?? (current.Item?.speechEnding as string | undefined) ?? defaults.speechEnding,
     createdAt,
     updatedAt
   };

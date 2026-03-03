@@ -11,11 +11,14 @@ import asyncio
 import base64
 import json
 import os
+import re
 import sys
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from collections.abc import AsyncGenerator
+from zoneinfo import ZoneInfo
 
 
 MODEL_ID = os.getenv("MODEL_ID", "global.anthropic.claude-sonnet-4-6")
@@ -47,14 +50,15 @@ def _read_prompt(path_str: str) -> str:
     return path.read_text(encoding="utf-8").strip()
 
 
-def _load_system_prompt() -> str:
+def _load_system_prompt_template() -> str:
     soul = _read_prompt(SOUL_FILE_PATH)
     persona = _read_prompt(PERSONA_FILE_PATH)
     system_prompt = _read_prompt(SYSTEM_PROMPT_FILE_PATH)
     return "\n\n".join([soul, persona, system_prompt]).strip()
 
 
-SYSTEM_PROMPT = _load_system_prompt()
+SYSTEM_PROMPT_TEMPLATE = _load_system_prompt_template()
+VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 
 try:
     from bedrock_agentcore.runtime import BedrockAgentCoreApp, BedrockAgentCoreContext  # type: ignore
@@ -172,7 +176,123 @@ def _build_retrieval_config(retrieval_config_class: Any) -> dict[str, Any]:
     }
 
 
-def _run_agent_turn(session_id: str, actor_id: str, user_text: str) -> str:
+def _to_non_empty_string(value: Any, fallback: str = "") -> str:
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if trimmed:
+            return trimmed
+    return fallback
+
+
+def _extract_metadata(payload: dict[str, Any]) -> dict[str, Any]:
+    metadata = payload.get("metadata")
+    if isinstance(metadata, dict):
+        return metadata
+    return {}
+
+
+def _resolve_timezone(timezone_id: str) -> ZoneInfo:
+    try:
+        return ZoneInfo(timezone_id)
+    except Exception:
+        try:
+            return ZoneInfo(APP_TIMEZONE_DEFAULT)
+        except Exception:
+            return ZoneInfo("UTC")
+
+
+def _resolve_template_value(path: str, context: dict[str, Any]) -> Any:
+    parts = [part for part in path.split(".") if part]
+    if not parts:
+        return None
+    current: Any = context
+    for part in parts:
+        if isinstance(current, dict) and part in current:
+            current = current[part]
+            continue
+        return None
+    return current
+
+
+def _render_template(template: str, context: dict[str, Any]) -> str:
+    def replacer(match: re.Match[str]) -> str:
+        key = match.group(1)
+        value = _resolve_template_value(key, context)
+        if value is None:
+            return match.group(0)
+        if isinstance(value, str):
+            return value
+        return str(value)
+
+    return VARIABLE_PATTERN.sub(replacer, template)
+
+
+def _build_system_prompt(payload: dict[str, Any]) -> str:
+    metadata = _extract_metadata(payload)
+
+    user_profile = metadata.get("userProfile") if isinstance(metadata.get("userProfile"), dict) else {}
+    ai_profile = metadata.get("aiCharacterProfile") if isinstance(metadata.get("aiCharacterProfile"), dict) else {}
+
+    user_name = _to_non_empty_string(user_profile.get("userName"), "未設定")
+    user_sex = _to_non_empty_string(user_profile.get("sex"), "no-answer")
+    user_birth_date = _to_non_empty_string(user_profile.get("birthDate"), "未設定")
+    user_height_cm_raw = user_profile.get("heightCm")
+    if isinstance(user_height_cm_raw, (int, float)):
+        user_height_cm = str(user_height_cm_raw)
+    else:
+        user_height_cm = "未設定"
+
+    user_time_zone_id = _to_non_empty_string(user_profile.get("timeZoneId"), "")
+    if not user_time_zone_id:
+        user_time_zone_id = _to_non_empty_string(metadata.get("timeZoneId"), APP_TIMEZONE_DEFAULT)
+
+    character_name = _to_non_empty_string(
+        ai_profile.get("characterName"), _to_non_empty_string(metadata.get("characterName"), "ニャル子")
+    )
+    tone_preset = _to_non_empty_string(ai_profile.get("tonePreset"), "friendly-coach")
+    character_description = _to_non_empty_string(ai_profile.get("characterDescription"), "未設定")
+    speech_ending = _to_non_empty_string(ai_profile.get("speechEnding"), "未設定")
+
+    now_utc = datetime.now(timezone.utc)
+    resolved_zone = _resolve_timezone(user_time_zone_id)
+    now_user_tz = now_utc.astimezone(resolved_zone)
+
+    context = {
+        "userName": user_name,
+        "userSex": user_sex,
+        "userBirthDate": user_birth_date,
+        "userHeightCm": user_height_cm,
+        "userTimeZoneId": user_time_zone_id,
+        "characterName": character_name,
+        "tonePreset": tone_preset,
+        "characterDescription": character_description,
+        "speechEnding": speech_ending,
+        "backendNowUtcRfc3339": now_utc.isoformat(),
+        "backendNowUserTzRfc3339": now_user_tz.isoformat(),
+        "backendTimeZoneId": user_time_zone_id,
+        "user": {
+            "userName": user_name,
+            "sex": user_sex,
+            "birthDate": user_birth_date,
+            "heightCm": user_height_cm,
+            "timeZoneId": user_time_zone_id,
+        },
+        "ai": {
+            "characterName": character_name,
+            "tonePreset": tone_preset,
+            "characterDescription": character_description,
+            "speechEnding": speech_ending,
+        },
+        "backend": {
+            "nowUtcRfc3339": now_utc.isoformat(),
+            "nowUserTzRfc3339": now_user_tz.isoformat(),
+            "timeZoneId": user_time_zone_id,
+        },
+    }
+    return _render_template(SYSTEM_PROMPT_TEMPLATE, context)
+
+
+def _run_agent_turn(session_id: str, actor_id: str, user_text: str, system_prompt: str) -> str:
     if not MEMORY_ID:
         raise RuntimeError("MEMORY_ID is not configured in runtime environment variables.")
 
@@ -192,7 +312,7 @@ def _run_agent_turn(session_id: str, actor_id: str, user_text: str) -> str:
     ) as session_manager:
         agent = Agent(
             model=model,
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             session_manager=session_manager,
         )
         response = agent(user_text)
@@ -210,10 +330,15 @@ async def _stream_runtime_response(payload: dict[str, Any], context: Any) -> Asy
     headers = _get_request_headers_from_context()
     authorization_header = headers.get("authorization")
     actor_id = _resolve_actor_id(authorization_header)
+    system_prompt = _build_system_prompt(payload)
 
     yield {"event": "status", "status": "thinking", "message": "考え中です..."}
     output_text = await asyncio.to_thread(
-        _run_agent_turn, session_id=session_id, actor_id=actor_id, user_text=user_text
+        _run_agent_turn,
+        session_id=session_id,
+        actor_id=actor_id,
+        user_text=user_text,
+        system_prompt=system_prompt,
     )
     for chunk in _chunk_text(output_text, STREAM_CHUNK_CHAR_SIZE):
         yield {"event": "chunk", "chunk": chunk}

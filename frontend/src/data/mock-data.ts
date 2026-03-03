@@ -7,7 +7,9 @@ export const defaultCharacterProfile: AiCharacterProfile = {
   characterId: 'nyaruko',
   characterName: 'ニャル子',
   avatarImageUrl: '/assets/characters/nyaruko/expressions/default.png',
-  tonePreset: 'friendly-coach'
+  tonePreset: 'friendly-coach',
+  characterDescription: '猫耳メイド',
+  speechEnding: 'だニャ'
 };
 
 export const initialAppData: AppData = {
