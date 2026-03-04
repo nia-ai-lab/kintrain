@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useAppState } from '../AppState';
 
 const links = [
   { to: '/dashboard', label: 'ホーム' },
@@ -9,6 +10,9 @@ const links = [
 ];
 
 export function AppLayout() {
+  const { data } = useAppState();
+  const userAvatarUrl = data.userProfile.userAvatarImageUrl;
+
   return (
     <div className="app-root">
       <header className="top-header">
@@ -18,9 +22,13 @@ export function AppLayout() {
             KinTrain
           </Link>
           <Link to="/settings" className="header-user-icon-link" aria-label="ユーザ設定">
-            <span className="header-user-icon" aria-hidden="true">
-              👤
-            </span>
+            {userAvatarUrl ? (
+              <img src={userAvatarUrl} alt="ユーザアイコン" className="header-user-avatar-image" />
+            ) : (
+              <span className="header-user-icon" aria-hidden="true">
+                👤
+              </span>
+            )}
           </Link>
         </div>
       </header>

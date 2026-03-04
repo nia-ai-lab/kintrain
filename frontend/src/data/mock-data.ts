@@ -4,12 +4,13 @@ import type {
 } from '../types';
 
 export const defaultCharacterProfile: AiCharacterProfile = {
-  characterId: 'nyaruko',
-  characterName: 'ニャル子',
-  avatarImageUrl: '/assets/characters/nyaruko/expressions/default.png',
+  characterId: 'ai-coach-default',
+  characterName: 'AIコーチ',
+  coachAvatarObjectKey: undefined,
+  avatarImageUrl: '/assets/characters/default.png',
   tonePreset: 'friendly-coach',
-  characterDescription: '猫耳メイド',
-  speechEnding: 'だニャ'
+  characterDescription: '優しく見守りAIコーチロボ',
+  speechEnding: 'です。ます。'
 };
 
 export const initialAppData: AppData = {
@@ -42,7 +43,7 @@ export const initialAppData: AppData = {
           id: 'c-1',
           role: 'assistant',
           createdAtLocal: '2026-02-28T10:00:00+09:00',
-          content: 'こんにちは、ニャル子です。今日のジム状況に合わせて一緒に進めましょう。'
+          content: 'こんにちは、AIコーチです。今日のジム状況に合わせて一緒に進めましょう。'
         }
       ]
     }

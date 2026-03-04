@@ -174,7 +174,7 @@ export function AiChatPage() {
     restartActiveAiChatSession();
   }
 
-  const avatar = data.aiCharacterProfile.avatarImageUrl;
+  const avatar = data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
 
   return (
     <div className="stack-lg chat-page">
@@ -191,7 +191,7 @@ export function AiChatPage() {
       <section className="chat-body card" ref={listRef}>
         {session.messages.map((message) => {
           const isAssistant = message.role === 'assistant';
-          const messageAvatar = data.aiCharacterProfile.avatarImageUrl;
+          const messageAvatar = data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
           const showStatusAboveAssistant =
             isStreaming && isAssistant && message.id === latestAssistantMessageId && Boolean(latestStatusEvent);
 

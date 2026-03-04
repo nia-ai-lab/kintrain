@@ -310,11 +310,11 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
         user_time_zone_id = _to_non_empty_string(metadata.get("timeZoneId"), APP_TIMEZONE_DEFAULT)
 
     character_name = _to_non_empty_string(
-        ai_profile.get("characterName"), _to_non_empty_string(metadata.get("characterName"), "ニャル子")
+        ai_profile.get("characterName"), _to_non_empty_string(metadata.get("characterName"), "AIコーチ")
     )
     tone_preset = _to_non_empty_string(ai_profile.get("tonePreset"), "friendly-coach")
-    character_description = _to_non_empty_string(ai_profile.get("characterDescription"), "未設定")
-    speech_ending = _to_non_empty_string(ai_profile.get("speechEnding"), "未設定")
+    character_description = _to_non_empty_string(ai_profile.get("characterDescription"), "優しく見守りAIコーチロボ")
+    speech_ending = _to_non_empty_string(ai_profile.get("speechEnding"), "です。ます。")
 
     now_utc = datetime.now(timezone.utc)
     resolved_zone = _resolve_timezone(user_time_zone_id)

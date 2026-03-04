@@ -77,7 +77,7 @@ interface AppStateContextValue {
   moveMenuItemInSet: (setId: string, itemId: string, direction: -1 | 1) => Promise<void>;
   replaceMenuItems: (items: TrainingMenuItem[]) => void;
   updateUserProfile: (patch: Partial<UserProfile>) => void;
-  saveUserProfile: () => Promise<{ ok: boolean; message?: string }>;
+  saveUserProfile: (patch?: Partial<UserProfile>) => Promise<{ ok: boolean; message?: string }>;
   updateAiCharacterProfile: (patch: Partial<AiCharacterProfile>) => void;
   saveAiCharacterProfile: (patch?: Partial<AiCharacterProfile>) => Promise<{ ok: boolean; message?: string }>;
   restartActiveAiChatSession: () => void;
@@ -220,7 +220,9 @@ function normalizeAppData(rawData: AppData): AppData {
     sex: legacy.userProfile?.sex ?? initialAppData.userProfile.sex,
     birthDate: legacy.userProfile?.birthDate ?? initialAppData.userProfile.birthDate,
     heightCm: legacy.userProfile?.heightCm ?? initialAppData.userProfile.heightCm,
-    timeZoneId
+    timeZoneId,
+    userAvatarObjectKey: legacy.userProfile?.userAvatarObjectKey ?? initialAppData.userProfile.userAvatarObjectKey,
+    userAvatarImageUrl: legacy.userProfile?.userAvatarImageUrl ?? initialAppData.userProfile.userAvatarImageUrl
   };
 
   const sourceDailyRecords = legacy.dailyRecords ?? initialAppData.dailyRecords;
@@ -270,8 +272,7 @@ function normalizeAppData(rawData: AppData): AppData {
 
   const normalizedAiCharacterProfile: AiCharacterProfile = {
     ...initialAppData.aiCharacterProfile,
-    ...(legacy.aiCharacterProfile ?? {}),
-    avatarImageUrl: initialAppData.aiCharacterProfile.avatarImageUrl
+    ...(legacy.aiCharacterProfile ?? {})
   };
 
   return {
@@ -430,6 +431,7 @@ function mapRemoteDailyRecord(
 function mapRemoteAiCharacterProfile(item: {
   characterId?: string;
   characterName?: string;
+  coachAvatarObjectKey?: string;
   avatarImageUrl?: string;
   tonePreset?: string;
   characterDescription?: string;
@@ -443,14 +445,21 @@ function mapRemoteAiCharacterProfile(item: {
       typeof item.characterName === 'string' && item.characterName.trim()
         ? item.characterName
         : initialAppData.aiCharacterProfile.characterName,
+    coachAvatarObjectKey:
+      typeof item.coachAvatarObjectKey === 'string' && item.coachAvatarObjectKey.trim()
+        ? item.coachAvatarObjectKey
+        : initialAppData.aiCharacterProfile.coachAvatarObjectKey,
+    avatarImageUrl:
+      typeof item.avatarImageUrl === 'string' && item.avatarImageUrl.trim()
+        ? item.avatarImageUrl
+        : initialAppData.aiCharacterProfile.avatarImageUrl,
     tonePreset:
       item.tonePreset === 'polite' || item.tonePreset === 'friendly-coach' || item.tonePreset === 'strict-coach'
         ? item.tonePreset
         : initialAppData.aiCharacterProfile.tonePreset,
     characterDescription:
       typeof item.characterDescription === 'string' ? item.characterDescription : initialAppData.aiCharacterProfile.characterDescription,
-    speechEnding: typeof item.speechEnding === 'string' ? item.speechEnding : initialAppData.aiCharacterProfile.speechEnding,
-    avatarImageUrl: initialAppData.aiCharacterProfile.avatarImageUrl
+    speechEnding: typeof item.speechEnding === 'string' ? item.speechEnding : initialAppData.aiCharacterProfile.speechEnding
   };
 }
 
@@ -1324,12 +1333,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           }
         }));
       },
-      saveUserProfile: async () => {
+      saveUserProfile: async (patch) => {
         if (!isAuthenticated) {
           return { ok: false, message: 'ログイン後に保存してください。' };
         }
+        const nextProfile: UserProfile = {
+          ...data.userProfile,
+          ...(patch ?? {})
+        };
         try {
-          const saved = await putProfile(data.userProfile);
+          const saved = await putProfile(nextProfile);
           setData((prev) => ({
             ...prev,
             userProfile: {
@@ -1360,14 +1373,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         const nextProfile = {
           ...data.aiCharacterProfile,
-          ...(patch ?? {}),
-          avatarImageUrl: initialAppData.aiCharacterProfile.avatarImageUrl
+          ...(patch ?? {})
         };
         try {
           const saved = await putAiCharacterProfileApi({
             characterId: nextProfile.characterId,
             characterName: nextProfile.characterName,
-            avatarImageUrl: nextProfile.avatarImageUrl,
+            coachAvatarObjectKey: nextProfile.coachAvatarObjectKey,
             tonePreset: nextProfile.tonePreset,
             characterDescription: nextProfile.characterDescription,
             speechEnding: nextProfile.speechEnding
