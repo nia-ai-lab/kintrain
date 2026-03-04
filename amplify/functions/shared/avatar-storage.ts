@@ -1,4 +1,4 @@
-import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 export type AvatarUploadTarget = "user" | "coach";
@@ -94,5 +94,21 @@ export async function buildAvatarImageUrl(
     );
   } catch {
     return fallbackImageUrl;
+  }
+}
+
+export async function deleteAvatarObject(bucketName: string, objectKey: string | undefined): Promise<void> {
+  if (!bucketName || !objectKey) {
+    return;
+  }
+  try {
+    await avatarS3Client.send(
+      new DeleteObjectCommand({
+        Bucket: bucketName,
+        Key: objectKey
+      })
+    );
+  } catch {
+    // Ignore delete failures so profile/settings updates are not blocked.
   }
 }

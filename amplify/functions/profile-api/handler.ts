@@ -1,6 +1,6 @@
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
-import { buildAvatarImageUrl, normalizeOwnedAvatarObjectKey } from "../shared/avatar-storage";
+import { buildAvatarImageUrl, deleteAvatarObject, normalizeOwnedAvatarObjectKey } from "../shared/avatar-storage";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, response, toNonEmptyString } from "../shared/http";
 
@@ -110,6 +110,10 @@ async function putProfile(event: APIGatewayProxyEvent, userId: string): Promise<
       }
     })
   );
+
+  if (currentAvatarObjectKey && currentAvatarObjectKey !== userAvatarObjectKey) {
+    await deleteAvatarObject(avatarBucketName, currentAvatarObjectKey);
+  }
 
   return response(200, {
     ...profile,

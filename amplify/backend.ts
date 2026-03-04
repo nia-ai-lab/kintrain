@@ -192,7 +192,9 @@ const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda
 
 userProfileTable.grantReadWriteData(profileApiLambda);
 avatarImageBucket.grantRead(profileApiLambda, "users/*");
+avatarImageBucket.grantDelete(profileApiLambda, "users/*");
 avatarImageBucket.grantRead(aiSettingsApiLambda, "users/*");
+avatarImageBucket.grantDelete(aiSettingsApiLambda, "users/*");
 avatarImageBucket.grantPut(avatarUploadApiLambda, "users/*");
 trainingMenuTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetTable.grantReadWriteData(trainingMenuApiLambda);

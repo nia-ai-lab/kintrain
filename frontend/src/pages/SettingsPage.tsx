@@ -44,6 +44,8 @@ export function SettingsPage() {
   const [aiTonePreset, setAiTonePreset] = useState<TonePreset>(data.aiCharacterProfile.tonePreset);
   const [aiCharacterDescription, setAiCharacterDescription] = useState(data.aiCharacterProfile.characterDescription);
   const [aiSpeechEnding, setAiSpeechEnding] = useState(data.aiCharacterProfile.speechEnding);
+  const [deleteAvatarTarget, setDeleteAvatarTarget] = useState<'user' | 'coach' | null>(null);
+  const [isDeletingAvatar, setIsDeletingAvatar] = useState(false);
 
   const profile = data.userProfile;
   const ageHint = useMemo(() => {
@@ -88,6 +90,8 @@ export function SettingsPage() {
 
   const userAvatarUrl = userAvatarPreviewUrl || profile.userAvatarImageUrl || '';
   const aiAvatarUrl = aiAvatarPreviewUrl || data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
+  const hasUserAvatar = Boolean(profile.userAvatarObjectKey || userAvatarPreviewUrl || userAvatarFile);
+  const hasCoachAvatar = Boolean(data.aiCharacterProfile.coachAvatarObjectKey || aiAvatarPreviewUrl || aiAvatarFile);
 
   return (
     <div className="stack-lg">
@@ -102,6 +106,15 @@ export function SettingsPage() {
                 👤
               </span>
             )}
+            <button
+              type="button"
+              className="settings-avatar-delete-button"
+              aria-label="ユーザアイコン画像を削除"
+              disabled={!hasUserAvatar || isSavingUser || isDeletingAvatar}
+              onClick={() => setDeleteAvatarTarget('user')}
+            >
+              ×
+            </button>
           </div>
           <div className="settings-avatar-actions">
             <label className="btn subtle" htmlFor="user-avatar-upload">
@@ -247,6 +260,15 @@ export function SettingsPage() {
         <div className="settings-avatar-row">
           <div className="settings-avatar-preview">
             <img src={aiAvatarUrl} alt="AIコーチアイコン" className="avatar-large" />
+            <button
+              type="button"
+              className="settings-avatar-delete-button"
+              aria-label="AIコーチアイコン画像を削除"
+              disabled={!hasCoachAvatar || isSavingAi || isDeletingAvatar}
+              onClick={() => setDeleteAvatarTarget('coach')}
+            >
+              ×
+            </button>
           </div>
           <div className="settings-avatar-actions">
             <label className="btn subtle" htmlFor="coach-avatar-upload">
@@ -367,6 +389,74 @@ export function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {deleteAvatarTarget && (
+        <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-delete-title">
+          <div className="overlay-modal-card">
+            <h3 id="avatar-delete-title">
+              {deleteAvatarTarget === 'user' ? 'ユーザアイコン画像を削除しますか？' : 'AIコーチアイコン画像を削除しますか？'}
+            </h3>
+            <p>削除すると既存画像はS3から削除され、再度選択しない限り元に戻せません。</p>
+            <div className="overlay-modal-actions">
+              <button
+                type="button"
+                className="btn subtle"
+                disabled={isDeletingAvatar}
+                onClick={() => setDeleteAvatarTarget(null)}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="btn danger"
+                disabled={isDeletingAvatar}
+                onClick={async () => {
+                  setIsDeletingAvatar(true);
+                  try {
+                    if (deleteAvatarTarget === 'user') {
+                      if (userAvatarPreviewUrl) {
+                        URL.revokeObjectURL(userAvatarPreviewUrl);
+                        setUserAvatarPreviewUrl(null);
+                      }
+                      setUserAvatarFile(null);
+                      if (profile.userAvatarObjectKey) {
+                        const result = await saveUserProfile({ userAvatarObjectKey: null });
+                        setUserStatus(result.ok ? 'ユーザアイコン画像を削除しました。' : result.message ?? '削除に失敗しました。');
+                      } else {
+                        setUserStatus('選択中のユーザ画像をクリアしました。');
+                      }
+                    } else {
+                      if (aiAvatarPreviewUrl) {
+                        URL.revokeObjectURL(aiAvatarPreviewUrl);
+                        setAiAvatarPreviewUrl(null);
+                      }
+                      setAiAvatarFile(null);
+                      if (data.aiCharacterProfile.coachAvatarObjectKey) {
+                        const result = await saveAiCharacterProfile({ coachAvatarObjectKey: null });
+                        setAiStatus(result.ok ? 'AIコーチアイコン画像を削除しました。' : result.message ?? '削除に失敗しました。');
+                      } else {
+                        setAiStatus('選択中のAIコーチ画像をクリアしました。');
+                      }
+                    }
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : '画像削除に失敗しました。';
+                    if (deleteAvatarTarget === 'user') {
+                      setUserStatus(message);
+                    } else {
+                      setAiStatus(message);
+                    }
+                  } finally {
+                    setIsDeletingAvatar(false);
+                    setDeleteAvatarTarget(null);
+                  }
+                }}
+              >
+                削除する
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

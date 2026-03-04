@@ -77,9 +77,13 @@ interface AppStateContextValue {
   moveMenuItemInSet: (setId: string, itemId: string, direction: -1 | 1) => Promise<void>;
   replaceMenuItems: (items: TrainingMenuItem[]) => void;
   updateUserProfile: (patch: Partial<UserProfile>) => void;
-  saveUserProfile: (patch?: Partial<UserProfile>) => Promise<{ ok: boolean; message?: string }>;
+  saveUserProfile: (
+    patch?: Omit<Partial<UserProfile>, 'userAvatarObjectKey'> & { userAvatarObjectKey?: string | null }
+  ) => Promise<{ ok: boolean; message?: string }>;
   updateAiCharacterProfile: (patch: Partial<AiCharacterProfile>) => void;
-  saveAiCharacterProfile: (patch?: Partial<AiCharacterProfile>) => Promise<{ ok: boolean; message?: string }>;
+  saveAiCharacterProfile: (
+    patch?: Omit<Partial<AiCharacterProfile>, 'coachAvatarObjectKey'> & { coachAvatarObjectKey?: string | null }
+  ) => Promise<{ ok: boolean; message?: string }>;
   restartActiveAiChatSession: () => void;
   appendUserMessage: (content: string) => void;
   createAssistantMessage: () => string;
@@ -1337,12 +1341,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         if (!isAuthenticated) {
           return { ok: false, message: 'ログイン後に保存してください。' };
         }
-        const nextProfile: UserProfile = {
+        const nextProfile = {
           ...data.userProfile,
           ...(patch ?? {})
         };
         try {
-          const saved = await putProfile(nextProfile);
+          const saved = await putProfile({
+            userName: nextProfile.userName,
+            sex: nextProfile.sex,
+            birthDate: nextProfile.birthDate,
+            heightCm: nextProfile.heightCm,
+            timeZoneId: nextProfile.timeZoneId,
+            userAvatarObjectKey: nextProfile.userAvatarObjectKey
+          });
           setData((prev) => ({
             ...prev,
             userProfile: {

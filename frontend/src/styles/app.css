@@ -690,6 +690,7 @@ a {
 }
 
 .settings-avatar-preview {
+  position: relative;
   width: 66px;
   height: 66px;
   border-radius: 14px;
@@ -720,6 +721,30 @@ a {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   border: 0;
+}
+
+.settings-avatar-delete-button {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(196, 66, 76, 0.24);
+  background: rgba(255, 255, 255, 0.72);
+  color: rgba(196, 66, 76, 0.78);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.settings-avatar-delete-button:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 .settings-wide-field {

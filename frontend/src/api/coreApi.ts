@@ -180,7 +180,16 @@ export async function getProfile(): Promise<UserProfile> {
   };
 }
 
-export async function putProfile(profile: UserProfile): Promise<UserProfile> {
+type UserProfileUpsertInput = {
+  userName: string;
+  sex: UserProfile['sex'];
+  birthDate: string;
+  heightCm: number | null;
+  timeZoneId: string;
+  userAvatarObjectKey?: string | null;
+};
+
+export async function putProfile(profile: UserProfileUpsertInput): Promise<UserProfile> {
   const saved = await coreApiFetch<UserProfile>('/me/profile', {
     method: 'PUT',
     body: JSON.stringify(profile)
@@ -363,7 +372,7 @@ export async function getAiCharacterProfile(): Promise<AiCharacterProfileDto> {
 export async function putAiCharacterProfile(input: {
   characterId: string;
   characterName: string;
-  coachAvatarObjectKey?: string;
+  coachAvatarObjectKey?: string | null;
   avatarImageUrl?: string;
   tonePreset: string;
   characterDescription: string;
