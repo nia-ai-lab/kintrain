@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import Cropper, { type Area } from 'react-easy-crop';
 import { useNavigate } from 'react-router-dom';
 import { uploadAvatarImage } from '../api/coreApi';
 import { useAppState } from '../AppState';
@@ -15,18 +16,142 @@ const timeZoneCandidates = [
   'Europe/London'
 ];
 
-const maxAvatarImageBytes = 2 * 1024 * 1024;
+const maxAvatarSourceImageBytes = 20 * 1024 * 1024;
+const maxAvatarUploadBytes = 2 * 1024 * 1024;
+const avatarOutputSize = 512;
+const avatarCompressionQualities = [0.92, 0.84, 0.76, 0.68, 0.6, 0.52];
 const allowedAvatarMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
 
 function validateAvatarFile(file: File): string | null {
   if (!allowedAvatarMimeTypes.has(file.type)) {
     return '画像形式は PNG / JPEG / WEBP のみ対応です。';
   }
-  if (file.size > maxAvatarImageBytes) {
-    return '画像サイズは 2MB 以下にしてください。';
+  if (file.size > maxAvatarSourceImageBytes) {
+    return '元画像サイズは 20MB 以下にしてください。';
   }
   return null;
 }
+
+function mimeTypeToExtension(mimeType: string): string {
+  if (mimeType === 'image/png') {
+    return 'png';
+  }
+  if (mimeType === 'image/webp') {
+    return 'webp';
+  }
+  return 'jpg';
+}
+
+function outputMimeTypes(preferredMimeType: string): string[] {
+  const normalized = preferredMimeType === 'image/png' || preferredMimeType === 'image/jpeg' || preferredMimeType === 'image/webp'
+    ? preferredMimeType
+    : 'image/jpeg';
+  const candidates = [normalized, 'image/webp', 'image/jpeg', 'image/png'];
+  return candidates.filter((value, index, array) => array.indexOf(value) === index);
+}
+
+function canvasToBlob(canvas: HTMLCanvasElement, mimeType: string, quality?: number): Promise<Blob> {
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error('画像の変換に失敗しました。'));
+          return;
+        }
+        resolve(blob);
+      },
+      mimeType,
+      quality
+    );
+  });
+}
+
+function loadImage(src: string): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error('画像の読み込みに失敗しました。'));
+    image.src = src;
+  });
+}
+
+async function buildAvatarFileFromCrop(args: {
+  sourceUrl: string;
+  croppedAreaPixels: Area;
+  preferredMimeType: string;
+}): Promise<File> {
+  const image = await loadImage(args.sourceUrl);
+  const canvas = document.createElement('canvas');
+  canvas.width = avatarOutputSize;
+  canvas.height = avatarOutputSize;
+  const context = canvas.getContext('2d');
+  if (!context) {
+    throw new Error('画像編集コンテキストを取得できませんでした。');
+  }
+
+  context.drawImage(
+    image,
+    args.croppedAreaPixels.x,
+    args.croppedAreaPixels.y,
+    args.croppedAreaPixels.width,
+    args.croppedAreaPixels.height,
+    0,
+    0,
+    avatarOutputSize,
+    avatarOutputSize
+  );
+
+  let smallestBlob: Blob | null = null;
+  let selectedBlob: Blob | null = null;
+  let selectedMimeType = 'image/jpeg';
+
+  for (const mimeType of outputMimeTypes(args.preferredMimeType)) {
+    if (mimeType === 'image/png') {
+      const blob = await canvasToBlob(canvas, mimeType);
+      if (!smallestBlob || blob.size < smallestBlob.size) {
+        smallestBlob = blob;
+      }
+      if (blob.size <= maxAvatarUploadBytes) {
+        selectedBlob = blob;
+        selectedMimeType = mimeType;
+        break;
+      }
+      continue;
+    }
+
+    for (const quality of avatarCompressionQualities) {
+      const blob = await canvasToBlob(canvas, mimeType, quality);
+      if (!smallestBlob || blob.size < smallestBlob.size) {
+        smallestBlob = blob;
+      }
+      if (blob.size <= maxAvatarUploadBytes) {
+        selectedBlob = blob;
+        selectedMimeType = mimeType;
+        break;
+      }
+    }
+    if (selectedBlob) {
+      break;
+    }
+  }
+
+  if (!selectedBlob) {
+    throw new Error(
+      `画像の圧縮後サイズが上限を超えています。2MB以下に収まるように切り抜き範囲を調整してください。（現在: ${(
+        (smallestBlob?.size ?? 0) /
+        1024 /
+        1024
+      ).toFixed(2)}MB）`
+    );
+  }
+
+  const extension = mimeTypeToExtension(selectedMimeType);
+  return new File([selectedBlob], `avatar-${Date.now()}.${extension}`, {
+    type: selectedMimeType
+  });
+}
+
+type AvatarTarget = 'user' | 'coach';
 
 export function SettingsPage() {
   const navigate = useNavigate();
@@ -46,6 +171,14 @@ export function SettingsPage() {
   const [aiSpeechEnding, setAiSpeechEnding] = useState(data.aiCharacterProfile.speechEnding);
   const [deleteAvatarTarget, setDeleteAvatarTarget] = useState<'user' | 'coach' | null>(null);
   const [isDeletingAvatar, setIsDeletingAvatar] = useState(false);
+  const [cropTarget, setCropTarget] = useState<AvatarTarget | null>(null);
+  const [cropSourceUrl, setCropSourceUrl] = useState<string | null>(null);
+  const [cropSourceFileName, setCropSourceFileName] = useState('');
+  const [cropSourceMimeType, setCropSourceMimeType] = useState('image/jpeg');
+  const [cropPosition, setCropPosition] = useState({ x: 0, y: 0 });
+  const [cropZoom, setCropZoom] = useState(1);
+  const [cropPixels, setCropPixels] = useState<Area | null>(null);
+  const [isApplyingCrop, setIsApplyingCrop] = useState(false);
 
   const profile = data.userProfile;
   const ageHint = useMemo(() => {
@@ -85,8 +218,48 @@ export function SettingsPage() {
       if (aiAvatarPreviewUrl) {
         URL.revokeObjectURL(aiAvatarPreviewUrl);
       }
+      if (cropSourceUrl) {
+        URL.revokeObjectURL(cropSourceUrl);
+      }
     };
-  }, [aiAvatarPreviewUrl, userAvatarPreviewUrl]);
+  }, [aiAvatarPreviewUrl, cropSourceUrl, userAvatarPreviewUrl]);
+
+  const closeCropModal = () => {
+    if (cropSourceUrl) {
+      URL.revokeObjectURL(cropSourceUrl);
+    }
+    setCropSourceUrl(null);
+    setCropTarget(null);
+    setCropSourceFileName('');
+    setCropSourceMimeType('image/jpeg');
+    setCropPosition({ x: 0, y: 0 });
+    setCropZoom(1);
+    setCropPixels(null);
+    setIsApplyingCrop(false);
+  };
+
+  const openCropModal = (target: AvatarTarget, file: File) => {
+    const error = validateAvatarFile(file);
+    if (error) {
+      if (target === 'user') {
+        setUserStatus(error);
+      } else {
+        setAiStatus(error);
+      }
+      return;
+    }
+
+    if (cropSourceUrl) {
+      URL.revokeObjectURL(cropSourceUrl);
+    }
+    setCropSourceUrl(URL.createObjectURL(file));
+    setCropTarget(target);
+    setCropSourceFileName(file.name);
+    setCropSourceMimeType(file.type || 'image/jpeg');
+    setCropPosition({ x: 0, y: 0 });
+    setCropZoom(1);
+    setCropPixels(null);
+  };
 
   const userAvatarUrl = userAvatarPreviewUrl || profile.userAvatarImageUrl || '';
   const aiAvatarUrl = aiAvatarPreviewUrl || data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
@@ -131,20 +304,10 @@ export function SettingsPage() {
                 if (!file) {
                   return;
                 }
-                const error = validateAvatarFile(file);
-                if (error) {
-                  setUserStatus(error);
-                  return;
-                }
-                if (userAvatarPreviewUrl) {
-                  URL.revokeObjectURL(userAvatarPreviewUrl);
-                }
-                setUserAvatarFile(file);
-                setUserAvatarPreviewUrl(URL.createObjectURL(file));
-                setUserStatus(`${file.name} を選択しました。保存で反映されます。`);
+                openCropModal('user', file);
               }}
             />
-            <small className="muted">PNG / JPEG / WEBP、最大 2MB</small>
+            <small className="muted">PNG / JPEG / WEBP、元画像は最大20MB（保存時に自動圧縮）</small>
           </div>
         </div>
         <div className="input-grid settings-grid">
@@ -285,20 +448,10 @@ export function SettingsPage() {
                 if (!file) {
                   return;
                 }
-                const error = validateAvatarFile(file);
-                if (error) {
-                  setAiStatus(error);
-                  return;
-                }
-                if (aiAvatarPreviewUrl) {
-                  URL.revokeObjectURL(aiAvatarPreviewUrl);
-                }
-                setAiAvatarFile(file);
-                setAiAvatarPreviewUrl(URL.createObjectURL(file));
-                setAiStatus(`${file.name} を選択しました。AI設定を反映で保存されます。`);
+                openCropModal('coach', file);
               }}
             />
-            <small className="muted">PNG / JPEG / WEBP、最大 2MB</small>
+            <small className="muted">PNG / JPEG / WEBP、元画像は最大20MB（保存時に自動圧縮）</small>
           </div>
         </div>
         <div className="input-grid settings-grid">
@@ -389,6 +542,91 @@ export function SettingsPage() {
           </button>
         </div>
       </section>
+
+      {cropTarget && cropSourceUrl && (
+        <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-crop-title">
+          <div className="overlay-modal-card avatar-crop-modal-card">
+            <h3 id="avatar-crop-title">{cropTarget === 'user' ? 'ユーザ画像を調整' : 'AIコーチ画像を調整'}</h3>
+            <p>{cropSourceFileName || '画像'} の表示位置を調整し、保存用アイコンを作成します。</p>
+            <div className="avatar-crop-area" aria-label="アイコントリミングエリア">
+              <Cropper
+                image={cropSourceUrl}
+                crop={cropPosition}
+                zoom={cropZoom}
+                aspect={1}
+                restrictPosition={false}
+                showGrid={false}
+                onCropChange={setCropPosition}
+                onZoomChange={setCropZoom}
+                onCropComplete={(_, croppedAreaPixels) => setCropPixels(croppedAreaPixels)}
+              />
+            </div>
+            <label className="avatar-crop-zoom">
+              拡大率
+              <input
+                type="range"
+                min={1}
+                max={3}
+                step={0.01}
+                value={cropZoom}
+                disabled={isApplyingCrop}
+                onChange={(event) => setCropZoom(Number(event.currentTarget.value))}
+              />
+            </label>
+            <small className="muted">出力は自動で 512x512 に最適化し、2MB以下に圧縮します。</small>
+            <div className="overlay-modal-actions">
+              <button type="button" className="btn subtle" disabled={isApplyingCrop} onClick={closeCropModal}>
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={isApplyingCrop || !cropPixels}
+                onClick={async () => {
+                  if (!cropPixels || !cropSourceUrl) {
+                    return;
+                  }
+                  setIsApplyingCrop(true);
+                  try {
+                    const preparedFile = await buildAvatarFileFromCrop({
+                      sourceUrl: cropSourceUrl,
+                      croppedAreaPixels: cropPixels,
+                      preferredMimeType: cropSourceMimeType
+                    });
+                    const previewUrl = URL.createObjectURL(preparedFile);
+                    if (cropTarget === 'user') {
+                      if (userAvatarPreviewUrl) {
+                        URL.revokeObjectURL(userAvatarPreviewUrl);
+                      }
+                      setUserAvatarFile(preparedFile);
+                      setUserAvatarPreviewUrl(previewUrl);
+                      setUserStatus(`${cropSourceFileName || '画像'} を調整しました。保存で反映されます。`);
+                    } else {
+                      if (aiAvatarPreviewUrl) {
+                        URL.revokeObjectURL(aiAvatarPreviewUrl);
+                      }
+                      setAiAvatarFile(preparedFile);
+                      setAiAvatarPreviewUrl(previewUrl);
+                      setAiStatus(`${cropSourceFileName || '画像'} を調整しました。AI設定を反映で保存されます。`);
+                    }
+                    closeCropModal();
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : '画像調整に失敗しました。';
+                    if (cropTarget === 'user') {
+                      setUserStatus(message);
+                    } else {
+                      setAiStatus(message);
+                    }
+                    setIsApplyingCrop(false);
+                  }
+                }}
+              >
+                {isApplyingCrop ? '処理中...' : 'この範囲で確定'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {deleteAvatarTarget && (
         <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="avatar-delete-title">
