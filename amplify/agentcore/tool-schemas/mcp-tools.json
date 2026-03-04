@@ -84,6 +84,36 @@
     }
   },
   {
+    "name": "save_daily_diary",
+    "description": "Dailyの日記(diary)を保存する。既存日記がある場合はmode指定で追記または上書きする。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "diary": {
+          "type": "string",
+          "description": "保存する日記本文"
+        },
+        "date": {
+          "type": "string",
+          "description": "対象日（YYYY-MM-DD）。未指定時はtimeZoneId基準の本日。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "description": "IANAタイムゾーンID。date未指定時の本日判定に使う。"
+        },
+        "mode": {
+          "type": "string",
+          "description": "既存日記がある場合の保存モード。append または overwrite。"
+        }
+      },
+      "required": ["userId", "diary"]
+    }
+  },
+  {
     "name": "get_goal",
     "description": "体重・体脂肪率の目標情報を取得する",
     "inputSchema": {

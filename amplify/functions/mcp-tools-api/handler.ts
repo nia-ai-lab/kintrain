@@ -34,6 +34,7 @@ type LambdaToolContext = {
 };
 
 type ToolArgs = Record<string, unknown>;
+type DiarySaveMode = "append" | "overwrite";
 
 function nowIsoSeconds(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -70,6 +71,44 @@ function parseYmd(value: unknown): string | undefined {
     return undefined;
   }
   return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+}
+
+function resolveTimeZoneId(args: ToolArgs): string {
+  const raw = toNonEmptyString(args.timeZoneId) ?? "Asia/Tokyo";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: raw }).format(new Date());
+    return raw;
+  } catch {
+    return "Asia/Tokyo";
+  }
+}
+
+function nowYmdInTimeZone(timeZoneId: string): string {
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timeZoneId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+  const parts = formatter.formatToParts(new Date());
+  const year = parts.find((part) => part.type === "year")?.value ?? "1970";
+  const month = parts.find((part) => part.type === "month")?.value ?? "01";
+  const day = parts.find((part) => part.type === "day")?.value ?? "01";
+  return `${year}-${month}-${day}`;
+}
+
+function resolveDiarySaveMode(value: unknown): DiarySaveMode | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "append") {
+    return "append";
+  }
+  if (normalized === "overwrite") {
+    return "overwrite";
+  }
+  return undefined;
 }
 
 function ymdDaysAgo(days: number): string {
@@ -239,6 +278,77 @@ async function getDailyRecord(args: ToolArgs, userId: string): Promise<LambdaLik
   });
 }
 
+async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+  const diary = toNonEmptyString(args.diary);
+  if (!diary) {
+    return jsonResponse(400, { message: "diary is required." });
+  }
+  const mode = resolveDiarySaveMode(args.mode);
+  if (args.mode !== undefined && !mode) {
+    return jsonResponse(400, { message: "mode must be append or overwrite." });
+  }
+
+  const timeZoneId = resolveTimeZoneId(args);
+  const date = parseYmd(args.date) ?? nowYmdInTimeZone(timeZoneId);
+  if (!date) {
+    return jsonResponse(400, { message: "date must be YYYY-MM-DD format." });
+  }
+
+  const current = await ddb.send(
+    new GetCommand({
+      TableName: dailyRecordTableName,
+      Key: {
+        userId,
+        recordDate: date,
+      },
+    })
+  );
+
+  const currentItem = (current.Item as Record<string, unknown> | undefined) ?? {};
+  const existingDiary = toNonEmptyString(currentItem.diary);
+  if (existingDiary && !mode) {
+    return jsonResponse(409, {
+      message: "Diary already exists. Specify mode=append or mode=overwrite.",
+      existingDiary,
+      recordDate: date,
+      timeZoneId,
+    });
+  }
+
+  const nextDiary =
+    mode === "append" && existingDiary
+      ? `${existingDiary}\n${diary}`
+      : diary;
+
+  const ts = nowIsoSeconds();
+  const item = {
+    userId,
+    recordDate: date,
+    timeZoneId,
+    otherActivities: [],
+    ...currentItem,
+    diary: nextDiary,
+    updatedAt: ts,
+    createdAt: (currentItem.createdAt as string | undefined) ?? ts,
+  };
+
+  await ddb.send(
+    new PutCommand({
+      TableName: dailyRecordTableName,
+      Item: item,
+    })
+  );
+
+  return jsonResponse(200, {
+    tool: "save_daily_diary",
+    recordDate: date,
+    timeZoneId,
+    mode: mode ?? "overwrite",
+    diary: nextDiary,
+    updatedAt: ts,
+  });
+}
+
 async function getGoal(userId: string): Promise<LambdaLikeResponse> {
   const result = await ddb.send(
     new GetCommand({
@@ -330,6 +440,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "get_daily_record") {
       return getDailyRecord(event, userId);
+    }
+    if (toolName === "save_daily_diary") {
+      return saveDailyDiary(event, userId);
     }
     if (toolName === "get_goal") {
       return getGoal(userId);

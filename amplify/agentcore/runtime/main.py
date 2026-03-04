@@ -428,7 +428,8 @@ def _run_agent_turn(
     ) as session_manager:
         system_prompt_for_turn = (
             f"{system_prompt}\n\n"
-            f"Tool calling rule: MCP tool arguments must include userId=\"{actor_id}\" exactly."
+            f"Tool calling rule: MCP tool arguments must include userId=\"{actor_id}\" exactly.\n"
+            "When calling save_daily_diary without explicit date, include timeZoneId from user profile."
         )
         web_search_tools = _load_web_search_tools()
         mcp_url = _normalize_mcp_gateway_url(MCP_GATEWAY_URL)
