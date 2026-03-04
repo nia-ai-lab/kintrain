@@ -74,8 +74,11 @@ export interface DailyRecord {
 }
 
 export interface Goal {
-  targetWeightKg: number;
-  targetBodyFatPercent: number;
+  targetWeightKg?: number;
+  targetBodyFatPercent?: number;
+  deadlineDate?: string;
+  comment?: string;
+  updatedAt?: string;
 }
 
 export type UserSex = 'male' | 'female' | 'other' | 'no-answer';

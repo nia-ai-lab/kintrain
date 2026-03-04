@@ -280,6 +280,15 @@ a {
   align-items: center;
 }
 
+.row-wrap.row-between {
+  justify-content: space-between;
+}
+
+.goal-comment-line {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .row-between {
   display: flex;
   align-items: center;

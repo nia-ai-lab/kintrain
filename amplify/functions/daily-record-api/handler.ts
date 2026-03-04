@@ -21,8 +21,10 @@ type DailyRecordInput = {
 };
 
 type Goal = {
-  targetWeightKg: number;
-  targetBodyFatPercent: number;
+  targetWeightKg?: number;
+  targetBodyFatPercent?: number;
+  deadlineDate?: string;
+  comment?: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -184,13 +186,6 @@ async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise
   });
 }
 
-function defaultGoal(): Goal {
-  return {
-    targetWeightKg: 68,
-    targetBodyFatPercent: 15
-  };
-}
-
 async function getGoal(userId: string): Promise<APIGatewayProxyResult> {
   if (!goalTableName) {
     return response(500, { message: "Lambda environment is not configured." });
@@ -204,12 +199,14 @@ async function getGoal(userId: string): Promise<APIGatewayProxyResult> {
   );
 
   if (!result.Item) {
-    return response(200, defaultGoal());
+    return response(200, {});
   }
 
   return response(200, {
     targetWeightKg: Number(result.Item.targetWeightKg),
     targetBodyFatPercent: Number(result.Item.targetBodyFatPercent),
+    deadlineDate: typeof result.Item.deadlineDate === "string" ? result.Item.deadlineDate : undefined,
+    comment: typeof result.Item.comment === "string" ? result.Item.comment : "",
     updatedAt: result.Item.updatedAt
   });
 }
@@ -231,6 +228,12 @@ async function putGoal(event: APIGatewayProxyEvent, userId: string): Promise<API
   ) {
     return response(400, { message: "targetWeightKg and targetBodyFatPercent are required." });
   }
+  if (body.deadlineDate !== undefined && (typeof body.deadlineDate !== "string" || (body.deadlineDate.trim() && !parseYmd(body.deadlineDate.trim())))) {
+    return response(400, { message: "deadlineDate must be YYYY-MM-DD format." });
+  }
+  if (body.comment !== undefined && typeof body.comment !== "string") {
+    return response(400, { message: "comment must be string." });
+  }
 
   const current = await ddb.send(
     new GetCommand({
@@ -244,6 +247,8 @@ async function putGoal(event: APIGatewayProxyEvent, userId: string): Promise<API
     userId,
     targetWeightKg: Math.round(body.targetWeightKg * 100) / 100,
     targetBodyFatPercent: Math.round(body.targetBodyFatPercent * 100) / 100,
+    ...(body.deadlineDate && body.deadlineDate.trim() ? { deadlineDate: body.deadlineDate.trim() } : {}),
+    ...(body.comment !== undefined ? { comment: body.comment.trim() } : {}),
     createdAt: current.Item?.createdAt ?? ts,
     updatedAt: ts
   };

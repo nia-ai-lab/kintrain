@@ -7,6 +7,7 @@ import {
   deleteTrainingMenuSet as deleteTrainingMenuSetApi,
   deleteTrainingMenuItem as deleteTrainingMenuItemApi,
   getAiCharacterProfile as getAiCharacterProfileApi,
+  getGoal as getGoalApi,
   getProfile,
   listDailyRecords as listDailyRecordsApi,
   listGymVisits,
@@ -14,6 +15,7 @@ import {
   listTrainingMenuSets,
   putAiCharacterProfile as putAiCharacterProfileApi,
   putDailyRecord as putDailyRecordApi,
+  putGoal as putGoalApi,
   putProfile,
   removeTrainingMenuItemFromSet as removeTrainingMenuItemFromSetApi,
   reorderTrainingMenuSetItems as reorderTrainingMenuSetItemsApi,
@@ -34,6 +36,7 @@ import type {
   DailyRecord,
   DraftEntry,
   ExerciseEntry,
+  Goal,
   SetDetail,
   TrainingMenuSet,
   TrainingMenuItem,
@@ -76,6 +79,8 @@ interface AppStateContextValue {
   unassignMenuItemFromSet: (setId: string, itemId: string) => Promise<void>;
   moveMenuItemInSet: (setId: string, itemId: string, direction: -1 | 1) => Promise<void>;
   replaceMenuItems: (items: TrainingMenuItem[]) => void;
+  updateGoal: (patch: Partial<Goal>) => void;
+  saveGoal: (patch?: Partial<Goal>) => Promise<{ ok: boolean; message?: string }>;
   updateUserProfile: (patch: Partial<UserProfile>) => void;
   saveUserProfile: (
     patch?: Omit<Partial<UserProfile>, 'userAvatarObjectKey'> & { userAvatarObjectKey?: string | null }
@@ -432,6 +437,27 @@ function mapRemoteDailyRecord(
   };
 }
 
+function mapRemoteGoal(
+  item: {
+    targetWeightKg?: number;
+    targetBodyFatPercent?: number;
+    deadlineDate?: string;
+    comment?: string;
+    updatedAt?: string;
+  },
+  fallback: Goal
+): Goal {
+  return {
+    targetWeightKg: typeof item.targetWeightKg === 'number' ? item.targetWeightKg : fallback.targetWeightKg,
+    targetBodyFatPercent:
+      typeof item.targetBodyFatPercent === 'number' ? item.targetBodyFatPercent : fallback.targetBodyFatPercent,
+    deadlineDate:
+      typeof item.deadlineDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(item.deadlineDate) ? item.deadlineDate : undefined,
+    comment: typeof item.comment === 'string' ? item.comment : '',
+    updatedAt: typeof item.updatedAt === 'string' ? item.updatedAt : fallback.updatedAt
+  };
+}
+
 function mapRemoteAiCharacterProfile(item: {
   characterId?: string;
   characterName?: string;
@@ -508,13 +534,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
     setIsCoreDataLoading(true);
     try {
-      const [profile, menu, menuSetsResponse, visits, dailyRecordsResponse, aiCharacterProfileResponse] = await Promise.all([
+      const [profile, menu, menuSetsResponse, visits, dailyRecordsResponse, aiCharacterProfileResponse, goalResponse] =
+        await Promise.all([
         getProfile(),
         listTrainingMenuItems(),
         listTrainingMenuSets(),
         listGymVisits({ limit: 200 }),
         listDailyRecordsApi({ from: '1970-01-01', to: '2100-12-31' }),
-        getAiCharacterProfileApi()
+        getAiCharacterProfileApi(),
+        getGoalApi()
       ]);
       const menuItems = menu.items
         .filter((item) => item.isActive)
@@ -545,6 +573,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             activeTrainingMenuSetId: nextMenuSetState.activeTrainingMenuSetId,
             gymVisits,
             aiCharacterProfile: mapRemoteAiCharacterProfile(aiCharacterProfileResponse),
+            goal: mapRemoteGoal(goalResponse, prev.goal),
             dailyRecords: {
               ...prev.dailyRecords,
               ...Object.fromEntries(
@@ -1327,6 +1356,47 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             activeTrainingMenuSetId: nextMenuSetState.activeTrainingMenuSetId
           };
         });
+      },
+      updateGoal: (patch) => {
+        setData((prev) => ({
+          ...prev,
+          goal: {
+            ...prev.goal,
+            ...patch
+          }
+        }));
+      },
+      saveGoal: async (patch) => {
+        if (!isAuthenticated) {
+          return { ok: false, message: 'ログイン後に保存してください。' };
+        }
+        const nextGoal = {
+          ...data.goal,
+          ...(patch ?? {})
+        };
+        const targetWeightKg = Number(nextGoal.targetWeightKg);
+        const targetBodyFatPercent = Number(nextGoal.targetBodyFatPercent);
+        if (!Number.isFinite(targetWeightKg) || targetWeightKg <= 0 || !Number.isFinite(targetBodyFatPercent) || targetBodyFatPercent <= 0) {
+          return { ok: false, message: '目標体重・体脂肪率は0より大きい数値を入力してください。' };
+        }
+        try {
+          const saved = await putGoalApi({
+            targetWeightKg: Math.round(targetWeightKg * 100) / 100,
+            targetBodyFatPercent: Math.round(targetBodyFatPercent * 100) / 100,
+            deadlineDate: nextGoal.deadlineDate?.trim() || undefined,
+            comment: nextGoal.comment?.trim() || undefined
+          });
+          setData((prev) => ({
+            ...prev,
+            goal: mapRemoteGoal(saved, prev.goal)
+          }));
+          setCoreDataError('');
+          return { ok: true };
+        } catch (error) {
+          const message = toErrorMessage(error, 'ゴール設定の保存に失敗しました。');
+          setCoreDataError(message);
+          return { ok: false, message };
+        }
       },
       updateUserProfile: (patch) => {
         setData((prev) => ({

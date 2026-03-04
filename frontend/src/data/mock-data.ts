@@ -28,8 +28,10 @@ export const initialAppData: AppData = {
   dailyRecords: {},
   trainingDraft: null,
   goal: {
-    targetWeightKg: 68,
-    targetBodyFatPercent: 15
+    targetWeightKg: undefined,
+    targetBodyFatPercent: undefined,
+    deadlineDate: undefined,
+    comment: ''
   },
   aiAgentRoleName: 'AIコーチ',
   aiCharacterProfile: defaultCharacterProfile,

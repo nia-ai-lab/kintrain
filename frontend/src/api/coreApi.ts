@@ -1,6 +1,6 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
 import amplifyOutputs from '../amplify_outputs.json';
-import type { UserProfile } from '../types';
+import type { Goal, UserProfile } from '../types';
 
 type CoreEndpointOutput = {
   custom?: {
@@ -94,6 +94,14 @@ type DailyRecordDto = {
 
 type ListDailyRecordsResponse = {
   items: DailyRecordDto[];
+};
+
+type GoalDto = {
+  targetWeightKg?: number;
+  targetBodyFatPercent?: number;
+  deadlineDate?: string;
+  comment?: string;
+  updatedAt?: string;
 };
 
 type AiCharacterProfileDto = {
@@ -361,6 +369,41 @@ export async function listDailyRecords(params: { from: string; to: string }): Pr
   return coreApiFetch<ListDailyRecordsResponse>(`/daily-records?${search.toString()}`, {
     method: 'GET'
   });
+}
+
+export async function getGoal(): Promise<Goal> {
+  const goal = await coreApiFetch<GoalDto>('/goals', {
+    method: 'GET'
+  });
+  return {
+    targetWeightKg: typeof goal.targetWeightKg === 'number' ? goal.targetWeightKg : undefined,
+    targetBodyFatPercent: typeof goal.targetBodyFatPercent === 'number' ? goal.targetBodyFatPercent : undefined,
+    deadlineDate:
+      typeof goal.deadlineDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(goal.deadlineDate) ? goal.deadlineDate : undefined,
+    comment: typeof goal.comment === 'string' ? goal.comment : undefined,
+    updatedAt: typeof goal.updatedAt === 'string' ? goal.updatedAt : undefined
+  };
+}
+
+export async function putGoal(input: {
+  targetWeightKg: number;
+  targetBodyFatPercent: number;
+  deadlineDate?: string;
+  comment?: string;
+}): Promise<Goal> {
+  const saved = await coreApiFetch<GoalDto>('/goals', {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  });
+  return {
+    targetWeightKg: typeof saved.targetWeightKg === 'number' ? saved.targetWeightKg : input.targetWeightKg,
+    targetBodyFatPercent:
+      typeof saved.targetBodyFatPercent === 'number' ? saved.targetBodyFatPercent : input.targetBodyFatPercent,
+    deadlineDate:
+      typeof saved.deadlineDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(saved.deadlineDate) ? saved.deadlineDate : undefined,
+    comment: typeof saved.comment === 'string' ? saved.comment : undefined,
+    updatedAt: typeof saved.updatedAt === 'string' ? saved.updatedAt : undefined
+  };
 }
 
 export async function getAiCharacterProfile(): Promise<AiCharacterProfileDto> {
