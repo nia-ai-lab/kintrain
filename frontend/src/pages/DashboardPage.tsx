@@ -63,7 +63,10 @@ export function DashboardPage() {
           <li>目標体重: {typeof data.goal.targetWeightKg === 'number' ? `${data.goal.targetWeightKg} kg` : '未設定'}</li>
           <li>目標体脂肪率: {typeof data.goal.targetBodyFatPercent === 'number' ? `${data.goal.targetBodyFatPercent} %` : '未設定'}</li>
           <li>期限: {data.goal.deadlineDate ? ymdToDisplay(data.goal.deadlineDate) : '未設定'}</li>
-          <li className="goal-comment-line">コメント: {data.goal.comment?.trim() ? data.goal.comment : '未設定'}</li>
+          <li className="goal-line">
+            <span className="goal-line-label">コメント:</span>
+            <span className="goal-line-value">{data.goal.comment?.trim() ? data.goal.comment : '未設定'}</span>
+          </li>
         </ul>
       </article>
 

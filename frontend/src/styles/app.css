@@ -284,9 +284,21 @@ a {
   justify-content: space-between;
 }
 
-.goal-comment-line {
+.goal-line {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 4px;
+  align-items: start;
+}
+
+.goal-line-label {
+  white-space: nowrap;
+}
+
+.goal-line-value {
   white-space: pre-wrap;
   word-break: break-word;
+  min-width: 0;
 }
 
 .row-between {
