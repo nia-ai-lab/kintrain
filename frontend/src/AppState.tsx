@@ -39,7 +39,7 @@ import type {
   Goal,
   SetDetail,
   TrainingEquipment,
-  TrainingFrequency,
+  TrainingFrequencyDays,
   TrainingMenuSet,
   TrainingMenuItem,
   UserProfile
@@ -102,8 +102,8 @@ const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 const defaultTrainingEquipment: TrainingEquipment = 'マシン';
 const trainingEquipmentValues: TrainingEquipment[] = ['マシン', 'バーベル', 'ダンベル', 'ケトルベル', '自重', 'その他'];
-const defaultTrainingFrequency: TrainingFrequency = '3日';
-const trainingFrequencyValues: TrainingFrequency[] = ['毎日', '2日', '3日', '4日', '5日', '6日', '7日', '8日+'];
+const defaultTrainingFrequency: TrainingFrequencyDays = 3;
+const trainingFrequencyValues: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
   if (typeof value === 'string' && trainingEquipmentValues.includes(value as TrainingEquipment)) {
@@ -112,9 +112,22 @@ function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
   return defaultTrainingEquipment;
 }
 
-function normalizeTrainingFrequency(value: unknown): TrainingFrequency {
-  if (typeof value === 'string' && trainingFrequencyValues.includes(value as TrainingFrequency)) {
-    return value as TrainingFrequency;
+function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
+  if (typeof value === 'number' && Number.isInteger(value) && trainingFrequencyValues.includes(value as TrainingFrequencyDays)) {
+    return value as TrainingFrequencyDays;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (trimmed === '毎日') {
+      return 1;
+    }
+    if (trimmed === '8日+' || trimmed === '8+') {
+      return 8;
+    }
+    const numeric = Number(trimmed.replace(/[^\d]/g, ''));
+    if (Number.isInteger(numeric) && trainingFrequencyValues.includes(numeric as TrainingFrequencyDays)) {
+      return numeric as TrainingFrequencyDays;
+    }
   }
   return defaultTrainingFrequency;
 }
@@ -347,7 +360,7 @@ function mapRemoteMenuItem(item: {
   trainingName: string;
   bodyPart?: string;
   equipment?: string;
-  frequency?: string;
+  frequency?: number | string;
   defaultWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;

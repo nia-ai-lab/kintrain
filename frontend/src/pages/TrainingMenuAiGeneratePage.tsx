@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState } from '../AppState';
-import type { TrainingEquipment, TrainingFrequency } from '../types';
+import type { TrainingEquipment, TrainingFrequencyDays } from '../types';
 
 interface Candidate {
   trainingName: string;
   equipment: TrainingEquipment;
-  frequency: TrainingFrequency;
+  frequency: TrainingFrequencyDays;
   defaultWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
@@ -22,15 +22,15 @@ export function TrainingMenuAiGeneratePage() {
 
   const candidates = useMemo<Candidate[]>(() => {
     const base: Candidate[] = [
-      { trainingName: 'チェストプレス', equipment: 'マシン', frequency: '3日', defaultWeightKg: 25, defaultRepsMin: 8, defaultRepsMax: 12, defaultSets: 3 },
-      { trainingName: 'ラットプルダウン', equipment: 'マシン', frequency: '3日', defaultWeightKg: 30, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 },
-      { trainingName: 'レッグプレス', equipment: 'マシン', frequency: '3日', defaultWeightKg: 80, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 },
-      { trainingName: 'ショルダープレス', equipment: 'マシン', frequency: '3日', defaultWeightKg: 15, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 },
-      { trainingName: 'シーテッドロー', equipment: 'マシン', frequency: '3日', defaultWeightKg: 27.5, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 }
+      { trainingName: 'チェストプレス', equipment: 'マシン', frequency: 3, defaultWeightKg: 25, defaultRepsMin: 8, defaultRepsMax: 12, defaultSets: 3 },
+      { trainingName: 'ラットプルダウン', equipment: 'マシン', frequency: 3, defaultWeightKg: 30, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 },
+      { trainingName: 'レッグプレス', equipment: 'マシン', frequency: 3, defaultWeightKg: 80, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 },
+      { trainingName: 'ショルダープレス', equipment: 'マシン', frequency: 3, defaultWeightKg: 15, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 },
+      { trainingName: 'シーテッドロー', equipment: 'マシン', frequency: 3, defaultWeightKg: 27.5, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 }
     ];
     if (machinePolicy === 'machine-and-free') {
-      base.push({ trainingName: 'ダンベルベンチプレス', equipment: 'ダンベル', frequency: '3日', defaultWeightKg: 16, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 });
-      base.push({ trainingName: 'ルーマニアンデッドリフト', equipment: 'バーベル', frequency: '3日', defaultWeightKg: 40, defaultRepsMin: 6, defaultRepsMax: 8, defaultSets: 3 });
+      base.push({ trainingName: 'ダンベルベンチプレス', equipment: 'ダンベル', frequency: 3, defaultWeightKg: 16, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 });
+      base.push({ trainingName: 'ルーマニアンデッドリフト', equipment: 'バーベル', frequency: 3, defaultWeightKg: 40, defaultRepsMin: 6, defaultRepsMax: 8, defaultSets: 3 });
     }
     if (goal === 'diet') {
       return base.map((item) => ({

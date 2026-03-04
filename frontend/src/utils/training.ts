@@ -33,27 +33,8 @@ export function getLastPerformance(menuItemId: string, gymVisits: GymVisit[]): L
   return null;
 }
 
-function getFrequencyDays(label: TrainingMenuItem['frequency']): number {
-  switch (label) {
-    case '毎日':
-      return 1;
-    case '2日':
-      return 2;
-    case '3日':
-      return 3;
-    case '4日':
-      return 4;
-    case '5日':
-      return 5;
-    case '6日':
-      return 6;
-    case '7日':
-      return 7;
-    case '8日+':
-      return 8;
-    default:
-      return 3;
-  }
+function getFrequencyDays(days: TrainingMenuItem['frequency']): number {
+  return days;
 }
 
 function scoreItem(params: {

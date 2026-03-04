@@ -15,7 +15,7 @@ type TrainingMenuItemDto = {
   trainingName: string;
   bodyPart?: string;
   equipment?: string;
-  frequency?: string;
+  frequency?: number | string;
   defaultWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
@@ -222,7 +222,7 @@ export async function createTrainingMenuItem(input: {
   trainingName: string;
   bodyPart?: string;
   equipment?: string;
-  frequency?: string;
+  frequency?: number;
   defaultWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
@@ -241,7 +241,7 @@ export async function updateTrainingMenuItem(
     trainingName: string;
     bodyPart: string;
     equipment: string;
-    frequency: string;
+    frequency: number;
     defaultWeightKg: number;
     defaultRepsMin: number;
     defaultRepsMax: number;

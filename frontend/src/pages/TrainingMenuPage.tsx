@@ -1,11 +1,21 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppState } from '../AppState';
-import type { TrainingEquipment, TrainingFrequency, TrainingMenuItem } from '../types';
+import type { TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 
 const CREATE_NEW_SET_OPTION = '__create_new_set__';
 const TRAINING_EQUIPMENT_OPTIONS: TrainingEquipment[] = ['マシン', 'バーベル', 'ダンベル', 'ケトルベル', '自重', 'その他'];
-const TRAINING_FREQUENCY_OPTIONS: TrainingFrequency[] = ['毎日', '2日', '3日', '4日', '5日', '6日', '7日', '8日+'];
+const TRAINING_FREQUENCY_OPTIONS: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+function frequencyLabel(days: TrainingFrequencyDays): string {
+  if (days === 1) {
+    return '毎日';
+  }
+  if (days === 8) {
+    return '8日+';
+  }
+  return `${days}日`;
+}
 
 export function TrainingMenuPage() {
   const {
@@ -85,7 +95,7 @@ export function TrainingMenuPage() {
     const trainingName = String(formData.get('trainingName') ?? '').trim();
     const bodyPart = String(formData.get('bodyPart') ?? '').trim();
     const equipment = String(formData.get('equipment') ?? '').trim() as TrainingEquipment;
-    const frequency = String(formData.get('frequency') ?? '').trim() as TrainingFrequency;
+    const frequency = Number(formData.get('frequency') ?? 0) as TrainingFrequencyDays;
     if (!trainingName) {
       setStatusText('トレーニング名を入力してください。');
       return false;
@@ -95,7 +105,7 @@ export function TrainingMenuPage() {
         trainingName,
         bodyPart,
         equipment: TRAINING_EQUIPMENT_OPTIONS.includes(equipment) ? equipment : 'マシン',
-        frequency: TRAINING_FREQUENCY_OPTIONS.includes(frequency) ? frequency : '3日',
+        frequency: TRAINING_FREQUENCY_OPTIONS.includes(frequency) ? frequency : 3,
         defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
         defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
         defaultRepsMax: Number(formData.get('defaultRepsMax') ?? 0),
@@ -286,10 +296,10 @@ export function TrainingMenuPage() {
               </label>
               <label>
                 頻度
-                <select name="frequency" defaultValue="3日" required>
+                <select name="frequency" defaultValue="3" required>
                   {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
-                    <option key={frequency} value={frequency}>
-                      {frequency}
+                    <option key={frequency} value={String(frequency)}>
+                      {frequencyLabel(frequency)}
                     </option>
                   ))}
                 </select>
@@ -457,13 +467,13 @@ function MenuItemCard({
               value={item.frequency}
               onChange={(e) =>
                 onUpdate({
-                  frequency: e.target.value as TrainingFrequency
+                  frequency: Number(e.target.value) as TrainingFrequencyDays
                 })
               }
             >
               {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
-                <option key={frequency} value={frequency}>
-                  {frequency}
+                <option key={frequency} value={String(frequency)}>
+                  {frequencyLabel(frequency)}
                 </option>
               ))}
             </select>

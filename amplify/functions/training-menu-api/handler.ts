@@ -31,7 +31,7 @@ type TrainingMenuItemInput = RepsRangeInput & {
   trainingName: string;
   bodyPart?: string;
   equipment?: string;
-  frequency?: string;
+  frequency?: number;
   defaultWeightKg: number;
   defaultSets: number;
 };
@@ -66,8 +66,8 @@ function toTrimmedString(value: unknown): string | undefined {
 
 const allowedEquipments = new Set(["マシン", "バーベル", "ダンベル", "ケトルベル", "自重", "その他"]);
 const defaultEquipment = "マシン";
-const allowedFrequencies = new Set(["毎日", "2日", "3日", "4日", "5日", "6日", "7日", "8日+"]);
-const defaultFrequency = "3日";
+const allowedFrequencies = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
+const defaultFrequency = 3;
 
 function normalizeEquipment(value: unknown): string | undefined {
   if (value === undefined) {
@@ -83,18 +83,31 @@ function normalizeEquipment(value: unknown): string | undefined {
   return trimmed;
 }
 
-function normalizeFrequency(value: unknown): string | undefined {
+function normalizeFrequency(value: unknown): number | undefined {
   if (value === undefined) {
     return undefined;
   }
-  if (typeof value !== "string") {
-    return undefined;
+  if (typeof value === "number") {
+    const num = Math.floor(value);
+    if (!allowedFrequencies.has(num)) {
+      return undefined;
+    }
+    return num;
   }
-  const trimmed = value.trim();
-  if (!allowedFrequencies.has(trimmed)) {
-    return undefined;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "毎日") {
+      return 1;
+    }
+    if (trimmed === "8日+" || trimmed === "8+") {
+      return 8;
+    }
+    const numeric = Number(trimmed.replace(/[^\d]/g, ""));
+    if (Number.isFinite(numeric) && allowedFrequencies.has(Math.floor(numeric))) {
+      return Math.floor(numeric);
+    }
   }
-  return trimmed;
+  return undefined;
 }
 
 function toRepsRangeFromItem(item: Record<string, unknown>): RepsRange {
@@ -141,7 +154,7 @@ function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, u
     trainingName: item.trainingName,
     bodyPart: typeof item.bodyPart === "string" ? item.bodyPart : "",
     equipment: typeof item.equipment === "string" ? item.equipment : defaultEquipment,
-    frequency: typeof item.frequency === "string" ? item.frequency : defaultFrequency,
+    frequency: normalizeFrequency(item.frequency) ?? defaultFrequency,
     defaultWeightKg: item.defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
@@ -382,7 +395,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
   }
   const frequency = normalizeFrequency(body.frequency) ?? defaultFrequency;
   if (body.frequency !== undefined && !normalizeFrequency(body.frequency)) {
-    return response(400, { message: "frequency must be one of 毎日/2日/3日/4日/5日/6日/7日/8日+." });
+    return response(400, { message: "frequency must be one of 1..8 (8 means 8日+)." });
   }
 
   const repsRange = resolveRepsRange(body);
@@ -479,7 +492,7 @@ async function updateTrainingMenuItem(
   const currentName = String(current.trainingName ?? "");
   const currentBodyPart = typeof current.bodyPart === "string" ? current.bodyPart : "";
   const currentEquipment = typeof current.equipment === "string" ? current.equipment : defaultEquipment;
-  const currentFrequency = typeof current.frequency === "string" ? current.frequency : defaultFrequency;
+  const currentFrequency = normalizeFrequency(current.frequency) ?? defaultFrequency;
   const nextName = toNonEmptyString(body.trainingName) ?? currentName;
   const nextBodyPartInput = toTrimmedString(body.bodyPart);
   const nextBodyPart = body.bodyPart !== undefined ? nextBodyPartInput ?? "" : currentBodyPart;
@@ -490,7 +503,7 @@ async function updateTrainingMenuItem(
   const nextEquipment = body.equipment !== undefined ? nextEquipmentNormalized ?? currentEquipment : currentEquipment;
   const nextFrequencyNormalized = normalizeFrequency(body.frequency);
   if (body.frequency !== undefined && !nextFrequencyNormalized) {
-    return response(400, { message: "frequency must be one of 毎日/2日/3日/4日/5日/6日/7日/8日+." });
+    return response(400, { message: "frequency must be one of 1..8 (8 means 8日+)." });
   }
   const nextFrequency = body.frequency !== undefined ? nextFrequencyNormalized ?? currentFrequency : currentFrequency;
   const nextNormalizedName = normalizeTrainingName(nextName);

@@ -48,6 +48,26 @@ function toRepsRange(menu: Record<string, unknown>): { defaultRepsMin: number; d
   };
 }
 
+function toFrequencyDays(value: unknown): number {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 1) {
+    return Math.min(8, Math.floor(value));
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed === "毎日") {
+      return 1;
+    }
+    if (trimmed === "8日+" || trimmed === "8+") {
+      return 8;
+    }
+    const numeric = Number(trimmed.replace(/[^\d]/g, ""));
+    if (Number.isFinite(numeric) && numeric >= 1) {
+      return Math.min(8, Math.floor(numeric));
+    }
+  }
+  return 3;
+}
+
 function isPositiveNumber(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value > 0;
 }
@@ -275,7 +295,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
       trainingName: menu.trainingName,
       bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
       equipment: typeof menu.equipment === "string" ? menu.equipment : "",
-      frequency: typeof menu.frequency === "string" ? menu.frequency : "3日",
+      frequency: toFrequencyDays(menu.frequency),
       defaultWeightKg: menu.defaultWeightKg,
       defaultRepsMin: repsRange.defaultRepsMin,
       defaultRepsMax: repsRange.defaultRepsMax,
