@@ -449,6 +449,31 @@ a {
   gap: 8px;
 }
 
+.avatar-crop-modal-card {
+  width: min(100%, 460px);
+}
+
+.avatar-crop-area {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  overflow: hidden;
+  background: #141b22;
+}
+
+.avatar-crop-zoom {
+  display: grid;
+  gap: 6px;
+  color: var(--ink);
+  font-size: 0.94rem;
+}
+
+.avatar-crop-zoom input {
+  width: 100%;
+}
+
 .simple-list {
   list-style: none;
   padding: 0;
