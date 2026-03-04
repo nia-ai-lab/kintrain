@@ -86,6 +86,8 @@ export interface UserProfile {
   birthDate: string;
   heightCm: number | null;
   timeZoneId: string;
+  userAvatarObjectKey?: string;
+  userAvatarImageUrl?: string;
 }
 
 export type TonePreset = 'polite' | 'friendly-coach' | 'strict-coach';
@@ -93,6 +95,7 @@ export type TonePreset = 'polite' | 'friendly-coach' | 'strict-coach';
 export interface AiCharacterProfile {
   characterId: string;
   characterName: string;
+  coachAvatarObjectKey?: string;
   avatarImageUrl: string;
   tonePreset: TonePreset;
   characterDescription: string;

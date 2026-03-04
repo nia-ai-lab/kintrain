@@ -99,11 +99,22 @@ type ListDailyRecordsResponse = {
 type AiCharacterProfileDto = {
   characterId?: string;
   characterName?: string;
+  coachAvatarObjectKey?: string;
   avatarImageUrl?: string;
   tonePreset?: string;
   characterDescription?: string;
   speechEnding?: string;
   updatedAt?: string;
+};
+
+type AvatarUploadTarget = 'user' | 'coach';
+
+type AvatarUploadPresignResponse = {
+  uploadUrl: string;
+  fields: Record<string, string>;
+  objectKey: string;
+  expiresInSeconds: number;
+  maxSizeBytes: number;
 };
 
 const coreApiEndpoint = (amplifyOutputs as CoreEndpointOutput).custom?.endpoints?.coreApiEndpoint ?? '';
@@ -149,7 +160,13 @@ async function coreApiFetch<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 export async function getProfile(): Promise<UserProfile> {
-  const profile = await coreApiFetch<UserProfile & { updatedAt?: string }>('/me/profile', {
+  const profile = await coreApiFetch<
+    UserProfile & {
+      userAvatarObjectKey?: string;
+      userAvatarImageUrl?: string;
+      updatedAt?: string;
+    }
+  >('/me/profile', {
     method: 'GET'
   });
   return {
@@ -157,15 +174,31 @@ export async function getProfile(): Promise<UserProfile> {
     sex: profile.sex ?? 'no-answer',
     birthDate: profile.birthDate ?? '',
     heightCm: typeof profile.heightCm === 'number' ? profile.heightCm : null,
-    timeZoneId: profile.timeZoneId ?? 'Asia/Tokyo'
+    timeZoneId: profile.timeZoneId ?? 'Asia/Tokyo',
+    userAvatarObjectKey: typeof profile.userAvatarObjectKey === 'string' ? profile.userAvatarObjectKey : undefined,
+    userAvatarImageUrl: typeof profile.userAvatarImageUrl === 'string' ? profile.userAvatarImageUrl : undefined
   };
 }
 
-export async function putProfile(profile: UserProfile): Promise<UserProfile> {
-  return coreApiFetch<UserProfile>('/me/profile', {
+type UserProfileUpsertInput = {
+  userName: string;
+  sex: UserProfile['sex'];
+  birthDate: string;
+  heightCm: number | null;
+  timeZoneId: string;
+  userAvatarObjectKey?: string | null;
+};
+
+export async function putProfile(profile: UserProfileUpsertInput): Promise<UserProfile> {
+  const saved = await coreApiFetch<UserProfile>('/me/profile', {
     method: 'PUT',
     body: JSON.stringify(profile)
   });
+  return {
+    ...saved,
+    userAvatarObjectKey: typeof saved.userAvatarObjectKey === 'string' ? saved.userAvatarObjectKey : undefined,
+    userAvatarImageUrl: typeof saved.userAvatarImageUrl === 'string' ? saved.userAvatarImageUrl : undefined
+  };
 }
 
 export async function listTrainingMenuItems(): Promise<ListTrainingMenuItemsResponse> {
@@ -339,7 +372,8 @@ export async function getAiCharacterProfile(): Promise<AiCharacterProfileDto> {
 export async function putAiCharacterProfile(input: {
   characterId: string;
   characterName: string;
-  avatarImageUrl: string;
+  coachAvatarObjectKey?: string | null;
+  avatarImageUrl?: string;
   tonePreset: string;
   characterDescription: string;
   speechEnding: string;
@@ -348,4 +382,42 @@ export async function putAiCharacterProfile(input: {
     method: 'PUT',
     body: JSON.stringify(input)
   });
+}
+
+export async function uploadAvatarImage(
+  target: AvatarUploadTarget,
+  file: File
+): Promise<{ objectKey: string; maxSizeBytes: number }> {
+  const presign = await coreApiFetch<AvatarUploadPresignResponse>('/avatar-upload/presign', {
+    method: 'POST',
+    body: JSON.stringify({
+      target,
+      fileName: file.name,
+      contentType: file.type,
+      fileSizeBytes: file.size
+    })
+  });
+
+  const formData = new FormData();
+  for (const [key, value] of Object.entries(presign.fields)) {
+    formData.append(key, value);
+  }
+  if (!Object.prototype.hasOwnProperty.call(presign.fields, 'Content-Type')) {
+    formData.append('Content-Type', file.type);
+  }
+  formData.append('file', file);
+
+  const uploadResponse = await fetch(presign.uploadUrl, {
+    method: 'POST',
+    body: formData
+  });
+
+  if (!uploadResponse.ok) {
+    throw new Error(`Avatar upload failed (${uploadResponse.status}).`);
+  }
+
+  return {
+    objectKey: presign.objectKey,
+    maxSizeBytes: presign.maxSizeBytes
+  };
 }

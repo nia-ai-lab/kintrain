@@ -1,9 +1,11 @@
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { buildAvatarImageUrl, deleteAvatarObject, normalizeOwnedAvatarObjectKey } from "../shared/avatar-storage";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, response, toNonEmptyString } from "../shared/http";
 
 const userProfileTableName = process.env.USER_PROFILE_TABLE_NAME ?? "";
+const avatarBucketName = process.env.AVATAR_BUCKET_NAME ?? "";
 
 type UserProfile = {
   userName: string;
@@ -11,6 +13,8 @@ type UserProfile = {
   birthDate: string;
   heightCm: number | null;
   timeZoneId: string;
+  userAvatarObjectKey?: string;
+  userAvatarImageUrl?: string;
   createdAt?: string;
   updatedAt: string;
 };
@@ -29,9 +33,14 @@ async function getProfile(userId: string): Promise<APIGatewayProxyResult> {
       sex: "no-answer",
       birthDate: "",
       heightCm: null,
-      timeZoneId: "Asia/Tokyo"
+      timeZoneId: "Asia/Tokyo",
+      userAvatarObjectKey: undefined,
+      userAvatarImageUrl: undefined
     });
   }
+
+  const userAvatarObjectKey = normalizeOwnedAvatarObjectKey(userId, "user", result.Item.userAvatarObjectKey);
+  const userAvatarImageUrl = await buildAvatarImageUrl(avatarBucketName, userAvatarObjectKey);
 
   return response(200, {
     userName: result.Item.userName ?? "",
@@ -39,6 +48,8 @@ async function getProfile(userId: string): Promise<APIGatewayProxyResult> {
     birthDate: result.Item.birthDate ?? "",
     heightCm: typeof result.Item.heightCm === "number" ? result.Item.heightCm : null,
     timeZoneId: result.Item.timeZoneId ?? "Asia/Tokyo",
+    userAvatarObjectKey,
+    userAvatarImageUrl,
     updatedAt: result.Item.updatedAt
   });
 }
@@ -58,6 +69,19 @@ async function putProfile(event: APIGatewayProxyEvent, userId: string): Promise<
 
   const createdAt = (current.Item?.createdAt as string | undefined) ?? nowIsoSeconds();
   const updatedAt = nowIsoSeconds();
+  const currentAvatarObjectKey = normalizeOwnedAvatarObjectKey(userId, "user", current.Item?.userAvatarObjectKey);
+  const bodyAvatarObjectKey = (body as { userAvatarObjectKey?: string | null }).userAvatarObjectKey;
+
+  let userAvatarObjectKey = currentAvatarObjectKey;
+  if (bodyAvatarObjectKey === null) {
+    userAvatarObjectKey = undefined;
+  } else if (bodyAvatarObjectKey !== undefined) {
+    const nextAvatarObjectKey = normalizeOwnedAvatarObjectKey(userId, "user", bodyAvatarObjectKey);
+    if (!nextAvatarObjectKey) {
+      return response(400, { message: "Invalid userAvatarObjectKey." });
+    }
+    userAvatarObjectKey = nextAvatarObjectKey;
+  }
 
   const profile: UserProfile = {
     userName: toNonEmptyString(body.userName) ?? (current.Item?.userName as string | undefined) ?? "",
@@ -70,9 +94,12 @@ async function putProfile(event: APIGatewayProxyEvent, userId: string): Promise<
           ? (current.Item.heightCm as number)
           : null,
     timeZoneId: toNonEmptyString(body.timeZoneId) ?? (current.Item?.timeZoneId as string | undefined) ?? "Asia/Tokyo",
+    userAvatarObjectKey,
     createdAt,
     updatedAt
   };
+
+  const userAvatarImageUrl = await buildAvatarImageUrl(avatarBucketName, userAvatarObjectKey);
 
   await ddb.send(
     new PutCommand({
@@ -84,7 +111,14 @@ async function putProfile(event: APIGatewayProxyEvent, userId: string): Promise<
     })
   );
 
-  return response(200, profile);
+  if (currentAvatarObjectKey && currentAvatarObjectKey !== userAvatarObjectKey) {
+    await deleteAvatarObject(avatarBucketName, currentAvatarObjectKey);
+  }
+
+  return response(200, {
+    ...profile,
+    userAvatarImageUrl
+  });
 }
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {

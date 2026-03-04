@@ -1,13 +1,17 @@
 import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
+import { buildAvatarImageUrl, deleteAvatarObject, normalizeOwnedAvatarObjectKey } from "../shared/avatar-storage";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, response, toNonEmptyString } from "../shared/http";
 
 const aiSettingTableName = process.env.AI_SETTING_TABLE_NAME ?? "";
+const avatarBucketName = process.env.AVATAR_BUCKET_NAME ?? "";
+const defaultAiCoachAvatarUrl = process.env.AI_COACH_DEFAULT_AVATAR_URL ?? "/assets/characters/default.png";
 
 type AiCharacterProfile = {
   characterId: string;
   characterName: string;
+  coachAvatarObjectKey?: string;
   avatarImageUrl: string;
   tonePreset: string;
   characterDescription: string;
@@ -18,12 +22,13 @@ type AiCharacterProfile = {
 
 function defaultAiCharacterProfile(): AiCharacterProfile {
   return {
-    characterId: "nyaruko",
-    characterName: "ニャル子",
-    avatarImageUrl: "/assets/characters/nyaruko/expressions/default.png",
+    characterId: "ai-coach-default",
+    characterName: "AIコーチ",
+    coachAvatarObjectKey: undefined,
+    avatarImageUrl: defaultAiCoachAvatarUrl,
     tonePreset: "friendly-coach",
-    characterDescription: "猫耳メイド",
-    speechEnding: "だニャ"
+    characterDescription: "優しく見守りAIコーチロボ",
+    speechEnding: "です。ます。"
   };
 }
 
@@ -39,13 +44,18 @@ async function getAiCharacterProfile(userId: string): Promise<APIGatewayProxyRes
     return response(200, defaultAiCharacterProfile());
   }
 
+  const defaults = defaultAiCharacterProfile();
+  const coachAvatarObjectKey = normalizeOwnedAvatarObjectKey(userId, "coach", result.Item.coachAvatarObjectKey);
+  const avatarImageUrl = await buildAvatarImageUrl(avatarBucketName, coachAvatarObjectKey, defaults.avatarImageUrl);
+
   return response(200, {
-    characterId: result.Item.characterId ?? "nyaruko",
-    characterName: result.Item.characterName ?? "ニャル子",
-    avatarImageUrl: result.Item.avatarImageUrl ?? "/assets/characters/nyaruko/expressions/default.png",
-    tonePreset: result.Item.tonePreset ?? "friendly-coach",
-    characterDescription: result.Item.characterDescription ?? "猫耳メイド",
-    speechEnding: result.Item.speechEnding ?? "だニャ",
+    characterId: result.Item.characterId ?? defaults.characterId,
+    characterName: result.Item.characterName ?? defaults.characterName,
+    coachAvatarObjectKey,
+    avatarImageUrl,
+    tonePreset: result.Item.tonePreset ?? defaults.tonePreset,
+    characterDescription: result.Item.characterDescription ?? defaults.characterDescription,
+    speechEnding: result.Item.speechEnding ?? defaults.speechEnding,
     updatedAt: result.Item.updatedAt
   });
 }
@@ -69,13 +79,25 @@ async function putAiCharacterProfile(
   const defaults = defaultAiCharacterProfile();
   const createdAt = (current.Item?.createdAt as string | undefined) ?? nowIsoSeconds();
   const updatedAt = nowIsoSeconds();
+  const currentAvatarObjectKey = normalizeOwnedAvatarObjectKey(userId, "coach", current.Item?.coachAvatarObjectKey);
+  const bodyAvatarObjectKey = (body as { coachAvatarObjectKey?: string | null }).coachAvatarObjectKey;
+
+  let coachAvatarObjectKey = currentAvatarObjectKey;
+  if (bodyAvatarObjectKey === null) {
+    coachAvatarObjectKey = undefined;
+  } else if (bodyAvatarObjectKey !== undefined) {
+    const nextAvatarObjectKey = normalizeOwnedAvatarObjectKey(userId, "coach", bodyAvatarObjectKey);
+    if (!nextAvatarObjectKey) {
+      return response(400, { message: "Invalid coachAvatarObjectKey." });
+    }
+    coachAvatarObjectKey = nextAvatarObjectKey;
+  }
 
   const profile = {
     characterId: toNonEmptyString(body.characterId) ?? (current.Item?.characterId as string | undefined) ?? defaults.characterId,
     characterName:
       toNonEmptyString(body.characterName) ?? (current.Item?.characterName as string | undefined) ?? defaults.characterName,
-    avatarImageUrl:
-      toNonEmptyString(body.avatarImageUrl) ?? (current.Item?.avatarImageUrl as string | undefined) ?? defaults.avatarImageUrl,
+    coachAvatarObjectKey,
     tonePreset: toNonEmptyString(body.tonePreset) ?? (current.Item?.tonePreset as string | undefined) ?? defaults.tonePreset,
     characterDescription:
       toNonEmptyString(body.characterDescription) ??
@@ -87,6 +109,8 @@ async function putAiCharacterProfile(
     updatedAt
   };
 
+  const avatarImageUrl = await buildAvatarImageUrl(avatarBucketName, coachAvatarObjectKey, defaults.avatarImageUrl);
+
   await ddb.send(
     new PutCommand({
       TableName: aiSettingTableName,
@@ -97,7 +121,14 @@ async function putAiCharacterProfile(
     })
   );
 
-  return response(200, profile);
+  if (currentAvatarObjectKey && currentAvatarObjectKey !== coachAvatarObjectKey) {
+    await deleteAvatarObject(avatarBucketName, currentAvatarObjectKey);
+  }
+
+  return response(200, {
+    ...profile,
+    avatarImageUrl
+  });
 }
 
 export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayProxyResult> => {

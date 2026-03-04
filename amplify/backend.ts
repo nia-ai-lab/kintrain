@@ -5,9 +5,11 @@ import * as agentcore from "@aws-cdk/aws-bedrock-agentcore-alpha";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as s3 from "aws-cdk-lib/aws-s3";
 import * as path from "node:path";
 import { auth } from "./auth/resource";
 import { aiSettingsApiFunction } from "./functions/ai-settings-api/resource";
+import { avatarUploadApiFunction } from "./functions/avatar-upload-api/resource";
 import { dailyRecordApiFunction } from "./functions/daily-record-api/resource";
 import { mcpToolsApiFunction } from "./functions/mcp-tools-api/resource";
 import { profileApiFunction } from "./functions/profile-api/resource";
@@ -17,6 +19,7 @@ import { trainingMenuApiFunction } from "./functions/training-menu-api/resource"
 const backend = defineBackend({
   auth,
   profileApiFunction,
+  avatarUploadApiFunction,
   trainingMenuApiFunction,
   trainingHistoryApiFunction,
   dailyRecordApiFunction,
@@ -163,7 +166,24 @@ const aiAdviceLogTable = new dynamodb.Table(stack, "AiAdviceLogTable", {
   removalPolicy: RemovalPolicy.RETAIN
 });
 
+const avatarImageBucket = new s3.Bucket(stack, "AvatarImageBucket", {
+  encryption: s3.BucketEncryption.S3_MANAGED,
+  blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
+  enforceSSL: true,
+  versioned: false,
+  removalPolicy: RemovalPolicy.RETAIN,
+  cors: [
+    {
+      allowedMethods: [s3.HttpMethods.POST],
+      allowedOrigins: ["*"],
+      allowedHeaders: ["*"],
+      maxAge: 3000
+    }
+  ]
+});
+
 const profileApiLambda = backend.profileApiFunction.resources.lambda as lambda.Function;
+const avatarUploadApiLambda = backend.avatarUploadApiFunction.resources.lambda as lambda.Function;
 const trainingMenuApiLambda = backend.trainingMenuApiFunction.resources.lambda as lambda.Function;
 const trainingHistoryApiLambda = backend.trainingHistoryApiFunction.resources.lambda as lambda.Function;
 const dailyRecordApiLambda = backend.dailyRecordApiFunction.resources.lambda as lambda.Function;
@@ -171,6 +191,11 @@ const aiSettingsApiLambda = backend.aiSettingsApiFunction.resources.lambda as la
 const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda.Function;
 
 userProfileTable.grantReadWriteData(profileApiLambda);
+avatarImageBucket.grantRead(profileApiLambda, "users/*");
+avatarImageBucket.grantDelete(profileApiLambda, "users/*");
+avatarImageBucket.grantRead(aiSettingsApiLambda, "users/*");
+avatarImageBucket.grantDelete(aiSettingsApiLambda, "users/*");
+avatarImageBucket.grantPut(avatarUploadApiLambda, "users/*");
 trainingMenuTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetItemTable.grantReadWriteData(trainingMenuApiLambda);
@@ -189,6 +214,10 @@ aiSettingTable.grantReadData(mcpToolsApiLambda);
 aiAdviceLogTable.grantWriteData(mcpToolsApiLambda);
 
 profileApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tableName);
+profileApiLambda.addEnvironment("AVATAR_BUCKET_NAME", avatarImageBucket.bucketName);
+profileApiLambda.addEnvironment("AVATAR_IMAGE_MAX_BYTES", "2097152");
+avatarUploadApiLambda.addEnvironment("AVATAR_BUCKET_NAME", avatarImageBucket.bucketName);
+avatarUploadApiLambda.addEnvironment("AVATAR_IMAGE_MAX_BYTES", "2097152");
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
@@ -200,6 +229,8 @@ dailyRecordApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.
 dailyRecordApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 dailyRecordApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
 aiSettingsApiLambda.addEnvironment("AI_SETTING_TABLE_NAME", aiSettingTable.tableName);
+aiSettingsApiLambda.addEnvironment("AVATAR_BUCKET_NAME", avatarImageBucket.bucketName);
+aiSettingsApiLambda.addEnvironment("AI_COACH_DEFAULT_AVATAR_URL", "/assets/characters/default.png");
 mcpToolsApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 mcpToolsApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.tableName);
 mcpToolsApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
@@ -250,6 +281,7 @@ const trainingMenuIntegration = new apigateway.LambdaIntegration(trainingMenuApi
 const trainingHistoryIntegration = new apigateway.LambdaIntegration(trainingHistoryApiLambda);
 const dailyRecordIntegration = new apigateway.LambdaIntegration(dailyRecordApiLambda);
 const aiSettingsIntegration = new apigateway.LambdaIntegration(aiSettingsApiLambda);
+const avatarUploadIntegration = new apigateway.LambdaIntegration(avatarUploadApiLambda);
 
 const authMethodOptions: apigateway.MethodOptions = {
   authorizer,
@@ -309,6 +341,9 @@ dailyRecordByDateResource.addMethod("PUT", dailyRecordIntegration, authMethodOpt
 const aiCharacterProfileResource = coreApi.root.addResource("ai-character-profile");
 aiCharacterProfileResource.addMethod("GET", aiSettingsIntegration, authMethodOptions);
 aiCharacterProfileResource.addMethod("PUT", aiSettingsIntegration, authMethodOptions);
+const avatarUploadResource = coreApi.root.addResource("avatar-upload");
+const avatarUploadPresignResource = avatarUploadResource.addResource("presign");
+avatarUploadPresignResource.addMethod("POST", avatarUploadIntegration, authMethodOptions);
 
 const enableAgentCoreResources = process.env.ENABLE_AGENTCORE_RESOURCES === "true";
 let aiRuntimeEndpoint = process.env.AI_RUNTIME_ENDPOINT_URL ?? "";
@@ -452,6 +487,9 @@ backend.addOutput({
       enabled: enableAgentCoreResources ? "true" : "false",
       aiGatewayId,
       aiMemoryId
+    },
+    storage: {
+      avatarImageBucketName: avatarImageBucket.bucketName
     },
     dynamodb: {
       userProfileTableName: userProfileTable.tableName,
