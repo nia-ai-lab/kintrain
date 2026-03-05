@@ -93,6 +93,7 @@ type DailyRecordDto = {
   conditionComment?: string;
   diary?: string;
   otherActivities?: string[];
+  updatedAt?: string;
 };
 
 type ListDailyRecordsResponse = {

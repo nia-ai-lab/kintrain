@@ -75,7 +75,7 @@ export function DailyPage() {
             : dailySaveStatus.error
               ? `保存エラー: ${dailySaveStatus.error}`
               : dailySaveStatus.lastSavedAtLocal
-                ? `最終保存: ${dailySaveStatus.lastSavedAtLocal.replace('T', ' ').slice(11, 16)}`
+                ? `最終保存: ${dailySaveStatus.lastSavedAtLocal.replace('T', ' ').slice(0, 16)}`
                 : '未保存'}
           {!dailySaveStatus.isSaving && dailySaveStatus.isDirty ? '（未保存の変更あり）' : ''}
         </p>
