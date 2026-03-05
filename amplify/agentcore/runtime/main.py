@@ -356,26 +356,33 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
 
 
 def _load_web_search_tools() -> list[Any]:
-    if not ENABLE_WEB_SEARCH_TOOL:
-        return []
+    provider = WEB_SEARCH_PROVIDER.strip().lower()
+    if not provider or provider == "http_request":
+        from strands_tools import http_request  # type: ignore
 
-    try:
-        if WEB_SEARCH_PROVIDER == "tavily":
-            if not _to_non_empty_string(os.getenv("TAVILY_API_KEY")):
-                return []
-            from strands_tools import tavily_search  # type: ignore
+        return [http_request]
 
-            return [tavily_search]
-        if WEB_SEARCH_PROVIDER == "exa":
-            if not _to_non_empty_string(os.getenv("EXA_API_KEY")):
-                return []
-            from strands_tools import exa_search  # type: ignore
+    if provider == "tavily":
+        if not ENABLE_WEB_SEARCH_TOOL:
+            raise RuntimeError("ENABLE_WEB_SEARCH_TOOL must be true when WEB_SEARCH_PROVIDER=tavily.")
+        if not _to_non_empty_string(os.getenv("TAVILY_API_KEY")):
+            raise RuntimeError("TAVILY_API_KEY is required when WEB_SEARCH_PROVIDER=tavily.")
+        from strands_tools import tavily_search  # type: ignore
 
-            return [exa_search]
-        return []
-    except Exception as exc:
-        print(f"web-search-tools-disabled: {type(exc).__name__}: {exc}")
-        return []
+        return [tavily_search]
+
+    if provider == "exa":
+        if not ENABLE_WEB_SEARCH_TOOL:
+            raise RuntimeError("ENABLE_WEB_SEARCH_TOOL must be true when WEB_SEARCH_PROVIDER=exa.")
+        if not _to_non_empty_string(os.getenv("EXA_API_KEY")):
+            raise RuntimeError("EXA_API_KEY is required when WEB_SEARCH_PROVIDER=exa.")
+        from strands_tools import exa_search  # type: ignore
+
+        return [exa_search]
+
+    raise RuntimeError(
+        "WEB_SEARCH_PROVIDER must be one of: http_request, tavily, exa."
+    )
 
 
 def _list_mcp_tools(mcp_client: Any) -> list[Any]:

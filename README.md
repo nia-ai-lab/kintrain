@@ -119,6 +119,46 @@ git push -u origin main
 - `tableName` は未指定のため、`main` と `dev` で DynamoDB物理テーブルは分離されます。
 - 機密情報（AWSキー等）はGitHubに置かないでください。
 
+### Amplifyで設定する環境変数（Branchごと）
+
+Amplify Console の `アプリ設定 > 環境変数` で設定します。  
+`dev` / `main` で値を分ける前提です。
+
+必須（推奨）:
+
+- `AMPLIFY_BRANCH`  
+  例: `dev` / `main`（リソース名サフィックスに利用）
+- `ENABLE_AGENTCORE_RESOURCES`  
+  `true` で AgentCore Runtime/Gateway/Memory を作成。`false` で作成しない。
+- `AI_COACH_GATEWAY_NAME`  
+  例: `kintrain-ai-coach-gateway-dev`
+- `AI_COACH_MEMORY_NAME`  
+  例: `kintrainCoachMemory_dev`
+- `AI_COACH_RUNTIME_NAME`  
+  例: `kintrainCoachRuntime_dev`
+
+AI Runtime設定（任意、未指定時はデフォルト値）:
+
+- `MODEL_ID`  
+  例: `global.anthropic.claude-sonnet-4-6`
+- `APP_TIMEZONE_DEFAULT`  
+  例: `Asia/Tokyo`
+- `ENABLE_MCP_TOOLS`  
+  `true` / `false`
+- `ENABLE_WEB_SEARCH_TOOL`  
+  `true` / `false`
+- `WEB_SEARCH_PROVIDER`  
+  `tavily` または `exa`
+- `TAVILY_API_KEY`  
+  `WEB_SEARCH_PROVIDER=tavily` で Web検索を有効化する場合に必須
+- `EXA_API_KEY`  
+  `WEB_SEARCH_PROVIDER=exa` で Web検索を有効化する場合に必須
+
+既存Runtimeを使う場合のみ:
+
+- `AI_RUNTIME_ENDPOINT_URL`  
+  AgentCoreリソースを新規作成せず、既存Runtimeエンドポイントを参照する場合に設定
+
 ## ローカル手動デプロイ（任意）
 
 ### 1. 前提

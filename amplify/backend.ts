@@ -447,7 +447,7 @@ if (enableAgentCoreResources) {
       MCP_GATEWAY_URL: aiCoachGateway.gatewayUrl ?? "",
       ENABLE_MCP_TOOLS: process.env.ENABLE_MCP_TOOLS ?? "true",
       ENABLE_WEB_SEARCH_TOOL: process.env.ENABLE_WEB_SEARCH_TOOL ?? "false",
-      WEB_SEARCH_PROVIDER: process.env.WEB_SEARCH_PROVIDER ?? "tavily",
+      WEB_SEARCH_PROVIDER: process.env.WEB_SEARCH_PROVIDER ?? "http_request",
       TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? "",
       EXA_API_KEY: process.env.EXA_API_KEY ?? "",
       MEMORY_ID: aiCoachMemory.memoryId,
