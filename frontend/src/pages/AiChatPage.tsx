@@ -39,10 +39,29 @@ function MarkdownMessage({ content }: { content: string }) {
   );
 }
 
+function ymdInTimeZone(timeZoneId: string, dayOffset = 0): string {
+  const now = new Date();
+  if (dayOffset !== 0) {
+    now.setDate(now.getDate() + dayOffset);
+  }
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timeZoneId || 'Asia/Tokyo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  });
+  const parts = formatter.formatToParts(now);
+  const y = parts.find((part) => part.type === 'year')?.value ?? '1970';
+  const m = parts.find((part) => part.type === 'month')?.value ?? '01';
+  const d = parts.find((part) => part.type === 'day')?.value ?? '01';
+  return `${y}-${m}-${d}`;
+}
+
 export function AiChatPage() {
   const { isAuthenticated } = useAuth();
   const {
     data,
+    refreshDailyRecord,
     restartActiveAiChatSession,
     appendUserMessage,
     createAssistantMessage,
@@ -162,6 +181,9 @@ export function AiChatPage() {
       setStatusEvents([]);
       finalizeAssistantMessage(messageId);
       setIsStreaming(false);
+      const tz = data.userProfile.timeZoneId || 'Asia/Tokyo';
+      void refreshDailyRecord(ymdInTimeZone(tz, 0));
+      void refreshDailyRecord(ymdInTimeZone(tz, -1));
     }
   }
 

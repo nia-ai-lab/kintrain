@@ -113,6 +113,14 @@ textarea {
   min-height: 92px;
 }
 
+.daily-condition-comment-textarea {
+  min-height: calc(2 * 1.5em + 20px);
+}
+
+.daily-diary-textarea {
+  min-height: calc(6 * 1.5em + 20px);
+}
+
 input:focus,
 select:focus,
 textarea:focus,

@@ -1,6 +1,6 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { useAppState } from '../AppState';
+import { getCalendarMonth } from '../api/coreApi';
 import { addMonths, getDaysInMonth, pad2, toYm, toYmd, weekdayIndex } from '../utils/date';
 
 const weekdayLabels = ['日', '月', '火', '水', '木', '金', '土'];
@@ -14,11 +14,11 @@ const conditionIcons: Record<number, string> = {
 };
 
 export function CalendarPage() {
-  const { data } = useAppState();
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const currentYm = params.get('month') ?? toYm(new Date());
   const todayYmd = toYmd(new Date());
+  const [calendarMap, setCalendarMap] = useState<Record<string, { trained: boolean; conditionRating?: number | null }>>({});
 
   const cells = useMemo(() => {
     const [year, month] = currentYm.split('-').map(Number);
@@ -36,7 +36,35 @@ export function CalendarPage() {
     return result;
   }, [currentYm]);
 
-  const trainedDates = new Set(data.gymVisits.map((visit) => visit.date));
+  useEffect(() => {
+    let cancelled = false;
+    void getCalendarMonth(currentYm)
+      .then((response) => {
+        if (cancelled) {
+          return;
+        }
+        const nextMap: Record<string, { trained: boolean; conditionRating?: number | null }> = {};
+        for (const day of response.days ?? []) {
+          const date = typeof day.date === 'string' ? day.date : '';
+          if (!date) {
+            continue;
+          }
+          nextMap[date] = {
+            trained: Boolean(day.trained),
+            conditionRating: typeof day.conditionRating === 'number' ? day.conditionRating : null
+          };
+        }
+        setCalendarMap(nextMap);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCalendarMap({});
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentYm]);
 
   return (
     <div className="stack-lg">
@@ -71,10 +99,10 @@ export function CalendarPage() {
             if (!cell.ymd) {
               return <div className="calendar-cell empty" key={`empty-${idx}`} />;
             }
-            const isTrained = trainedDates.has(cell.ymd);
+            const dayData = calendarMap[cell.ymd];
+            const isTrained = Boolean(dayData?.trained);
             const isToday = cell.ymd === todayYmd;
-            const record = data.dailyRecords[cell.ymd];
-            const rating = record?.conditionRating;
+            const rating = dayData?.conditionRating ?? null;
             const classes = ['calendar-cell'];
             if (isTrained) {
               classes.push('trained');

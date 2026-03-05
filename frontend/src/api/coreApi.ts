@@ -99,6 +99,17 @@ type ListDailyRecordsResponse = {
   items: DailyRecordDto[];
 };
 
+type CalendarDayDto = {
+  date?: string;
+  trained?: boolean;
+  conditionRating?: 1 | 2 | 3 | 4 | 5 | null;
+};
+
+type CalendarMonthResponse = {
+  month?: string;
+  days?: CalendarDayDto[];
+};
+
 type GoalDto = {
   targetWeightKg?: number;
   targetBodyFatPercent?: number;
@@ -374,6 +385,20 @@ export async function listDailyRecords(params: { from: string; to: string }): Pr
   search.set('from', params.from);
   search.set('to', params.to);
   return coreApiFetch<ListDailyRecordsResponse>(`/daily-records?${search.toString()}`, {
+    method: 'GET'
+  });
+}
+
+export async function getDailyRecord(date: string): Promise<DailyRecordDto> {
+  return coreApiFetch<DailyRecordDto>(`/daily-records/${encodeURIComponent(date)}`, {
+    method: 'GET'
+  });
+}
+
+export async function getCalendarMonth(month: string): Promise<CalendarMonthResponse> {
+  const search = new URLSearchParams();
+  search.set('month', month);
+  return coreApiFetch<CalendarMonthResponse>(`/calendar?${search.toString()}`, {
     method: 'GET'
   });
 }

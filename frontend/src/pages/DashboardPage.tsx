@@ -5,7 +5,7 @@ import { ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel } from '../utils/training';
 
 export function DashboardPage() {
-  const { data, saveGoal } = useAppState();
+  const { data, saveGoal, refreshDailyRecord } = useAppState();
   const today = useTodayYmd();
   const todayRecord = data.dailyRecords[today];
   const latestVisit = [...data.gymVisits].sort((a, b) => b.date.localeCompare(a.date))[0];
@@ -18,6 +18,10 @@ export function DashboardPage() {
   const [goalCommentInput, setGoalCommentInput] = useState(data.goal.comment ?? '');
   const [goalStatus, setGoalStatus] = useState('');
   const [isSavingGoal, setIsSavingGoal] = useState(false);
+
+  useEffect(() => {
+    void refreshDailyRecord(today);
+  }, [refreshDailyRecord, today]);
 
   useEffect(() => {
     if (isGoalModalOpen) {

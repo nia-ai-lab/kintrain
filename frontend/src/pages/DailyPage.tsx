@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { ConditionRatingPicker } from '../components/ConditionRatingPicker';
@@ -10,7 +10,16 @@ export function DailyPage() {
   const today = useTodayYmd();
   const targetDate = date ?? today;
 
-  const { data, saveDailyRecord, setConditionRating, addOtherActivity, removeOtherActivity, flushDailyRecord, getDailySaveStatus } =
+  const {
+    data,
+    refreshDailyRecord,
+    saveDailyRecord,
+    setConditionRating,
+    addOtherActivity,
+    removeOtherActivity,
+    flushDailyRecord,
+    getDailySaveStatus
+  } =
     useAppState();
   const [activityInput, setActivityInput] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
@@ -27,6 +36,10 @@ export function DailyPage() {
   );
   const visitEntries = useMemo(() => visits.flatMap((visit) => visit.entries), [visits]);
   const dailySaveStatus = getDailySaveStatus(targetDate);
+
+  useEffect(() => {
+    void refreshDailyRecord(targetDate);
+  }, [refreshDailyRecord, targetDate]);
 
   return (
     <div className="stack-lg">
@@ -121,6 +134,8 @@ export function DailyPage() {
         <label>
           コメント
           <textarea
+            className="daily-condition-comment-textarea"
+            rows={2}
             value={record.conditionComment ?? ''}
             onChange={(e) => saveDailyRecord(targetDate, { conditionComment: e.target.value })}
             placeholder="任意で体調メモ"
@@ -131,6 +146,8 @@ export function DailyPage() {
       <section className="card">
         <h2>日記</h2>
         <textarea
+          className="daily-diary-textarea"
+          rows={6}
           value={record.diary ?? ''}
           onChange={(e) => saveDailyRecord(targetDate, { diary: e.target.value })}
           placeholder="今日の記録や気づき"

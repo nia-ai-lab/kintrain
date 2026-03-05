@@ -7,9 +7,9 @@ import {
   deleteTrainingMenuSet as deleteTrainingMenuSetApi,
   deleteTrainingMenuItem as deleteTrainingMenuItemApi,
   getAiCharacterProfile as getAiCharacterProfileApi,
+  getDailyRecord as getDailyRecordApi,
   getGoal as getGoalApi,
   getProfile,
-  listDailyRecords as listDailyRecordsApi,
   listGymVisits,
   listTrainingMenuItems,
   listTrainingMenuSets,
@@ -57,6 +57,7 @@ interface AppStateContextValue {
   isCoreDataLoading: boolean;
   coreDataError: string;
   refreshCoreData: () => Promise<void>;
+  refreshDailyRecord: (date: string) => Promise<void>;
   setDraftEntry: (menuItemId: string, patch: Partial<DraftEntry>) => void;
   setDraftSetDetails: (menuItemId: string, setDetails: SetDetail[]) => void;
   clearDraftEntry: (menuItemId: string) => void;
@@ -579,13 +580,12 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     }
     setIsCoreDataLoading(true);
     try {
-      const [profile, menu, menuSetsResponse, visits, dailyRecordsResponse, aiCharacterProfileResponse, goalResponse] =
+      const [profile, menu, menuSetsResponse, visits, aiCharacterProfileResponse, goalResponse] =
         await Promise.all([
         getProfile(),
         listTrainingMenuItems(),
         listTrainingMenuSets(),
         listGymVisits({ limit: 200 }),
-        listDailyRecordsApi({ from: '1970-01-01', to: '2100-12-31' }),
         getAiCharacterProfileApi(),
         getGoalApi()
       ]);
@@ -600,10 +600,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       const gymVisits = visits.items
         .map((item) => mapRemoteGymVisit(item))
         .sort((a, b) => a.startedAtLocal.localeCompare(b.startedAtLocal));
-      const remoteDailyEntries = dailyRecordsResponse.items
-        .map((item) => mapRemoteDailyRecord(item, profile.timeZoneId))
-        .filter((item): item is DailyRecord => item !== null);
-      const remoteDailyRecordMap = Object.fromEntries(remoteDailyEntries.map((item) => [item.date, item]));
       setData((prev) => ({
         ...(() => {
           const nextMenuSetState = normalizeMenuSets(menuItems, remoteMenuSets, prev.activeTrainingMenuSetId);
@@ -618,15 +614,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             activeTrainingMenuSetId: nextMenuSetState.activeTrainingMenuSetId,
             gymVisits,
             aiCharacterProfile: mapRemoteAiCharacterProfile(aiCharacterProfileResponse),
-            goal: mapRemoteGoal(goalResponse, prev.goal),
-            dailyRecords: {
-              ...prev.dailyRecords,
-              ...Object.fromEntries(
-                Object.entries(remoteDailyRecordMap).filter(([date]) => {
-                  return !(dailySaveStatusByDate[date]?.isDirty ?? false);
-                })
-              )
-            }
+            goal: mapRemoteGoal(goalResponse, prev.goal)
           };
         })()
       }));
@@ -636,7 +624,45 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     } finally {
       setIsCoreDataLoading(false);
     }
-  }, [dailySaveStatusByDate, isAuthenticated]);
+  }, [isAuthenticated]);
+
+  const refreshDailyRecord = useCallback(
+    async (date: string) => {
+      if (!isAuthenticated) {
+        return;
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+        return;
+      }
+      if (dailySaveStatusByDate[date]?.isDirty) {
+        return;
+      }
+
+      try {
+        const remote = await getDailyRecordApi(date);
+        const mapped = mapRemoteDailyRecord(
+          {
+            ...remote,
+            recordDate: typeof remote.recordDate === 'string' ? remote.recordDate : date
+          },
+          data.userProfile.timeZoneId
+        );
+        if (!mapped) {
+          return;
+        }
+        setData((prev) => ({
+          ...prev,
+          dailyRecords: {
+            ...prev.dailyRecords,
+            [mapped.date]: mapped
+          }
+        }));
+      } catch {
+        // Dailyは対象日だけ遅延取得する。失敗時は現状表示を維持。
+      }
+    },
+    [dailySaveStatusByDate, data.userProfile.timeZoneId, isAuthenticated]
+  );
 
   const persistDailyRecordNow = useCallback(
     async (date: string, record: DailyRecord): Promise<{ ok: boolean; message?: string }> => {
@@ -729,7 +755,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     void refreshCoreData();
-  }, [isAuthenticated, refreshCoreData]);
+    void refreshDailyRecord(toYmd(new Date()));
+  }, [isAuthenticated, refreshCoreData, refreshDailyRecord]);
 
   const value = useMemo<AppStateContextValue>(() => {
     return {
@@ -737,6 +764,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       isCoreDataLoading,
       coreDataError,
       refreshCoreData,
+      refreshDailyRecord,
       setDraftEntry: (menuItemId, patch) => {
         setData((prev) => {
           const now = toLocalIsoWithOffset(new Date());
@@ -1647,6 +1675,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
     isCoreDataLoading,
     persistDailyRecordNow,
     refreshCoreData,
+    refreshDailyRecord,
     scheduleDailyRecordPersist
   ]);
 
