@@ -102,7 +102,7 @@ interface AppStateContextValue {
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
 const defaultTrainingEquipment: TrainingEquipment = 'マシン';
-const trainingEquipmentValues: TrainingEquipment[] = ['マシン', 'バーベル', 'ダンベル', 'ケトルベル', '自重', 'その他'];
+const trainingEquipmentValues: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
 const defaultTrainingFrequency: TrainingFrequencyDays = 3;
 const trainingFrequencyValues: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
@@ -110,7 +110,20 @@ function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
   if (typeof value === 'string' && trainingEquipmentValues.includes(value as TrainingEquipment)) {
     return value as TrainingEquipment;
   }
+  if (typeof value === 'string') {
+    const legacy = value.trim();
+    if (legacy === 'バーベル' || legacy === 'ダンベル' || legacy === 'ケトルベル') {
+      return 'フリー';
+    }
+  }
   return defaultTrainingEquipment;
+}
+
+function normalizeTrainingMemo(value: unknown): string {
+  if (typeof value !== 'string') {
+    return '';
+  }
+  return value.trim();
 }
 
 function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
@@ -287,13 +300,14 @@ function normalizeAppData(rawData: AppData): AppData {
   );
 
   const sourceMenuItems = (legacy.menuItems ?? initialAppData.menuItems) as Array<
-    TrainingMenuItem & { machineName?: string; defaultReps?: number; frequency?: unknown }
+    TrainingMenuItem & { machineName?: string; defaultReps?: number; frequency?: unknown; memo?: unknown }
   >;
   const normalizedMenuItems = sourceMenuItems.map((item) => ({
     ...item,
     trainingName: item.trainingName ?? item.machineName ?? '未設定トレーニング',
     bodyPart: item.bodyPart ?? '',
     equipment: normalizeTrainingEquipment((item as TrainingMenuItem & { equipment?: unknown }).equipment),
+    memo: normalizeTrainingMemo(item.memo),
     frequency: normalizeTrainingFrequency(item.frequency),
     ...normalizeRepsRange(item)
   }));
@@ -361,6 +375,7 @@ function mapRemoteMenuItem(item: {
   trainingName: string;
   bodyPart?: string;
   equipment?: string;
+  memo?: string;
   frequency?: number | string;
   defaultWeightKg: number;
   defaultRepsMin: number;
@@ -376,6 +391,7 @@ function mapRemoteMenuItem(item: {
     trainingName: item.trainingName,
     bodyPart: item.bodyPart ?? '',
     equipment: normalizeTrainingEquipment(item.equipment),
+    memo: normalizeTrainingMemo(item.memo),
     frequency: normalizeTrainingFrequency(item.frequency),
     defaultWeightKg: Number(item.defaultWeightKg),
     defaultRepsMin: repsRange.defaultRepsMin,
@@ -1114,6 +1130,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           trainingName: item.trainingName.trim(),
           bodyPart: item.bodyPart.trim(),
           equipment: normalizeTrainingEquipment(item.equipment),
+          memo: normalizeTrainingMemo(item.memo),
           frequency: normalizeTrainingFrequency(item.frequency),
           defaultWeightKg: Math.round(item.defaultWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(item.defaultRepsMin),
@@ -1179,6 +1196,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           trainingName: nextItem.trainingName.trim(),
           bodyPart: nextItem.bodyPart.trim(),
           equipment: normalizeTrainingEquipment(nextItem.equipment),
+          memo: normalizeTrainingMemo(nextItem.memo),
           frequency: normalizeTrainingFrequency(nextItem.frequency),
           defaultWeightKg: Math.round(nextItem.defaultWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(nextItem.defaultRepsMin),

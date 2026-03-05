@@ -31,6 +31,7 @@ type TrainingMenuItemInput = RepsRangeInput & {
   trainingName: string;
   bodyPart?: string;
   equipment?: string;
+  memo?: string;
   frequency?: number;
   defaultWeightKg: number;
   defaultSets: number;
@@ -64,7 +65,12 @@ function toTrimmedString(value: unknown): string | undefined {
   return value.trim();
 }
 
-const allowedEquipments = new Set(["マシン", "バーベル", "ダンベル", "ケトルベル", "自重", "その他"]);
+const allowedEquipments = new Set(["マシン", "フリー", "自重", "その他"]);
+const legacyEquipmentAliasMap: Record<string, string> = {
+  バーベル: "フリー",
+  ダンベル: "フリー",
+  ケトルベル: "フリー"
+};
 const defaultEquipment = "マシン";
 const allowedFrequencies = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 const defaultFrequency = 3;
@@ -77,8 +83,34 @@ function normalizeEquipment(value: unknown): string | undefined {
     return undefined;
   }
   const trimmed = value.trim();
-  if (!allowedEquipments.has(trimmed)) {
+  const normalized = legacyEquipmentAliasMap[trimmed] ?? trimmed;
+  if (!allowedEquipments.has(normalized)) {
     return undefined;
+  }
+  return normalized;
+}
+
+function parseMemo(value: unknown): { ok: boolean; value?: string } {
+  if (value === undefined) {
+    return { ok: true, value: undefined };
+  }
+  if (typeof value !== "string") {
+    return { ok: false };
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > 500) {
+    return { ok: false };
+  }
+  return { ok: true, value: trimmed };
+}
+
+function toMemo(value: unknown): string {
+  if (typeof value !== "string") {
+    return "";
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > 500) {
+    return trimmed.slice(0, 500);
   }
   return trimmed;
 }
@@ -153,7 +185,8 @@ function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, u
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: item.trainingName,
     bodyPart: typeof item.bodyPart === "string" ? item.bodyPart : "",
-    equipment: typeof item.equipment === "string" ? item.equipment : defaultEquipment,
+    equipment: normalizeEquipment(item.equipment) ?? defaultEquipment,
+    memo: toMemo(item.memo),
     frequency: normalizeFrequency(item.frequency) ?? defaultFrequency,
     defaultWeightKg: item.defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
@@ -389,9 +422,14 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
     return response(400, { message: "trainingName is required." });
   }
   const bodyPart = toTrimmedString(body.bodyPart) ?? "";
+  const memoParsed = parseMemo(body.memo);
+  if (!memoParsed.ok) {
+    return response(400, { message: "memo must be a string up to 500 characters." });
+  }
+  const memo = memoParsed.value ?? "";
   const equipment = normalizeEquipment(body.equipment) ?? defaultEquipment;
   if (body.equipment !== undefined && !normalizeEquipment(body.equipment)) {
-    return response(400, { message: "equipment must be one of マシン/バーベル/ダンベル/ケトルベル/自重/その他." });
+    return response(400, { message: "equipment must be one of マシン/フリー/自重/その他." });
   }
   const frequency = normalizeFrequency(body.frequency) ?? defaultFrequency;
   if (body.frequency !== undefined && !normalizeFrequency(body.frequency)) {
@@ -430,6 +468,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
         trainingName,
         bodyPart,
         equipment,
+        memo,
         frequency,
         normalizedTrainingName,
         defaultWeightKg,
@@ -451,6 +490,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
     trainingName,
     bodyPart,
     equipment,
+    memo,
     frequency,
     defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
@@ -491,14 +531,20 @@ async function updateTrainingMenuItem(
   const current = existing.Item as Record<string, unknown>;
   const currentName = String(current.trainingName ?? "");
   const currentBodyPart = typeof current.bodyPart === "string" ? current.bodyPart : "";
-  const currentEquipment = typeof current.equipment === "string" ? current.equipment : defaultEquipment;
+  const currentEquipment = normalizeEquipment(current.equipment) ?? defaultEquipment;
+  const currentMemo = toMemo(current.memo);
   const currentFrequency = normalizeFrequency(current.frequency) ?? defaultFrequency;
   const nextName = toNonEmptyString(body.trainingName) ?? currentName;
   const nextBodyPartInput = toTrimmedString(body.bodyPart);
   const nextBodyPart = body.bodyPart !== undefined ? nextBodyPartInput ?? "" : currentBodyPart;
+  const nextMemoParsed = parseMemo(body.memo);
+  if (!nextMemoParsed.ok) {
+    return response(400, { message: "memo must be a string up to 500 characters." });
+  }
+  const nextMemo = body.memo !== undefined ? nextMemoParsed.value ?? "" : currentMemo;
   const nextEquipmentNormalized = normalizeEquipment(body.equipment);
   if (body.equipment !== undefined && !nextEquipmentNormalized) {
-    return response(400, { message: "equipment must be one of マシン/バーベル/ダンベル/ケトルベル/自重/その他." });
+    return response(400, { message: "equipment must be one of マシン/フリー/自重/その他." });
   }
   const nextEquipment = body.equipment !== undefined ? nextEquipmentNormalized ?? currentEquipment : currentEquipment;
   const nextFrequencyNormalized = normalizeFrequency(body.frequency);
@@ -534,6 +580,7 @@ async function updateTrainingMenuItem(
     trainingName: nextName,
     bodyPart: nextBodyPart,
     equipment: nextEquipment,
+    memo: nextMemo,
     frequency: nextFrequency,
     normalizedTrainingName: nextNormalizedName,
     defaultWeightKg:
@@ -556,11 +603,12 @@ async function updateTrainingMenuItem(
         trainingMenuItemId
       },
       UpdateExpression:
-        "SET trainingName = :trainingName, bodyPart = :bodyPart, equipment = :equipment, frequency = :frequency, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
+        "SET trainingName = :trainingName, bodyPart = :bodyPart, equipment = :equipment, memo = :memo, frequency = :frequency, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
       ExpressionAttributeValues: {
         ":trainingName": updated.trainingName,
         ":bodyPart": updated.bodyPart,
         ":equipment": updated.equipment,
+        ":memo": updated.memo,
         ":frequency": updated.frequency,
         ":normalizedTrainingName": updated.normalizedTrainingName,
         ":defaultWeightKg": updated.defaultWeightKg,

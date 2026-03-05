@@ -821,6 +821,11 @@ a {
   max-width: 100%;
 }
 
+.menu-training-note-field textarea {
+  min-height: calc(1.5em + 20px);
+  resize: none;
+}
+
 .menu-three-fields-row {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

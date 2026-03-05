@@ -4,7 +4,7 @@ import { useAppState } from '../AppState';
 import type { TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 
 const CREATE_NEW_SET_OPTION = '__create_new_set__';
-const TRAINING_EQUIPMENT_OPTIONS: TrainingEquipment[] = ['マシン', 'バーベル', 'ダンベル', 'ケトルベル', '自重', 'その他'];
+const TRAINING_EQUIPMENT_OPTIONS: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
 const TRAINING_FREQUENCY_OPTIONS: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function frequencyLabel(days: TrainingFrequencyDays): string {
@@ -95,6 +95,7 @@ export function TrainingMenuPage() {
     const trainingName = String(formData.get('trainingName') ?? '').trim();
     const bodyPart = String(formData.get('bodyPart') ?? '').trim();
     const equipment = String(formData.get('equipment') ?? '').trim() as TrainingEquipment;
+    const memo = String(formData.get('memo') ?? '').trim();
     const frequency = Number(formData.get('frequency') ?? 0) as TrainingFrequencyDays;
     if (!trainingName) {
       setStatusText('トレーニング名を入力してください。');
@@ -105,6 +106,7 @@ export function TrainingMenuPage() {
         trainingName,
         bodyPart,
         equipment: TRAINING_EQUIPMENT_OPTIONS.includes(equipment) ? equipment : 'マシン',
+        memo,
         frequency: TRAINING_FREQUENCY_OPTIONS.includes(frequency) ? frequency : 3,
         defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
         defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
@@ -323,6 +325,10 @@ export function TrainingMenuPage() {
                 <input name="defaultSets" type="number" step="1" min="1" required />
               </label>
             </div>
+            <label className="menu-training-note-field">
+              メモ
+              <textarea name="memo" rows={1} maxLength={500} placeholder="任意でメモを入力" />
+            </label>
             <button className="btn primary menu-add-button" type="submit" disabled={isCoreDataLoading}>
               {isCoreDataLoading ? '同期中...' : 'このセットへ追加'}
             </button>
@@ -521,6 +527,16 @@ function MenuItemCard({
             />
           </label>
         </div>
+        <label className="menu-training-note-field">
+          メモ
+          <textarea
+            rows={1}
+            maxLength={500}
+            value={item.memo}
+            onChange={(e) => onUpdate({ memo: e.target.value })}
+            placeholder="任意でメモを入力"
+          />
+        </label>
       </div>
     </article>
   );

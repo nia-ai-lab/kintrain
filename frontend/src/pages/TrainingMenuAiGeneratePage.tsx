@@ -29,8 +29,8 @@ export function TrainingMenuAiGeneratePage() {
       { trainingName: 'シーテッドロー', equipment: 'マシン', frequency: 3, defaultWeightKg: 27.5, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 }
     ];
     if (machinePolicy === 'machine-and-free') {
-      base.push({ trainingName: 'ダンベルベンチプレス', equipment: 'ダンベル', frequency: 3, defaultWeightKg: 16, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 });
-      base.push({ trainingName: 'ルーマニアンデッドリフト', equipment: 'バーベル', frequency: 3, defaultWeightKg: 40, defaultRepsMin: 6, defaultRepsMax: 8, defaultSets: 3 });
+      base.push({ trainingName: 'ダンベルベンチプレス', equipment: 'フリー', frequency: 3, defaultWeightKg: 16, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 });
+      base.push({ trainingName: 'ルーマニアンデッドリフト', equipment: 'フリー', frequency: 3, defaultWeightKg: 40, defaultRepsMin: 6, defaultRepsMax: 8, defaultSets: 3 });
     }
     if (goal === 'diet') {
       return base.map((item) => ({
@@ -101,6 +101,7 @@ export function TrainingMenuAiGeneratePage() {
                   trainingName: item.trainingName,
                   bodyPart: '',
                   equipment: item.equipment,
+                  memo: '',
                   frequency: item.frequency,
                   defaultWeightKg: item.defaultWeightKg,
                   defaultRepsMin: item.defaultRepsMin,
