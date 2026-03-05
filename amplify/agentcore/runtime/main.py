@@ -34,7 +34,7 @@ STREAM_CHUNK_CHAR_SIZE = int(os.getenv("STREAM_CHUNK_CHAR_SIZE", "24"))
 MCP_GATEWAY_URL = os.getenv("MCP_GATEWAY_URL", "").strip()
 ENABLE_MCP_TOOLS = os.getenv("ENABLE_MCP_TOOLS", "true").strip().lower() != "false"
 ENABLE_WEB_SEARCH_TOOL = os.getenv("ENABLE_WEB_SEARCH_TOOL", "false").strip().lower() == "true"
-WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "tavily").strip().lower()
+WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "http_request").strip().lower()
 VENDOR_DIR = (Path(__file__).resolve().parent / "vendor").resolve()
 LTM_ENABLED = os.getenv("LTM_RETRIEVAL_ENABLED", "true").strip().lower() != "false"
 LTM_PREFERENCES_TOP_K = int(os.getenv("LTM_PREFERENCES_TOP_K", "5"))
@@ -358,7 +358,7 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
 def _load_web_search_tools() -> list[Any]:
     provider = WEB_SEARCH_PROVIDER.strip().lower()
     if not provider or provider == "http_request":
-        from strands_tools import http_request  # type: ignore
+        from strands_tools.http_request import http_request  # type: ignore
 
         return [http_request]
 
@@ -367,7 +367,7 @@ def _load_web_search_tools() -> list[Any]:
             raise RuntimeError("ENABLE_WEB_SEARCH_TOOL must be true when WEB_SEARCH_PROVIDER=tavily.")
         if not _to_non_empty_string(os.getenv("TAVILY_API_KEY")):
             raise RuntimeError("TAVILY_API_KEY is required when WEB_SEARCH_PROVIDER=tavily.")
-        from strands_tools import tavily_search  # type: ignore
+        from strands_tools.tavily import tavily_search  # type: ignore
 
         return [tavily_search]
 
@@ -376,7 +376,7 @@ def _load_web_search_tools() -> list[Any]:
             raise RuntimeError("ENABLE_WEB_SEARCH_TOOL must be true when WEB_SEARCH_PROVIDER=exa.")
         if not _to_non_empty_string(os.getenv("EXA_API_KEY")):
             raise RuntimeError("EXA_API_KEY is required when WEB_SEARCH_PROVIDER=exa.")
-        from strands_tools import exa_search  # type: ignore
+        from strands_tools.exa import exa_search  # type: ignore
 
         return [exa_search]
 
