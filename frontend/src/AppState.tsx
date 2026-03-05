@@ -569,6 +569,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
   const [dailySaveStatusByDate, setDailySaveStatusByDate] = useState<Record<string, DailySaveStatus>>({});
   const dailyPersistTimerRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const pendingDailyRecordRef = useRef<Record<string, DailyRecord>>({});
+  const dailySaveStatusRef = useRef<Record<string, DailySaveStatus>>({});
+
+  useEffect(() => {
+    dailySaveStatusRef.current = dailySaveStatusByDate;
+  }, [dailySaveStatusByDate]);
 
   useEffect(() => {
     saveToStorage(data);
@@ -634,12 +639,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
         return;
       }
-      if (dailySaveStatusByDate[date]?.isDirty) {
+      if (dailySaveStatusRef.current[date]?.isDirty) {
         return;
       }
 
       try {
         const remote = await getDailyRecordApi(date);
+        const remoteUpdatedAt = typeof remote.updatedAt === 'string' ? remote.updatedAt : undefined;
         const mapped = mapRemoteDailyRecord(
           {
             ...remote,
@@ -657,11 +663,31 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             [mapped.date]: mapped
           }
         }));
+        setDailySaveStatusByDate((prev) => {
+          const previous = prev[date] ?? getDefaultDailySaveStatus();
+          const nextSavedAt = remoteUpdatedAt ? utcToLocalIsoWithOffset(remoteUpdatedAt) : undefined;
+          if (previous.isDirty || previous.isSaving) {
+            return prev;
+          }
+          if (!previous.error && !previous.isDirty && !previous.isSaving && previous.lastSavedAtLocal === nextSavedAt) {
+            return prev;
+          }
+          return {
+            ...prev,
+            [date]: {
+              ...previous,
+              isDirty: false,
+              isSaving: false,
+              error: undefined,
+              lastSavedAtLocal: nextSavedAt
+            }
+          };
+        });
       } catch {
         // Dailyは対象日だけ遅延取得する。失敗時は現状表示を維持。
       }
     },
-    [dailySaveStatusByDate, data.userProfile.timeZoneId, isAuthenticated]
+    [data.userProfile.timeZoneId, isAuthenticated]
   );
 
   const persistDailyRecordNow = useCallback(
