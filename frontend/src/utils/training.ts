@@ -7,6 +7,7 @@ export interface LastPerformance {
   weightKg: number;
   reps: number;
   sets: number;
+  note?: string;
 }
 
 export function formatTrainingLabel(trainingName: string, bodyPart?: string, equipment?: string): string {
@@ -26,7 +27,8 @@ export function getLastPerformance(menuItemId: string, gymVisits: GymVisit[]): L
         endedAtLocal: sorted[i].endedAtLocal,
         weightKg: entry.weightKg,
         reps: entry.reps,
-        sets: entry.sets
+        sets: entry.sets,
+        note: typeof entry.note === 'string' ? entry.note : undefined
       };
     }
   }

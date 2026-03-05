@@ -432,6 +432,7 @@ function mapRemoteGymVisit(visit: {
     trainingNameSnapshot?: string;
     bodyPartSnapshot?: string;
     equipmentSnapshot?: string;
+    note?: string;
     weightKg?: number;
     reps?: number;
     sets?: number;
@@ -450,6 +451,7 @@ function mapRemoteGymVisit(visit: {
     trainingName: entry.trainingNameSnapshot ?? '不明トレーニング',
     bodyPart: entry.bodyPartSnapshot ?? '',
     equipment: typeof entry.equipmentSnapshot === 'string' ? entry.equipmentSnapshot : '',
+    note: typeof entry.note === 'string' ? entry.note : undefined,
     weightKg: Number(entry.weightKg ?? 0),
     reps: Number(entry.reps ?? 0),
     sets: Number(entry.sets ?? 0)
@@ -823,8 +825,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             ...patch
           };
 
+          const hasMemoField = Object.prototype.hasOwnProperty.call(nextEntry, 'memo');
           const hasAnyMetric =
-            nextEntry.weightKg !== undefined || nextEntry.reps !== undefined || nextEntry.sets !== undefined;
+            nextEntry.weightKg !== undefined ||
+            nextEntry.reps !== undefined ||
+            nextEntry.sets !== undefined ||
+            hasMemoField ||
+            (Array.isArray(nextEntry.setDetails) && nextEntry.setDetails.length > 0);
           const nextEntries = { ...(currentDraft?.entriesByItemId ?? {}) };
 
           if (!hasAnyMetric) {
@@ -925,6 +932,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               trainingName: menuItem?.trainingName ?? '不明トレーニング',
               bodyPart: menuItem?.bodyPart ?? '',
               equipment: menuItem?.equipment ?? '',
+              note: typeof entry.memo === 'string' ? entry.memo.trim() || undefined : undefined,
               weightKg: entry.weightKg ?? 0,
               reps: entry.reps ?? 0,
               sets: entry.sets ?? 0,
@@ -956,6 +964,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               trainingNameSnapshot: entry.trainingName,
               bodyPartSnapshot: entry.bodyPart.trim() || undefined,
               equipmentSnapshot: entry.equipment.trim() || undefined,
+              note: entry.note?.trim() || undefined,
               weightKg: entry.weightKg,
               reps: entry.reps,
               sets: entry.sets,

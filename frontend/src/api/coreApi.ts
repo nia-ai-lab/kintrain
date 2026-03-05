@@ -53,6 +53,7 @@ type GymVisitEntryInput = {
   trainingNameSnapshot: string;
   bodyPartSnapshot?: string;
   equipmentSnapshot?: string;
+  note?: string;
   weightKg: number;
   reps: number;
   sets: number;

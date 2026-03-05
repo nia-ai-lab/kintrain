@@ -117,9 +117,12 @@ export function TrainingSessionPage() {
           const seedWeightKg = last?.weightKg ?? item.defaultWeightKg;
           const seedReps = last?.reps ?? item.defaultRepsMax;
           const seedSets = last?.sets ?? item.defaultSets;
+          const seedMemo = (last?.note?.trim() || item.memo || '').trim();
           const weightValue = draft?.weightKg;
           const repsValue = draft?.reps;
           const setsValue = draft?.sets;
+          const memoValue =
+            draft && Object.prototype.hasOwnProperty.call(draft, 'memo') ? (draft.memo ?? '') : seedMemo;
           const isDetailOpen = !!openSetDetailIds[item.id];
 
           return (
@@ -219,6 +222,21 @@ export function TrainingSessionPage() {
                   />
                 </label>
               </div>
+              <label>
+                メモ
+                <input
+                  type="text"
+                  value={memoValue}
+                  placeholder="任意でメモを入力"
+                  maxLength={500}
+                  onChange={(e) =>
+                    setDraftEntry(item.id, {
+                      menuItemId: item.id,
+                      memo: e.target.value
+                    })
+                  }
+                />
+              </label>
 
               <div className="row-wrap">
                 <button

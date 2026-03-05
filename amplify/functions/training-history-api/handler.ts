@@ -94,7 +94,8 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       typeof entry.performedAtUtc === "string" &&
       entry.performedAtUtc.length > 0 &&
       (entry.bodyPartSnapshot === undefined || typeof entry.bodyPartSnapshot === "string") &&
-      (entry.equipmentSnapshot === undefined || typeof entry.equipmentSnapshot === "string")
+      (entry.equipmentSnapshot === undefined || typeof entry.equipmentSnapshot === "string") &&
+      (entry.note === undefined || (typeof entry.note === "string" && entry.note.trim().length <= 500))
     );
   });
 }
@@ -103,11 +104,13 @@ function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
   return entries.map((entry) => {
     const bodyPartSnapshot = toTrimmedString(entry.bodyPartSnapshot);
     const equipmentSnapshot = toTrimmedString(entry.equipmentSnapshot);
+    const note = toTrimmedString(entry.note);
     return {
       ...entry,
       trainingNameSnapshot: entry.trainingNameSnapshot.trim(),
       bodyPartSnapshot,
-      equipmentSnapshot
+      equipmentSnapshot,
+      note
     };
   });
 }
@@ -284,6 +287,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
           sets: matched.sets,
           bodyPartSnapshot: matched.bodyPartSnapshot ?? "",
           equipmentSnapshot: matched.equipmentSnapshot ?? "",
+          note: typeof matched.note === "string" ? matched.note : "",
           visitDateLocal: visit.visitDateLocal
         };
         break;

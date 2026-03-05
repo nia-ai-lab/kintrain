@@ -39,6 +39,7 @@ export interface ExerciseEntry {
   trainingName: string;
   bodyPart: string;
   equipment: string;
+  note?: string;
   weightKg: number;
   reps: number;
   sets: number;
@@ -59,6 +60,7 @@ export interface DraftEntry {
   weightKg?: number;
   reps?: number;
   sets?: number;
+  memo?: string;
   setDetails?: SetDetail[];
 }
 
