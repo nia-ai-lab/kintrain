@@ -1086,6 +1086,10 @@ a {
   gap: 6px;
 }
 
+.calendar-days {
+  grid-auto-rows: 84px;
+}
+
 .calendar-weekdays {
   margin-top: 10px;
 }
@@ -1100,10 +1104,12 @@ a {
   border: 1px solid var(--line);
   border-radius: 12px;
   background: #fff;
-  min-height: 76px;
+  min-height: 0;
+  height: 100%;
   padding: 8px;
   display: grid;
-  align-content: space-between;
+  grid-template-rows: auto 1fr auto;
+  align-items: center;
   justify-items: center;
   cursor: pointer;
 }
@@ -1136,9 +1142,20 @@ a {
 .train-dot {
   color: var(--primary);
   font-size: 0.76rem;
+  line-height: 1;
+  min-height: 0.9em;
+}
+
+.train-dot.placeholder {
+  visibility: hidden;
 }
 
 .condition-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  min-height: 1.2em;
   justify-self: center;
 }
 

@@ -94,7 +94,7 @@ export function CalendarPage() {
           ))}
         </div>
 
-        <div className="calendar-grid">
+        <div className="calendar-grid calendar-days">
           {cells.map((cell, idx) => {
             if (!cell.ymd) {
               return <div className="calendar-cell empty" key={`empty-${idx}`} />;
@@ -119,7 +119,7 @@ export function CalendarPage() {
                 onClick={() => navigate(`/daily/${cell.ymd}`)}
               >
                 <span className="day-number">{Number(cell.ymd.slice(-2))}</span>
-                {isTrained && <span className="train-dot">●</span>}
+                <span className={`train-dot${isTrained ? '' : ' placeholder'}`}>●</span>
                 <span className="condition-icon">{rating ? conditionIcons[rating] : '○'}</span>
               </button>
             );
