@@ -73,8 +73,8 @@ interface AppStateContextValue {
   updateMenuItem: (itemId: string, patch: Partial<TrainingMenuItem>) => void;
   deleteMenuItem: (itemId: string) => void;
   moveMenuItem: (itemId: string, direction: -1 | 1) => void;
-  createMenuSet: (setName: string, options?: { isDefault?: boolean }) => Promise<string | null>;
-  renameMenuSet: (setId: string, setName: string) => Promise<void>;
+  createMenuSet: (setName: string, options?: { isDefault?: boolean; isAiGenerated?: boolean }) => Promise<string | null>;
+  renameMenuSet: (setId: string, setName: string, options?: { isAiGenerated?: boolean }) => Promise<void>;
   deleteMenuSet: (setId: string) => Promise<void>;
   setDefaultMenuSet: (setId: string) => Promise<void>;
   setActiveMenuSet: (setId: string) => void;
@@ -215,6 +215,7 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
         setName: (set.setName ?? '').trim() || `メニューセット ${idx + 1}`,
         order: idx + 1,
         isDefault: Boolean(set.isDefault),
+        isAiGenerated: set.isAiGenerated === true,
         isActive: true,
         itemIds: uniqueItemIds
       } as TrainingMenuSet;
@@ -415,6 +416,7 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
     setName: item.setName,
     order: Number(item.menuSetOrder),
     isDefault: Boolean(item.isDefault),
+    isAiGenerated: item.isAiGenerated === true,
     isActive: item.isActive !== false,
     itemIds: Array.isArray(item.itemIds) ? item.itemIds.filter((id): id is string => typeof id === 'string') : []
   };
@@ -1293,7 +1295,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         try {
           const created = await createTrainingMenuSetApi({
             setName: trimmedName,
-            isDefault: options?.isDefault
+            isDefault: options?.isDefault,
+            isAiGenerated: options?.isAiGenerated
           });
           await refreshCoreData();
           setData((prev) => ({
@@ -1307,7 +1310,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return null;
         }
       },
-      renameMenuSet: async (setId, setName) => {
+      renameMenuSet: async (setId, setName, options) => {
         if (!isAuthenticated) {
           return;
         }
@@ -1316,10 +1319,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         try {
-          await updateTrainingMenuSetApi(setId, { setName: trimmedName });
+          await updateTrainingMenuSetApi(setId, {
+            setName: trimmedName,
+            isAiGenerated: options?.isAiGenerated
+          });
           setData((prev) => ({
             ...prev,
-            menuSets: prev.menuSets.map((set) => (set.id === setId ? { ...set, setName: trimmedName } : set))
+            menuSets: prev.menuSets.map((set) =>
+              set.id === setId ? { ...set, setName: trimmedName, isAiGenerated: options?.isAiGenerated ?? set.isAiGenerated } : set
+            )
           }));
           setCoreDataError('');
         } catch (error) {

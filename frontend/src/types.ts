@@ -30,6 +30,7 @@ export interface TrainingMenuSet {
   setName: string;
   order: number;
   isDefault: boolean;
+  isAiGenerated: boolean;
   isActive: boolean;
   itemIds: string[];
 }

@@ -41,11 +41,13 @@ type TrainingMenuItemInput = RepsRangeInput & {
 type TrainingMenuSetInput = {
   setName: string;
   isDefault?: boolean;
+  isAiGenerated?: boolean;
 };
 
 type TrainingMenuSetUpdateInput = {
   setName?: string;
   isDefault?: boolean;
+  isAiGenerated?: boolean;
 };
 
 function normalizeTrainingName(name: string): string {
@@ -251,6 +253,7 @@ function toMenuSetResponse(
     setName: String(set.setName ?? ""),
     menuSetOrder: Number(set.menuSetOrder ?? 0),
     isDefault: Boolean(set.isDefault),
+    isAiGenerated: set.isAiGenerated === true,
     isActive: set.isActive !== false,
     itemIds: setItemIdsBySetId[trainingMenuSetId] ?? [],
     createdAt: set.createdAt,
@@ -785,6 +788,7 @@ async function createTrainingMenuSet(event: APIGatewayProxyEvent, userId: string
   const menuSetOrder = (await getMaxMenuSetOrder(userId)) + 1;
   const currentDefaultSetId = await getCurrentDefaultSetId(userId);
   const shouldBeDefault = Boolean(body.isDefault) || !currentDefaultSetId;
+  const isAiGenerated = body.isAiGenerated === true;
   const ts = nowIsoSeconds();
 
   if (shouldBeDefault && currentDefaultSetId) {
@@ -814,6 +818,7 @@ async function createTrainingMenuSet(event: APIGatewayProxyEvent, userId: string
                 setName,
                 menuSetOrder,
                 isDefault: true,
+                isAiGenerated,
                 isActive: true,
                 defaultSetMarker,
                 createdAt: ts,
@@ -835,6 +840,7 @@ async function createTrainingMenuSet(event: APIGatewayProxyEvent, userId: string
           setName,
           menuSetOrder,
           isDefault: shouldBeDefault,
+          isAiGenerated,
           isActive: true,
           ...(shouldBeDefault ? { defaultSetMarker } : {}),
           createdAt: ts,
@@ -850,6 +856,7 @@ async function createTrainingMenuSet(event: APIGatewayProxyEvent, userId: string
     setName,
     menuSetOrder,
     isDefault: shouldBeDefault,
+    isAiGenerated,
     isActive: true,
     itemIds: [],
     createdAt: ts,
@@ -874,6 +881,8 @@ async function updateTrainingMenuSet(
 
   const nextSetName = toNonEmptyString(body.setName) ?? String(current.setName ?? "");
   const currentIsDefault = Boolean(current.isDefault);
+  const currentIsAiGenerated = current.isAiGenerated === true;
+  const nextIsAiGenerated = body.isAiGenerated !== undefined ? body.isAiGenerated === true : currentIsAiGenerated;
   const requestedDefault = body.isDefault;
   const ts = nowIsoSeconds();
 
@@ -904,20 +913,21 @@ async function updateTrainingMenuSet(
     }
 
     transactItems.push({
-      Update: {
-        TableName: trainingMenuSetTableName,
-        Key: {
-          userId,
-          trainingMenuSetId
-        },
-        UpdateExpression:
-          "SET setName = :setName, isDefault = :isDefault, defaultSetMarker = :defaultSetMarker, updatedAt = :updatedAt",
-        ExpressionAttributeValues: {
-          ":setName": nextSetName,
-          ":isDefault": true,
-          ":defaultSetMarker": defaultSetMarker,
-          ":updatedAt": ts
-        }
+        Update: {
+          TableName: trainingMenuSetTableName,
+          Key: {
+            userId,
+            trainingMenuSetId
+          },
+          UpdateExpression:
+          "SET setName = :setName, isDefault = :isDefault, isAiGenerated = :isAiGenerated, defaultSetMarker = :defaultSetMarker, updatedAt = :updatedAt",
+          ExpressionAttributeValues: {
+            ":setName": nextSetName,
+            ":isDefault": true,
+            ":isAiGenerated": nextIsAiGenerated,
+            ":defaultSetMarker": defaultSetMarker,
+            ":updatedAt": ts
+          }
       }
     });
 
@@ -932,14 +942,16 @@ async function updateTrainingMenuSet(
       setName: nextSetName,
       menuSetOrder: Number(current.menuSetOrder ?? 0),
       isDefault: true,
+      isAiGenerated: nextIsAiGenerated,
       isActive: true,
       updatedAt: ts
     });
   }
 
-  const updateExpressionParts = ["setName = :setName", "updatedAt = :updatedAt"];
+  const updateExpressionParts = ["setName = :setName", "isAiGenerated = :isAiGenerated", "updatedAt = :updatedAt"];
   const expressionAttributeValues: Record<string, unknown> = {
     ":setName": nextSetName,
+    ":isAiGenerated": nextIsAiGenerated,
     ":updatedAt": ts
   };
 
@@ -966,6 +978,7 @@ async function updateTrainingMenuSet(
     setName: nextSetName,
     menuSetOrder: Number(current.menuSetOrder ?? 0),
     isDefault: currentIsDefault,
+    isAiGenerated: nextIsAiGenerated,
     isActive: true,
     updatedAt: ts
   });

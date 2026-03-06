@@ -38,6 +38,7 @@ export function TrainingMenuPage() {
   const [statusText, setStatusText] = useState('');
   const [setNameDraft, setSetNameDraft] = useState('');
   const [setDefaultChecked, setSetDefaultChecked] = useState(false);
+  const [setAiGeneratedChecked, setSetAiGeneratedChecked] = useState(false);
   const [isCreateSetMode, setIsCreateSetMode] = useState(false);
   const [showDeleteSetConfirm, setShowDeleteSetConfirm] = useState(false);
   const [selectedExistingItemId, setSelectedExistingItemId] = useState('');
@@ -67,9 +68,10 @@ export function TrainingMenuPage() {
     }
     setSetNameDraft(activeSet?.setName ?? '');
     setSetDefaultChecked(Boolean(activeSet?.isDefault));
+    setSetAiGeneratedChecked(Boolean(activeSet?.isAiGenerated));
     setSelectedExistingItemId('');
     setShowDeleteSetConfirm(false);
-  }, [activeSet?.id, activeSet?.setName, activeSet?.isDefault, isCreateSetMode]);
+  }, [activeSet?.id, activeSet?.setName, activeSet?.isDefault, activeSet?.isAiGenerated, isCreateSetMode]);
 
   const menuItemById = useMemo(() => {
     return new Map(data.menuItems.map((item) => [item.id, item]));
@@ -137,6 +139,7 @@ export function TrainingMenuPage() {
                 setIsCreateSetMode(true);
                 setSetNameDraft('');
                 setSetDefaultChecked(menuSets.length === 0);
+                setSetAiGeneratedChecked(false);
                 setSelectedExistingItemId('');
                 return;
               }
@@ -170,7 +173,10 @@ export function TrainingMenuPage() {
             }
 
             if (isCreateSetMode) {
-              const createdSetId = await createMenuSet(trimmed, { isDefault: isFirstSetCreation || setDefaultChecked });
+              const createdSetId = await createMenuSet(trimmed, {
+                isDefault: isFirstSetCreation || setDefaultChecked,
+                isAiGenerated: setAiGeneratedChecked
+              });
               if (!createdSetId) {
                 setStatusText('メニューセット作成に失敗しました。');
                 return;
@@ -186,7 +192,7 @@ export function TrainingMenuPage() {
             }
 
             try {
-              await renameMenuSet(editingSet.id, trimmed);
+              await renameMenuSet(editingSet.id, trimmed, { isAiGenerated: setAiGeneratedChecked });
               if (setDefaultChecked) {
                 await setDefaultMenuSet(editingSet.id);
               }
@@ -197,22 +203,32 @@ export function TrainingMenuPage() {
           }}
         >
           <div className="menu-set-name-edit-row">
-            <label className="menu-set-default-check">
-              <input
-                type="checkbox"
-                checked={isFirstSetCreation ? true : setDefaultChecked}
-                onChange={(e) => {
-                  if (isFirstSetCreation) {
-                    return;
-                  }
-                  if (editingSet?.isDefault && !e.target.checked) {
-                    return;
-                  }
-                  setSetDefaultChecked(e.target.checked);
-                }}
-              />
-              <span>デフォルト</span>
-            </label>
+            <div className="row-wrap menu-set-flags-row">
+              <label className="menu-set-default-check">
+                <input
+                  type="checkbox"
+                  checked={isFirstSetCreation ? true : setDefaultChecked}
+                  onChange={(e) => {
+                    if (isFirstSetCreation) {
+                      return;
+                    }
+                    if (editingSet?.isDefault && !e.target.checked) {
+                      return;
+                    }
+                    setSetDefaultChecked(e.target.checked);
+                  }}
+                />
+                <span>デフォルト</span>
+              </label>
+              <label className="menu-set-default-check">
+                <input
+                  type="checkbox"
+                  checked={setAiGeneratedChecked}
+                  onChange={(e) => setSetAiGeneratedChecked(e.target.checked)}
+                />
+                <span>AI生成</span>
+              </label>
+            </div>
             <input
               value={setNameDraft}
               onChange={(e) => setSetNameDraft(e.target.value)}

@@ -39,6 +39,7 @@ export type TrainingMenuSetDto = {
   setName: string;
   menuSetOrder: number;
   isDefault: boolean;
+  isAiGenerated?: boolean;
   isActive: boolean;
   itemIds: string[];
   createdAt?: string;
@@ -294,7 +295,11 @@ export async function listTrainingMenuSets(): Promise<ListTrainingMenuSetsRespon
   });
 }
 
-export async function createTrainingMenuSet(input: { setName: string; isDefault?: boolean }): Promise<TrainingMenuSetDto> {
+export async function createTrainingMenuSet(input: {
+  setName: string;
+  isDefault?: boolean;
+  isAiGenerated?: boolean;
+}): Promise<TrainingMenuSetDto> {
   return coreApiFetch<TrainingMenuSetDto>('/training-menu-sets', {
     method: 'POST',
     body: JSON.stringify(input)
@@ -306,6 +311,7 @@ export async function updateTrainingMenuSet(
   input: Partial<{
     setName: string;
     isDefault: boolean;
+    isAiGenerated: boolean;
   }>
 ): Promise<TrainingMenuSetDto> {
   return coreApiFetch<TrainingMenuSetDto>(`/training-menu-sets/${trainingMenuSetId}`, {

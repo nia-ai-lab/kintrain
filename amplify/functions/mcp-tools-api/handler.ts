@@ -701,6 +701,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
           setName,
           menuSetOrder,
           isDefault: shouldBeDefault,
+          isAiGenerated: true,
           isActive: true,
           ...(shouldBeDefault ? { defaultSetMarker } : {}),
           createdAt: ts,
@@ -774,6 +775,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
     trainingMenuSetId,
     setName,
     isDefault: shouldBeDefault,
+    isAiGenerated: true,
     createdCount: normalizedItems.length
   });
 }
