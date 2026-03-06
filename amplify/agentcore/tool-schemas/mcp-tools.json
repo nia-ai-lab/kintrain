@@ -162,5 +162,75 @@
       },
       "required": ["userId", "advice"]
     }
+  },
+  {
+    "name": "create_training_menu_set_from_ai",
+    "description": "AI提案から新規トレーニングメニューセットと新規トレーニングメニュー項目を登録する。既存セットや既存項目は変更しない。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "内部利用。Runtime がJWT subを設定する。"
+        },
+        "setName": {
+          "type": "string",
+          "description": "新規作成するメニューセット名"
+        },
+        "makeDefault": {
+          "type": "boolean",
+          "description": "既定セットにするか。既定セットが既に存在する場合は false で使う。"
+        },
+        "items": {
+          "type": "array",
+          "description": "新規作成するトレーニングメニュー項目一覧",
+          "items": {
+            "type": "object",
+            "properties": {
+              "trainingName": {
+                "type": "string"
+              },
+              "bodyPart": {
+                "type": "string"
+              },
+              "equipment": {
+                "type": "string",
+                "enum": ["マシン", "フリー", "自重", "その他"]
+              },
+              "frequency": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 8
+              },
+              "defaultWeightKg": {
+                "type": "number"
+              },
+              "defaultRepsMin": {
+                "type": "integer"
+              },
+              "defaultRepsMax": {
+                "type": "integer"
+              },
+              "defaultSets": {
+                "type": "integer"
+              },
+              "memo": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "trainingName",
+              "equipment",
+              "frequency",
+              "defaultWeightKg",
+              "defaultRepsMin",
+              "defaultRepsMax",
+              "defaultSets"
+            ]
+          }
+        }
+      },
+      "required": ["userId", "setName", "items"]
+    }
   }
 ]

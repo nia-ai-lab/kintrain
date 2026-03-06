@@ -1,7 +1,10 @@
-import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import { ddb } from "../shared/ddb";
 
+const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
+const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
+const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
 const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
 const goalTableName = process.env.GOAL_TABLE_NAME ?? "";
@@ -35,6 +38,41 @@ type LambdaToolContext = {
 
 type ToolArgs = Record<string, unknown>;
 type DiarySaveMode = "append" | "overwrite";
+type AiMenuItemInput = {
+  trainingName?: unknown;
+  bodyPart?: unknown;
+  equipment?: unknown;
+  frequency?: unknown;
+  defaultWeightKg?: unknown;
+  defaultRepsMin?: unknown;
+  defaultRepsMax?: unknown;
+  defaultSets?: unknown;
+  memo?: unknown;
+};
+
+const allowedEquipments = new Set(["マシン", "フリー", "自重", "その他"]);
+const defaultEquipment = "マシン";
+const defaultFrequency = 3;
+const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
+const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
+const trainingNameIndex = "UserTrainingNameIndex";
+const defaultSetMarker = "DEFAULT";
+
+function normalizeTrainingName(name: string): string {
+  return name.trim().toLowerCase();
+}
+
+function zeroPadOrder(order: number): string {
+  return Math.max(0, Math.floor(order)).toString().padStart(6, "0");
+}
+
+function buildMenuSetOrderKey(trainingMenuSetId: string, displayOrder: number): string {
+  return `${trainingMenuSetId}#${zeroPadOrder(displayOrder)}`;
+}
+
+function buildMenuSetItemKey(trainingMenuSetId: string, trainingMenuItemId: string): string {
+  return `${trainingMenuSetId}#${trainingMenuItemId}`;
+}
 
 function nowIsoSeconds(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
@@ -111,6 +149,56 @@ function resolveDiarySaveMode(value: unknown): DiarySaveMode | undefined {
   return undefined;
 }
 
+function normalizeEquipment(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  return allowedEquipments.has(trimmed) ? trimmed : undefined;
+}
+
+function normalizeFrequency(value: unknown): number | undefined {
+  const num = Number(value);
+  if (!Number.isFinite(num)) {
+    return undefined;
+  }
+  const normalized = Math.floor(num);
+  if (normalized < 1 || normalized > 8) {
+    return undefined;
+  }
+  return normalized;
+}
+
+function normalizePositiveInteger(value: unknown): number | undefined {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) {
+    return undefined;
+  }
+  return Math.floor(num);
+}
+
+function normalizePositiveDecimal(value: unknown): number | undefined {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) {
+    return undefined;
+  }
+  return Math.round(num * 100) / 100;
+}
+
+function normalizeMemo(value: unknown): string | undefined {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (trimmed.length > 500) {
+    return undefined;
+  }
+  return trimmed;
+}
+
 function ymdDaysAgo(days: number): string {
   const date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const y = date.getUTCFullYear().toString().padStart(4, "0");
@@ -134,10 +222,86 @@ function extractToolName(context: LambdaToolContext): string | null {
 }
 
 function requireConfiguredTables(): string | null {
-  if (!trainingHistoryTableName || !dailyRecordTableName || !goalTableName || !aiSettingTableName || !aiAdviceLogTableName) {
+  if (
+    !trainingMenuTableName ||
+    !trainingMenuSetTableName ||
+    !trainingMenuSetItemTableName ||
+    !trainingHistoryTableName ||
+    !dailyRecordTableName ||
+    !goalTableName ||
+    !aiSettingTableName ||
+    !aiAdviceLogTableName
+  ) {
     return "MCP lambda environment is not configured.";
   }
   return null;
+}
+
+async function getMaxMenuSetOrder(userId: string): Promise<number> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetTableName,
+      IndexName: menuSetByOrderIndex,
+      KeyConditionExpression: "userId = :userId",
+      ExpressionAttributeValues: {
+        ":userId": userId
+      },
+      ScanIndexForward: false,
+      Limit: 1
+    })
+  );
+  const max = Number(result.Items?.[0]?.menuSetOrder ?? 0);
+  return Number.isFinite(max) ? max : 0;
+}
+
+async function getCurrentDefaultSetId(userId: string): Promise<string | null> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetTableName,
+      IndexName: defaultMenuSetIndex,
+      KeyConditionExpression: "userId = :userId AND defaultSetMarker = :defaultSetMarker",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":defaultSetMarker": defaultSetMarker
+      },
+      Limit: 1
+    })
+  );
+  const item = result.Items?.[0];
+  return typeof item?.trainingMenuSetId === "string" ? item.trainingMenuSetId : null;
+}
+
+async function getMaxDisplayOrder(userId: string): Promise<number> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuTableName,
+      IndexName: "UserDisplayOrderIndex",
+      KeyConditionExpression: "userId = :userId",
+      ExpressionAttributeValues: {
+        ":userId": userId
+      },
+      ScanIndexForward: false,
+      Limit: 1
+    })
+  );
+  const max = Number(result.Items?.[0]?.displayOrder ?? 0);
+  return Number.isFinite(max) ? max : 0;
+}
+
+async function existsByTrainingName(userId: string, normalizedTrainingName: string): Promise<boolean> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuTableName,
+      IndexName: trainingNameIndex,
+      KeyConditionExpression: "userId = :userId AND normalizedTrainingName = :normalizedTrainingName",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":normalizedTrainingName": normalizedTrainingName
+      },
+      Limit: 1
+    })
+  );
+  return Boolean(result.Items?.[0]);
 }
 
 function requireUserId(args: ToolArgs, context: LambdaToolContext): string | null {
@@ -410,6 +574,210 @@ async function saveAdviceLog(args: ToolArgs, userId: string): Promise<LambdaLike
   });
 }
 
+async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+  const setName = toNonEmptyString(args.setName);
+  if (!setName) {
+    return jsonResponse(400, { message: "setName is required." });
+  }
+
+  const rawItems = Array.isArray(args.items) ? (args.items as AiMenuItemInput[]) : null;
+  if (!rawItems || rawItems.length === 0) {
+    return jsonResponse(400, { message: "items is required." });
+  }
+  if (rawItems.length > 20) {
+    return jsonResponse(400, { message: "items cannot exceed 20." });
+  }
+
+  let normalizedItems: Array<{
+    trainingName: string;
+    normalizedTrainingName: string;
+    bodyPart: string;
+    equipment: string;
+    frequency: number;
+    defaultWeightKg: number;
+    defaultRepsMin: number;
+    defaultRepsMax: number;
+    defaultSets: number;
+    memo: string;
+  }>;
+  try {
+    normalizedItems = rawItems.map((item, index) => {
+      const trainingName = toNonEmptyString(item.trainingName);
+      const equipment = normalizeEquipment(item.equipment) ?? defaultEquipment;
+      const frequency = normalizeFrequency(item.frequency) ?? defaultFrequency;
+      const defaultWeightKg = normalizePositiveDecimal(item.defaultWeightKg);
+      const defaultRepsMin = normalizePositiveInteger(item.defaultRepsMin);
+      const defaultRepsMax = normalizePositiveInteger(item.defaultRepsMax);
+      const defaultSets = normalizePositiveInteger(item.defaultSets);
+      const memo = normalizeMemo(item.memo);
+      const bodyPart = toNonEmptyString(item.bodyPart) ?? "";
+
+      if (!trainingName) {
+        throw new Error(`items[${index}].trainingName is required.`);
+      }
+      if (!normalizeEquipment(item.equipment)) {
+        throw new Error(`items[${index}].equipment must be one of マシン/フリー/自重/その他.`);
+      }
+      if (!normalizeFrequency(item.frequency)) {
+        throw new Error(`items[${index}].frequency must be one of 1..8.`);
+      }
+      if (!defaultWeightKg || !defaultRepsMin || !defaultRepsMax || !defaultSets) {
+        throw new Error(`items[${index}] must include positive weight/reps/sets.`);
+      }
+      if (defaultRepsMin > defaultRepsMax) {
+        throw new Error(`items[${index}].defaultRepsMin must be <= defaultRepsMax.`);
+      }
+      if (memo === undefined) {
+        throw new Error(`items[${index}].memo must be a string up to 500 characters.`);
+      }
+
+      return {
+        trainingName,
+        normalizedTrainingName: normalizeTrainingName(trainingName),
+        bodyPart,
+        equipment,
+        frequency,
+        defaultWeightKg,
+        defaultRepsMin,
+        defaultRepsMax,
+        defaultSets,
+        memo
+      };
+    });
+  } catch (error) {
+    return jsonResponse(400, {
+      message: error instanceof Error ? error.message : "invalid items."
+    });
+  }
+
+  const duplicateNamesInRequest = Array.from(
+    new Set(
+      normalizedItems
+        .map((item) => item.normalizedTrainingName)
+        .filter((name, index, list) => list.indexOf(name) !== index)
+    )
+  );
+  if (duplicateNamesInRequest.length > 0) {
+    return jsonResponse(409, {
+      message: "duplicate training names exist in items.",
+      duplicateTrainingNames: duplicateNamesInRequest
+    });
+  }
+
+  const duplicateChecks = await Promise.all(
+    normalizedItems.map(async (item) => ({
+      trainingName: item.trainingName,
+      exists: await existsByTrainingName(userId, item.normalizedTrainingName)
+    }))
+  );
+  const duplicateTrainingNames = duplicateChecks.filter((item) => item.exists).map((item) => item.trainingName);
+  if (duplicateTrainingNames.length > 0) {
+    return jsonResponse(409, {
+      message: "trainingName already exists.",
+      duplicateTrainingNames
+    });
+  }
+
+  const currentDefaultSetId = await getCurrentDefaultSetId(userId);
+  if (args.makeDefault === true && currentDefaultSetId) {
+    return jsonResponse(400, {
+      message: "makeDefault cannot be true because a default set already exists."
+    });
+  }
+
+  const shouldBeDefault = !currentDefaultSetId;
+  const menuSetOrder = (await getMaxMenuSetOrder(userId)) + 1;
+  const startingDisplayOrder = (await getMaxDisplayOrder(userId)) + 1;
+  const trainingMenuSetId = randomUUID();
+  const ts = nowIsoSeconds();
+
+  const transactItems = [
+    {
+      Put: {
+        TableName: trainingMenuSetTableName,
+        Item: {
+          userId,
+          trainingMenuSetId,
+          setName,
+          menuSetOrder,
+          isDefault: shouldBeDefault,
+          isActive: true,
+          ...(shouldBeDefault ? { defaultSetMarker } : {}),
+          createdAt: ts,
+          updatedAt: ts
+        },
+        ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetId)"
+      }
+    },
+    ...normalizedItems.flatMap((item, index) => {
+      const trainingMenuItemId = randomUUID();
+      const displayOrder = startingDisplayOrder + index;
+      const trainingMenuSetItemId = randomUUID();
+      const setDisplayOrder = index + 1;
+
+      return [
+        {
+          Put: {
+            TableName: trainingMenuTableName,
+            Item: {
+              userId,
+              trainingMenuItemId,
+              trainingName: item.trainingName,
+              normalizedTrainingName: item.normalizedTrainingName,
+              bodyPart: item.bodyPart,
+              equipment: item.equipment,
+              isAiGenerated: true,
+              memo: item.memo,
+              frequency: item.frequency,
+              defaultWeightKg: item.defaultWeightKg,
+              defaultRepsMin: item.defaultRepsMin,
+              defaultRepsMax: item.defaultRepsMax,
+              defaultReps: item.defaultRepsMax,
+              defaultSets: item.defaultSets,
+              displayOrder,
+              isActive: true,
+              createdAt: ts,
+              updatedAt: ts
+            },
+            ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuItemId)"
+          }
+        },
+        {
+          Put: {
+            TableName: trainingMenuSetItemTableName,
+            Item: {
+              userId,
+              trainingMenuSetItemId,
+              trainingMenuSetId,
+              trainingMenuItemId,
+              displayOrder: setDisplayOrder,
+              menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, setDisplayOrder),
+              menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, trainingMenuItemId),
+              createdAt: ts,
+              updatedAt: ts
+            },
+            ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetItemId)"
+          }
+        }
+      ];
+    })
+  ];
+
+  await ddb.send(
+    new TransactWriteCommand({
+      TransactItems: transactItems
+    })
+  );
+
+  return jsonResponse(200, {
+    tool: "create_training_menu_set_from_ai",
+    trainingMenuSetId,
+    setName,
+    isDefault: shouldBeDefault,
+    createdCount: normalizedItems.length
+  });
+}
+
 export const handler = async (event: ToolArgs = {}, context: LambdaToolContext = {}): Promise<LambdaLikeResponse> => {
   try {
     const envError = requireConfiguredTables();
@@ -452,6 +820,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "save_advice_log") {
       return saveAdviceLog(event, userId);
+    }
+    if (toolName === "create_training_menu_set_from_ai") {
+      return createTrainingMenuSetFromAi(event, userId);
     }
 
     return jsonResponse(404, { message: `Method not found: ${toolName}` });

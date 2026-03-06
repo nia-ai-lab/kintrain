@@ -922,6 +922,23 @@ a {
   padding: 8px 6px;
 }
 
+.ai-menu-generation-header {
+  align-items: flex-start;
+}
+
+.ai-menu-generation-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ai-menu-generation-actions {
+  justify-content: space-between;
+}
+
+.form-error {
+  color: var(--danger);
+  font-size: 0.92rem;
+}
+
 .input-grid.body-metrics-grid .body-time-field input[type='time'] {
   min-width: 0 !important;
   max-width: 100% !important;
@@ -1006,6 +1023,10 @@ a {
 
   .input-grid.body-metrics-grid input {
     padding: 8px 8px;
+  }
+
+  .ai-menu-generation-grid {
+    grid-template-columns: 1fr;
   }
 
   .top-header {

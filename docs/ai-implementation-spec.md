@@ -116,6 +116,8 @@
 - 会話継続は `chatSessionId`（= Runtime `sessionId`）を再利用する。
 - テキスト本体だけでなく、Runtime内部ステータス（例: `thinking`, `tool_calling`, `tool_succeeded`）もストリームイベントとしてUIへ表示する。
 - 内部ステータスは Runtime 側で明示的にイベント生成し、UIは `message` イベントと `status` イベントを分離描画する。
+- AIメニュー生成も同一 Runtime を利用し、用途切替は Runtime 側の専用 mode ではなく、UI が送る固定プロンプトで制御する。
+- AIメニュー生成時も通常AIチャットと同様に `userProfile` / `aiCharacterProfile` を metadata に載せて送る。
 
 ### 4.3 将来拡張
 
@@ -130,6 +132,7 @@
 - Runtimeエージェントの役割名（ドメイン上の正本）は `AIコーチ` とする。
 - モデルは BedrockModel を使い、モデルIDは環境変数で切替可能にする。
 - 初期候補は Claude Sonnet 4.6 系を利用する（利用可能リージョンで有効化）。
+- Runtime は AIチャットとAIメニュー生成で共通利用し、用途別のエージェント分岐や mode 切替は設けない。
 
 ### 5.1.1 Runtime環境変数（必須）
 

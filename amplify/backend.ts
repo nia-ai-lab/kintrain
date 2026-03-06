@@ -212,6 +212,9 @@ dailyRecordTable.grantReadWriteData(mcpToolsApiLambda);
 goalTable.grantReadData(mcpToolsApiLambda);
 aiSettingTable.grantReadData(mcpToolsApiLambda);
 aiAdviceLogTable.grantWriteData(mcpToolsApiLambda);
+trainingMenuTable.grantReadWriteData(mcpToolsApiLambda);
+trainingMenuSetTable.grantReadWriteData(mcpToolsApiLambda);
+trainingMenuSetItemTable.grantReadWriteData(mcpToolsApiLambda);
 
 profileApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tableName);
 profileApiLambda.addEnvironment("AVATAR_BUCKET_NAME", avatarImageBucket.bucketName);
@@ -236,6 +239,9 @@ mcpToolsApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.tab
 mcpToolsApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
 mcpToolsApiLambda.addEnvironment("AI_SETTING_TABLE_NAME", aiSettingTable.tableName);
 mcpToolsApiLambda.addEnvironment("AI_ADVICE_LOG_TABLE_NAME", aiAdviceLogTable.tableName);
+mcpToolsApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
+mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
+mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
 
 const coreApi = new apigateway.RestApi(stack, "CoreApiGateway", {
   restApiName: "KinTrainCoreApi",
