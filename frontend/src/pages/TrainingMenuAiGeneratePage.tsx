@@ -141,6 +141,10 @@ function buildFixedInstruction(form: MenuGenerationFormState, existingTrainingNa
     '- 各種目には少なくとも トレーニング名 / 部位 / 用具 / 頻度 / 重量 / 回数最小 / 回数最大 / セット / メモ を含めること。',
     '- 用具は マシン / フリー / 自重 / その他 のいずれかだけを使うこと。',
     '- 頻度は 1..8 の整数で表すこと。1 は毎日、8 は 8日+ を意味する。',
+    '- 週間頻度は「1週間に何回ジムへ行く想定か」という意味であり、曜日別に複数日分のメニューセットを作る意味ではない。',
+    '- 提案するのは、ユーザーがジムで都度上から順に見て実施判断できる 1 つのメニューセットである。',
+    '- 各種目ごとに「何日おきに実施する想定か」を頻度として設計し、日別分割プランにはしないこと。',
+    '- トレーニング名は純粋な種目名だけにすること。ジム名、AI、プラン名、曜日名、連番など不要な接頭辞・接尾辞を入れてはならない。',
     '- デフォルトの新規セットは既定セットにしないこと。ただし既定セットが 0 件のユーザーに対して最初のセットを作ることは許容される。',
     '',
     '今回の作成条件:',
@@ -188,6 +192,17 @@ function displayUserMessage(form: MenuGenerationFormState, text: string, isIniti
     `ジム施設: ${form.gymInput.trim() || '未指定'}`,
     `個別要求: ${text.trim() || 'この条件で提案してください。'}`
   ].join('\n');
+}
+
+function validateInitialForm(form: MenuGenerationFormState): string | null {
+  if (!form.gymInput.trim()) {
+    return 'ジム施設入力は必須です。ジム名称または設備説明URLを入力してください。';
+  }
+  const daysPerWeek = Number(form.daysPerWeek);
+  if (!Number.isFinite(daysPerWeek) || daysPerWeek < 1 || daysPerWeek > 7) {
+    return '週間頻度は 1〜7 の整数で入力してください。';
+  }
+  return null;
 }
 
 function MarkdownMessage({ content }: { content: string }) {
@@ -374,10 +389,12 @@ export function TrainingMenuAiGeneratePage() {
       gymInput: form.gymInput.trim(),
       freeTextRequest: form.freeTextRequest.trim()
     };
-    if (!normalizedForm.gymInput) {
-      setPageError('ジム施設入力は必須です。');
+    const validationError = validateInitialForm(normalizedForm);
+    if (validationError) {
+      setPageError(validationError);
       return;
     }
+    setPageError('');
     const nextConditionKey = buildConditionKey(normalizedForm);
     const nextSessionId = session && session.conditionKey === nextConditionKey ? session.sessionId : makeSessionId();
     if (!session || session.conditionKey !== nextConditionKey) {
@@ -455,6 +472,7 @@ export function TrainingMenuAiGeneratePage() {
         </div>
 
         <form className="stack-md" onSubmit={onStartProposal}>
+          {pageError && <p className="form-error">{pageError}</p>}
           <div className="input-grid ai-menu-generation-grid">
             <label>
               方針
@@ -565,7 +583,7 @@ export function TrainingMenuAiGeneratePage() {
           rows={3}
           disabled={!session || isStreaming || !isAuthenticated}
         />
-        {pageError && <p className="form-error">{pageError}</p>}
+        {pageError && session && <p className="form-error">{pageError}</p>}
         {shouldRefreshAfterStream && <p className="muted">登録後にメニューを再取得します。</p>}
         <div className="chat-input-actions ai-menu-generation-actions">
           <button
