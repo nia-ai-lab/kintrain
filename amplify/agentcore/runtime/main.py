@@ -319,6 +319,30 @@ def _to_non_empty_string(value: Any, fallback: str = "") -> str:
     return fallback
 
 
+def _resolve_tone_profile(tone_preset: str) -> dict[str, str]:
+    normalized = tone_preset.strip().lower()
+    if normalized == "polite":
+        return {
+            "toneLabel": "丁寧",
+            "toneInstruction": "敬語を使い、配慮ある柔らかい表現で答える。",
+            "styleDos": "丁寧語を使う。提案は穏やかに述べる。断定しすぎず配慮を示す。",
+            "styleDonts": "強い命令口調。荒い表現。過度にくだけた話し方。",
+        }
+    if normalized == "strict-coach":
+        return {
+            "toneLabel": "コーチ強め",
+            "toneInstruction": "結論を先に示し、甘やかさず、短く明確に答える。",
+            "styleDos": "優先順位を明確にする。次の行動をはっきり示す。曖昧さを減らす。",
+            "styleDonts": "攻撃的な表現。人格否定。説教調で長くなること。",
+        }
+    return {
+        "toneLabel": "フレンドリー",
+        "toneInstruction": "親しみやすく前向きに、短く実用的に答える。",
+        "styleDos": "軽い励ましを入れる。話しやすい口調にする。実行しやすい提案を示す。",
+        "styleDonts": "馴れ馴れしすぎる表現。長い雑談。幼すぎる言い回し。",
+    }
+
+
 def _extract_metadata(payload: dict[str, Any]) -> dict[str, Any]:
     metadata = payload.get("metadata")
     if isinstance(metadata, dict):
@@ -387,6 +411,7 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
     tone_preset = _to_non_empty_string(ai_profile.get("tonePreset"), "friendly-coach")
     character_description = _to_non_empty_string(ai_profile.get("characterDescription"), "優しく見守りAIコーチロボ")
     speech_ending = _to_non_empty_string(ai_profile.get("speechEnding"), "です。ます。")
+    tone_profile = _resolve_tone_profile(tone_preset)
 
     now_utc = datetime.now(timezone.utc)
     resolved_zone = _resolve_timezone(user_time_zone_id)
@@ -415,6 +440,10 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
         "ai": {
             "characterName": character_name,
             "tonePreset": tone_preset,
+            "toneLabel": tone_profile["toneLabel"],
+            "toneInstruction": tone_profile["toneInstruction"],
+            "styleDos": tone_profile["styleDos"],
+            "styleDonts": tone_profile["styleDonts"],
             "characterDescription": character_description,
             "speechEnding": speech_ending,
         },

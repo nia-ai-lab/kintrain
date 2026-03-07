@@ -213,6 +213,7 @@
 - AIのシステムプロンプトはプログラムへハードコードせず、コードとは別のテキストファイルで管理すること。
 - AI回答は一般的助言のみとし、医療診断は行わないこと。
 - `AiCharacterProfile` を設定できること（`characterId`、キャラクター名、アイコン、口調プリセット）。
+- `口調プリセット` は Runtime 内で解釈され、実際の回答口調ルールへ変換して利用すること。
 - AIチャット画面で、設定したキャラクターが話しているように表示できること。
 - AIチャット画面の表示名は `{characterName}` とすること（例: `ニャル子`）。
 - `AiCharacterProfile` の保持項目:
@@ -220,6 +221,11 @@
 - `characterName`
 - `avatarImageUrl`
 - `tonePreset`
+- `tonePreset` から Runtime が生成する口調指示（内部利用）:
+- `toneLabel`
+- `toneInstruction`
+- `styleDos`
+- `styleDonts`
 - 既定キャラクターは `nyaruko` を使用すること。
 - 既定設定ファイル:
 - `assets/characters/nyaruko/character-profile.json`

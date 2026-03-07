@@ -165,7 +165,13 @@
 - `characterId`
 - `characterName`
 - `tonePreset`
+- `toneLabel`
+- `toneInstruction`
+- `styleDos`
+- `styleDonts`
 - `avatarImageUrl`
+- `tonePreset` はそのまま文字列を渡すだけでなく、Runtime 内で解釈して口調制御用の指示へ変換する。
+- `PERSONA.md` では `tonePreset` の生値ではなく、解釈済みの `toneInstruction` / `styleDos` / `styleDonts` を優先して利用する。
 - AIキャラクターアイコンは `default` 画像を固定利用し、感情別画像切り替えは行わない。
 
 ## 6. Gateway実装方針（MCP）
@@ -238,7 +244,7 @@
 - 2) `PERSONA.md`
 - 3) `system-prompt.ja.txt`
 - 4) 実行時コンテキスト（当日目標/履歴要約/日時コンテキスト）
-- 5) `AiCharacterProfile`（`characterId`, `characterName`, `tonePreset`）
+- 5) `AiCharacterProfile`（`characterId`, `characterName`, `tonePreset` と、Runtimeで解釈された口調指示）
 - 未配置ファイルがある場合は起動失敗（fail-fast）とする。
 
 ### 8.5 Runtimeでの読み込み
