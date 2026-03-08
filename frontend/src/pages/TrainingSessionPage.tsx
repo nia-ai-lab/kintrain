@@ -46,6 +46,8 @@ export function TrainingSessionPage() {
   const navigate = useNavigate();
   const [openSetDetailIds, setOpenSetDetailIds] = useState<Record<string, boolean>>({});
   const [statusText, setStatusText] = useState('');
+  const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const draftEntries = data.trainingDraft?.entriesByItemId ?? {};
   const defaultMenuSet = useMemo(() => {
@@ -84,6 +86,31 @@ export function TrainingSessionPage() {
     }));
     setDraftSetDetails(menuItemId, details);
   }
+
+  const enteredItems = useMemo(() => {
+    return prioritized
+      .map((item) => {
+        const draft = draftEntries[item.id];
+        const hasStarted =
+          (draft?.weightKg ?? 0) > 0 ||
+          (draft?.reps ?? 0) > 0 ||
+          (draft?.sets ?? 0) > 0;
+        const isValid =
+          (draft?.weightKg ?? 0) > 0 &&
+          (draft?.reps ?? 0) > 0 &&
+          (draft?.sets ?? 0) > 0;
+        return {
+          item,
+          draft,
+          hasStarted,
+          isValid
+        };
+      })
+      .filter((entry) => entry.hasStarted);
+  }, [prioritized, draftEntries]);
+
+  const validEnteredItems = enteredItems.filter((entry) => entry.isValid);
+  const incompleteEnteredItems = enteredItems.filter((entry) => !entry.isValid);
 
   return (
     <div className="stack-lg">
@@ -124,9 +151,13 @@ export function TrainingSessionPage() {
           const memoValue =
             draft && Object.prototype.hasOwnProperty.call(draft, 'memo') ? (draft.memo ?? '') : seedMemo;
           const isDetailOpen = !!openSetDetailIds[item.id];
+          const hasStarted =
+            (draft?.weightKg ?? 0) > 0 ||
+            (draft?.reps ?? 0) > 0 ||
+            (draft?.sets ?? 0) > 0;
 
           return (
-            <article className="card" key={item.id}>
+            <article className={`card training-session-card${hasStarted ? ' is-entered' : ''}`} key={item.id}>
               <div className="training-item-head">
                 <div>
                   <p className="priority-chip">優先 {index + 1}</p>
@@ -303,19 +334,84 @@ export function TrainingSessionPage() {
         <button
           type="button"
           className="btn primary large"
-          onClick={async () => {
-            const result = await finalizeTrainingSession(today);
-            if (!result.ok) {
-              setStatusText(result.message ?? '保存に失敗しました。');
-              return;
-            }
-            setStatusText('');
-            navigate(`/daily/${today}`);
+          onClick={() => {
+            setIsConfirmModalOpen(true);
           }}
         >
           記録して終了
         </button>
       </section>
+
+      {isConfirmModalOpen && (
+        <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="training-session-confirm-title">
+          <div className="overlay-modal-card training-session-confirm-modal">
+            <h3 id="training-session-confirm-title">記録内容の確認</h3>
+            {validEnteredItems.length === 0 ? (
+              <p>保存対象がありません。重量・回数・セットを入力してから記録してください。</p>
+            ) : (
+              <>
+                <p>以下の内容で記録します。</p>
+                <ul className="simple-list training-session-confirm-list">
+                  {validEnteredItems.map(({ item, draft }) => (
+                    <li key={item.id}>
+                      <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
+                      <span>
+                        {draft?.weightKg}kg x {draft?.reps}回 x {draft?.sets}set
+                      </span>
+                      {draft?.memo?.trim() && <span className="muted">メモ: {draft.memo.trim()}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            {incompleteEnteredItems.length > 0 && (
+              <div className="training-session-confirm-warning">
+                <p>以下は入力途中のため、今回の保存対象には含まれません。</p>
+                <ul className="simple-list">
+                  {incompleteEnteredItems.map(({ item, draft }) => (
+                    <li key={item.id}>
+                      <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
+                      <span>
+                        重量:{draft?.weightKg ?? '未入力'} / 回数:{draft?.reps ?? '未入力'} / セット:{draft?.sets ?? '未入力'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            <div className="overlay-modal-actions">
+              <button
+                type="button"
+                className="btn subtle"
+                disabled={isSaving}
+                onClick={() => setIsConfirmModalOpen(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={isSaving || validEnteredItems.length === 0}
+                onClick={async () => {
+                  setIsSaving(true);
+                  const result = await finalizeTrainingSession(today);
+                  setIsSaving(false);
+                  if (!result.ok) {
+                    setIsConfirmModalOpen(false);
+                    setStatusText(result.message ?? '保存に失敗しました。');
+                    return;
+                  }
+                  setIsConfirmModalOpen(false);
+                  setStatusText('');
+                  navigate(`/daily/${today}`);
+                }}
+              >
+                {isSaving ? '記録中...' : 'この内容で記録'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
