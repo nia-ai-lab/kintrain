@@ -443,6 +443,12 @@ a {
   font-size: 0.9rem;
 }
 
+.training-session-card.is-entered {
+  background: linear-gradient(180deg, rgba(255, 192, 120, 0.34), rgba(255, 224, 176, 0.2));
+  border-color: rgba(217, 138, 51, 0.38);
+  box-shadow: 0 12px 28px rgba(217, 138, 51, 0.12);
+}
+
 .overlay-modal {
   position: fixed;
   inset: 0;
@@ -476,6 +482,48 @@ a {
   display: flex;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.training-session-confirm-modal {
+  gap: 12px;
+  max-height: min(80vh, 720px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.training-session-confirm-list li {
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.55);
+  display: grid;
+  gap: 4px;
+}
+
+.training-session-confirm-list strong {
+  font-size: 0.95rem;
+}
+
+.training-session-confirm-warning {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(201, 77, 69, 0.2);
+  border-radius: 14px;
+  background: rgba(201, 77, 69, 0.06);
+}
+
+.training-session-confirm-warning p {
+  color: var(--text);
+}
+
+.training-session-confirm-modal .overlay-modal-actions {
+  position: sticky;
+  bottom: -14px;
+  margin: 0 -14px -14px;
+  padding: 12px 14px 14px;
+  background: linear-gradient(180deg, rgba(248, 247, 243, 0.82), rgba(248, 247, 243, 0.98));
+  border-top: 1px solid var(--line);
 }
 
 .avatar-crop-modal-card {
