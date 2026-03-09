@@ -113,8 +113,8 @@ export function TrainingSessionPage() {
   const incompleteEnteredItems = enteredItems.filter((entry) => !entry.isValid);
 
   return (
-    <div className="stack-lg">
-      <section className="card card-highlight">
+    <div className="stack-lg training-session-page">
+      <section className="card card-highlight training-session-hero">
         <div className="session-header">
           <div>
             <h1>トレーニング実施</h1>
@@ -137,7 +137,7 @@ export function TrainingSessionPage() {
         {statusText && <p className="status-text">{statusText}</p>}
       </section>
 
-      <section className="stack-md">
+      <section className="stack-md training-session-list">
         {prioritized.map((item, index) => {
           const draft = draftEntries[item.id];
           const last = getLastPerformance(item.id, data.gymVisits);

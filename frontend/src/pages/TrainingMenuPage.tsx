@@ -127,8 +127,8 @@ export function TrainingMenuPage() {
   const selectedSetOptionValue = isCreateSetMode ? CREATE_NEW_SET_OPTION : activeSet?.id ?? CREATE_NEW_SET_OPTION;
 
   return (
-    <div className="stack-lg">
-      <section className="card">
+    <div className="stack-lg training-menu-page">
+      <section className="card training-menu-header-card">
         <div className="row-between menu-page-head">
           <select
             className="menu-set-switch-select"
@@ -160,7 +160,7 @@ export function TrainingMenuPage() {
         </div>
       </section>
 
-      <section className="card stack-md">
+      <section className="card stack-md training-menu-set-card">
         <h2>メニューセット</h2>
         <form
           className="menu-set-single-form"
@@ -284,7 +284,7 @@ export function TrainingMenuPage() {
       )}
 
       {editingSet && (
-        <section className="card stack-md">
+        <section className="card stack-md training-menu-editor-card">
           <h2>「{editingSet.setName}」へ種目追加</h2>
           <form
             className="menu-add-form"
@@ -392,12 +392,12 @@ export function TrainingMenuPage() {
       )}
 
       {!editingSet && (
-        <section className="card">
+        <section className="card training-menu-empty-card">
           <p className="muted">メニューセットを作成すると、種目を追加できます。</p>
         </section>
       )}
 
-      <section className="stack-md">
+      <section className="stack-md training-menu-item-list">
         {editingSet && selectedSetItems.length === 0 && <p className="muted">このメニューセットには種目がありません。</p>}
         {editingSet &&
           selectedSetItems.map((item, index) => (

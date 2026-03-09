@@ -67,8 +67,8 @@ export function CalendarPage() {
   }, [currentYm]);
 
   return (
-    <div className="stack-lg">
-      <section className="card">
+    <div className="stack-lg calendar-page">
+      <section className="card calendar-shell-card">
         <div className="row-between">
           <h1>カレンダー</h1>
           <Link to="/dashboard" className="btn ghost">
@@ -76,7 +76,7 @@ export function CalendarPage() {
           </Link>
         </div>
 
-        <div className="row-between">
+        <div className="row-between calendar-toolbar">
           <button type="button" className="btn subtle" onClick={() => setParams({ month: addMonths(currentYm, -1) })}>
             前月
           </button>

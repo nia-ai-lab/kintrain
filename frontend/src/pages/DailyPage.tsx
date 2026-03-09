@@ -42,8 +42,8 @@ export function DailyPage() {
   }, [refreshDailyRecord, targetDate]);
 
   return (
-    <div className="stack-lg">
-      <section className="card">
+    <div className="stack-lg daily-page">
+      <section className="card daily-hero-card">
         <div className="row-between">
           <h1>Daily</h1>
           <div className="row-wrap">
@@ -82,7 +82,7 @@ export function DailyPage() {
         {saveMessage && <p className="status-text">{saveMessage}</p>}
       </section>
 
-      <section className="card">
+      <section className="card daily-section-card">
         <h2>体重・体脂肪率</h2>
         <div className="input-grid body-metrics-grid">
           <label>
@@ -128,7 +128,7 @@ export function DailyPage() {
         </div>
       </section>
 
-      <section className="card">
+      <section className="card daily-section-card">
         <h2>体調</h2>
         <ConditionRatingPicker value={record.conditionRating} onChange={(rating) => setConditionRating(targetDate, rating)} />
         <label>
@@ -143,7 +143,7 @@ export function DailyPage() {
         </label>
       </section>
 
-      <section className="card">
+      <section className="card daily-section-card">
         <h2>日記</h2>
         <textarea
           className="daily-diary-textarea"
@@ -154,7 +154,7 @@ export function DailyPage() {
         />
       </section>
 
-      <section className="card">
+      <section className="card daily-section-card">
         <h2>その他トレーニング</h2>
         <div className="row-wrap">
           <input value={activityInput} onChange={(e) => setActivityInput(e.target.value)} placeholder="例: ジョギング 1km" />
@@ -182,7 +182,7 @@ export function DailyPage() {
         </ul>
       </section>
 
-      <section className="card">
+      <section className="card daily-section-card">
         <h2>当日の筋トレ内容</h2>
         {visitEntries.length === 0 ? (
           <p className="muted">この日の筋トレ記録はまだありません。</p>

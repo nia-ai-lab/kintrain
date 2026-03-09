@@ -267,8 +267,8 @@ export function SettingsPage() {
   const hasCoachAvatar = Boolean(data.aiCharacterProfile.coachAvatarObjectKey || aiAvatarPreviewUrl || aiAvatarFile);
 
   return (
-    <div className="stack-lg">
-      <section className="card">
+    <div className="stack-lg settings-page">
+      <section className="card settings-section-card settings-user-card">
         <h1>ユーザ設定</h1>
         <div className="settings-avatar-row">
           <div className="settings-avatar-preview">
@@ -418,7 +418,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="card">
+      <section className="card settings-section-card settings-ai-card">
         <h2>AIコーチキャラクター設定</h2>
         <div className="settings-avatar-row">
           <div className="settings-avatar-preview">
@@ -527,7 +527,7 @@ export function SettingsPage() {
         </div>
       </section>
 
-      <section className="card">
+      <section className="card settings-section-card settings-account-card">
         <h2>アカウント</h2>
         <div className="row-wrap">
           <button

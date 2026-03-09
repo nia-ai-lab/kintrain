@@ -43,10 +43,10 @@ export function DashboardPage() {
   };
 
   return (
-    <div className="stack-lg">
-      <section className="hero-card">
+    <div className="stack-lg dashboard-page">
+      <section className="hero-card dashboard-hero-card">
         <p className="eyebrow">TODAY {ymdToDisplay(today)}</p>
-        <div className="row-wrap">
+        <div className="row-wrap dashboard-hero-actions">
           <Link to="/training-session" className="btn primary">
             トレーニング開始
           </Link>
@@ -56,36 +56,54 @@ export function DashboardPage() {
         </div>
       </section>
 
-      <article className="card card-highlight">
+      <article className="card card-highlight dashboard-goal-card">
         <div className="row-wrap row-between">
           <h2>ゴール</h2>
           <button type="button" className="btn subtle" onClick={openGoalModal}>
             ゴール設定
           </button>
         </div>
-        <ul className="simple-list">
-          <li>目標体重: {typeof data.goal.targetWeightKg === 'number' ? `${data.goal.targetWeightKg} kg` : '未設定'}</li>
-          <li>目標体脂肪率: {typeof data.goal.targetBodyFatPercent === 'number' ? `${data.goal.targetBodyFatPercent} %` : '未設定'}</li>
-          <li>期限: {data.goal.deadlineDate ? ymdToDisplay(data.goal.deadlineDate) : '未設定'}</li>
-          <li className="goal-line">
-            <span className="goal-line-label">コメント:</span>
-            <span className="goal-line-value">{data.goal.comment?.trim() ? data.goal.comment : '未設定'}</span>
-          </li>
-        </ul>
+        <div className="dashboard-summary-row">
+          <div className="dashboard-summary-chip">
+            <span className="dashboard-summary-label">目標体重</span>
+            <strong>{typeof data.goal.targetWeightKg === 'number' ? `${data.goal.targetWeightKg} kg` : '未設定'}</strong>
+          </div>
+          <div className="dashboard-summary-chip">
+            <span className="dashboard-summary-label">目標体脂肪率</span>
+            <strong>{typeof data.goal.targetBodyFatPercent === 'number' ? `${data.goal.targetBodyFatPercent} %` : '未設定'}</strong>
+          </div>
+          <div className="dashboard-summary-chip">
+            <span className="dashboard-summary-label">期限</span>
+            <strong>{data.goal.deadlineDate ? ymdToDisplay(data.goal.deadlineDate) : '未設定'}</strong>
+          </div>
+        </div>
+        <div className="dashboard-note-card">
+          <span className="dashboard-summary-label">コメント</span>
+          <span className="goal-line-value">{data.goal.comment?.trim() ? data.goal.comment : '未設定'}</span>
+        </div>
       </article>
 
-      <section className="grid-2">
-        <article className="card">
+      <section className="grid-2 dashboard-grid">
+        <article className="card dashboard-info-card">
           <h2>今日の状態</h2>
           <p className="muted">{ymdToDisplay(today)}</p>
-          <ul className="simple-list">
-            <li>体重: {todayRecord?.bodyWeightKg ? `${todayRecord.bodyWeightKg} kg` : '未入力'}</li>
-            <li>体脂肪率: {todayRecord?.bodyFatPercent ? `${todayRecord.bodyFatPercent} %` : '未入力'}</li>
-            <li>体調: {todayRecord?.conditionRating ? `${todayRecord.conditionRating} / 5` : '未入力'}</li>
-          </ul>
+          <div className="dashboard-summary-row">
+            <div className="dashboard-summary-chip">
+              <span className="dashboard-summary-label">体重</span>
+              <strong>{todayRecord?.bodyWeightKg ? `${todayRecord.bodyWeightKg} kg` : '未入力'}</strong>
+            </div>
+            <div className="dashboard-summary-chip">
+              <span className="dashboard-summary-label">体脂肪率</span>
+              <strong>{todayRecord?.bodyFatPercent ? `${todayRecord.bodyFatPercent} %` : '未入力'}</strong>
+            </div>
+            <div className="dashboard-summary-chip">
+              <span className="dashboard-summary-label">体調</span>
+              <strong>{todayRecord?.conditionRating ? `${todayRecord.conditionRating} / 5` : '未入力'}</strong>
+            </div>
+          </div>
         </article>
 
-        <article className="card">
+        <article className="card dashboard-info-card">
           <h2>直近の筋トレ</h2>
           {latestVisit ? (
             <>
