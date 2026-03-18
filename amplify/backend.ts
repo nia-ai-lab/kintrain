@@ -244,7 +244,7 @@ mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSet
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
 
 const coreApi = new apigateway.RestApi(stack, "CoreApiGateway", {
-  restApiName: "KinTrainCoreApi",
+  restApiName: `KinTrainCoreApi-${deploymentBranchSuffix}`,
   defaultCorsPreflightOptions: {
     allowOrigins: apigateway.Cors.ALL_ORIGINS,
     allowMethods: apigateway.Cors.ALL_METHODS,
