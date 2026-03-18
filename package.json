@@ -7,6 +7,7 @@
     "frontend"
   ],
   "scripts": {
+    "dev": "npm run frontend:dev:with-dev-backend",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:dev:with-dev-backend": "npm run sync:branch-outputs && npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
