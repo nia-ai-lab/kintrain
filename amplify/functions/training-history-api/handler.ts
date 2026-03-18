@@ -16,7 +16,7 @@ const defaultSetMarker = "DEFAULT";
 const userStartedAtIndex = "UserStartedAtIndex";
 const userTrainingMenuItemPerformedAtIndex = "UserTrainingMenuItemPerformedAtIndex";
 const userVisitIndex = "UserVisitIndex";
-const maxVisitEntryCount = 10;
+const maxVisitEntryCount = 12;
 
 type ExerciseEntry = {
   trainingMenuItemId: string;

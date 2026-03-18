@@ -107,7 +107,7 @@ const defaultTrainingEquipment: TrainingEquipment = 'マシン';
 const trainingEquipmentValues: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
 const defaultTrainingFrequency: TrainingFrequencyDays = 3;
 const trainingFrequencyValues: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
-const maxTrainingSessionEntryCount = 10;
+const maxTrainingSessionEntryCount = 12;
 
 function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
   if (typeof value === 'string' && trainingEquipmentValues.includes(value as TrainingEquipment)) {
