@@ -1,4 +1,5 @@
-export type ConditionRating = 1 | 2 | 3 | 4 | 5;
+export type ConditionRating = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+export type MoodRating = ConditionRating;
 
 export interface SetDetail {
   setIndex: number;
@@ -79,6 +80,7 @@ export interface DailyRecord {
   bodyFatPercent?: number;
   bodyMetricMeasuredTime?: string;
   conditionRating?: ConditionRating;
+  moodRating?: MoodRating;
   conditionComment?: string;
   diary?: string;
   otherActivities: string[];

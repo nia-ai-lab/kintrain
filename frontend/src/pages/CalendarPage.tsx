@@ -1,24 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { getCalendarMonth } from '../api/coreApi';
+import { getRatingColor } from '../utils/dailyRatings';
 import { addMonths, getDaysInMonth, pad2, toYm, toYmd, weekdayIndex } from '../utils/date';
 
 const weekdayLabels = ['日', '月', '火', '水', '木', '金', '土'];
-
-const conditionIcons: Record<number, string> = {
-  1: '😵',
-  2: '😟',
-  3: '😐',
-  4: '🙂',
-  5: '😄'
-};
 
 export function CalendarPage() {
   const [params, setParams] = useSearchParams();
   const navigate = useNavigate();
   const currentYm = params.get('month') ?? toYm(new Date());
   const todayYmd = toYmd(new Date());
-  const [calendarMap, setCalendarMap] = useState<Record<string, { trained: boolean; conditionRating?: number | null }>>({});
+  const [calendarMap, setCalendarMap] = useState<
+    Record<string, { trained: boolean; conditionRating?: number | null; moodRating?: number | null }>
+  >({});
 
   const cells = useMemo(() => {
     const [year, month] = currentYm.split('-').map(Number);
@@ -43,7 +38,7 @@ export function CalendarPage() {
         if (cancelled) {
           return;
         }
-        const nextMap: Record<string, { trained: boolean; conditionRating?: number | null }> = {};
+        const nextMap: Record<string, { trained: boolean; conditionRating?: number | null; moodRating?: number | null }> = {};
         for (const day of response.days ?? []) {
           const date = typeof day.date === 'string' ? day.date : '';
           if (!date) {
@@ -51,7 +46,8 @@ export function CalendarPage() {
           }
           nextMap[date] = {
             trained: Boolean(day.trained),
-            conditionRating: typeof day.conditionRating === 'number' ? day.conditionRating : null
+            conditionRating: typeof day.conditionRating === 'number' ? day.conditionRating : null,
+            moodRating: typeof day.moodRating === 'number' ? day.moodRating : null
           };
         }
         setCalendarMap(nextMap);
@@ -102,7 +98,8 @@ export function CalendarPage() {
             const dayData = calendarMap[cell.ymd];
             const isTrained = Boolean(dayData?.trained);
             const isToday = cell.ymd === todayYmd;
-            const rating = dayData?.conditionRating ?? null;
+            const conditionRating = dayData?.conditionRating ?? null;
+            const moodRating = dayData?.moodRating ?? null;
             const classes = ['calendar-cell'];
             if (isTrained) {
               classes.push('trained');
@@ -120,7 +117,18 @@ export function CalendarPage() {
               >
                 <span className="day-number">{Number(cell.ymd.slice(-2))}</span>
                 <span className={`train-dot${isTrained ? '' : ' placeholder'}`}>●</span>
-                <span className="condition-icon">{rating ? conditionIcons[rating] : '○'}</span>
+                <span className="calendar-rating-stripes" aria-hidden="true">
+                  <span
+                    className="calendar-rating-stripe"
+                    style={{ backgroundColor: getRatingColor(conditionRating) }}
+                    title={conditionRating ? `体調 ${conditionRating}/10` : '体調 未記録'}
+                  />
+                  <span
+                    className="calendar-rating-stripe"
+                    style={{ backgroundColor: getRatingColor(moodRating) }}
+                    title={moodRating ? `気分 ${moodRating}/10` : '気分 未記録'}
+                  />
+                </span>
               </button>
             );
           })}

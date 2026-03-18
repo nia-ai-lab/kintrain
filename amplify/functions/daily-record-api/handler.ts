@@ -14,7 +14,8 @@ type DailyRecordInput = {
   bodyMetricMeasuredAtLocal?: string;
   bodyMetricMeasuredTimeLocal?: string;
   timeZoneId?: string;
-  conditionRating?: 1 | 2 | 3 | 4 | 5;
+  conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   conditionComment?: string;
   diary?: string;
   otherActivities?: string[];
@@ -36,6 +37,10 @@ function defaultDailyRecord(userId: string, recordDate: string): Record<string, 
     timeZoneId: "Asia/Tokyo",
     otherActivities: []
   };
+}
+
+function isTenPointRating(value: unknown): value is DailyRecordInput["conditionRating"] {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 10;
 }
 
 async function getDailyRecord(userId: string, recordDate: string): Promise<APIGatewayProxyResult> {
@@ -64,6 +69,28 @@ async function putDailyRecord(
   const body = parseBody<DailyRecordInput>(event);
   if (!body) {
     return response(400, { message: "Invalid JSON body." });
+  }
+
+  if (body.conditionRating !== undefined && !isTenPointRating(body.conditionRating)) {
+    return response(400, { message: "conditionRating must be an integer between 1 and 10." });
+  }
+  if (body.moodRating !== undefined && !isTenPointRating(body.moodRating)) {
+    return response(400, { message: "moodRating must be an integer between 1 and 10." });
+  }
+  if (body.conditionComment !== undefined && typeof body.conditionComment !== "string") {
+    return response(400, { message: "conditionComment must be a string." });
+  }
+  if (body.diary !== undefined && typeof body.diary !== "string") {
+    return response(400, { message: "diary must be a string." });
+  }
+  if (body.timeZoneId !== undefined && typeof body.timeZoneId !== "string") {
+    return response(400, { message: "timeZoneId must be a string." });
+  }
+  if (
+    body.otherActivities !== undefined &&
+    (!Array.isArray(body.otherActivities) || body.otherActivities.some((activity) => typeof activity !== "string"))
+  ) {
+    return response(400, { message: "otherActivities must be an array of strings." });
   }
 
   const current = await ddb.send(
@@ -158,11 +185,16 @@ async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise
   ]);
 
   const conditionByDate: Record<string, number> = {};
+  const moodByDate: Record<string, number> = {};
   for (const item of dailyRecords.Items ?? []) {
     const date = item.recordDate as string | undefined;
-    const rating = item.conditionRating as number | undefined;
-    if (date && rating) {
-      conditionByDate[date] = rating;
+    const conditionRating = item.conditionRating as number | undefined;
+    const moodRating = item.moodRating as number | undefined;
+    if (date && isTenPointRating(conditionRating)) {
+      conditionByDate[date] = conditionRating as number;
+    }
+    if (date && isTenPointRating(moodRating)) {
+      moodByDate[date] = moodRating as number;
     }
   }
 
@@ -176,12 +208,13 @@ async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise
 
   return response(200, {
     month,
-    days: Array.from(new Set([...Object.keys(conditionByDate), ...Array.from(trainedDates)]))
+    days: Array.from(new Set([...Object.keys(conditionByDate), ...Object.keys(moodByDate), ...Array.from(trainedDates)]))
       .sort()
       .map((date) => ({
         date,
         trained: trainedDates.has(date),
-        conditionRating: conditionByDate[date] ?? null
+        conditionRating: conditionByDate[date] ?? null,
+        moodRating: moodByDate[date] ?? null
       }))
   });
 }

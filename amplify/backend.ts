@@ -37,7 +37,7 @@ const deploymentBranchSuffix =
     .replace(/^-+|-+$/g, "") || "local";
 
 function tableNameFor(baseName: string): string {
-  return `${baseName}-${deploymentBranchSuffix}`;
+  return `KinTrain-${baseName}-${deploymentBranchSuffix}`;
 }
 
 const userProfileTable = new dynamodb.Table(stack, "UserProfileTable", {

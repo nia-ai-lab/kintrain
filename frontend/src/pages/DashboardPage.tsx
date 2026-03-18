@@ -98,7 +98,11 @@ export function DashboardPage() {
             </div>
             <div className="dashboard-summary-chip">
               <span className="dashboard-summary-label">体調</span>
-              <strong>{todayRecord?.conditionRating ? `${todayRecord.conditionRating} / 5` : '未入力'}</strong>
+              <strong>{todayRecord?.conditionRating ? `${todayRecord.conditionRating} / 10` : '未入力'}</strong>
+            </div>
+            <div className="dashboard-summary-chip">
+              <span className="dashboard-summary-label">気分</span>
+              <strong>{todayRecord?.moodRating ? `${todayRecord.moodRating} / 10` : '未入力'}</strong>
             </div>
           </div>
         </article>
