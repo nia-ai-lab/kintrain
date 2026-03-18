@@ -107,6 +107,7 @@ const defaultTrainingEquipment: TrainingEquipment = 'マシン';
 const trainingEquipmentValues: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
 const defaultTrainingFrequency: TrainingFrequencyDays = 3;
 const trainingFrequencyValues: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
+const maxTrainingSessionEntryCount = 10;
 
 function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
   if (typeof value === 'string' && trainingEquipmentValues.includes(value as TrainingEquipment)) {
@@ -966,6 +967,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             message: '有効な入力がありません。数値を入力するか「前回と同じ」を押してください。'
           };
         }
+        if (savedCount > maxTrainingSessionEntryCount) {
+          return {
+            savedCount: 0,
+            ok: false,
+            message: `1回の記録で保存できる種目数は最大${maxTrainingSessionEntryCount}件です。`
+          };
+        }
 
         const endedAtLocal = toLocalIsoWithOffset(new Date());
         const startedAtUtc = toUtcIsoSeconds(draft.startedAtLocal);
@@ -977,17 +985,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             endedAtUtc,
             timeZoneId: data.userProfile.timeZoneId,
             visitDateLocal: date,
-            entries: entries.map((entry) => ({
-              trainingMenuItemId: entry.menuItemId,
-              trainingNameSnapshot: entry.trainingName,
-              bodyPartSnapshot: entry.bodyPart.trim() || undefined,
-              equipmentSnapshot: entry.equipment.trim() || undefined,
-              note: entry.note?.trim() || undefined,
-              weightKg: entry.weightKg,
-              reps: entry.reps,
-              sets: entry.sets,
-              performedAtUtc: endedAtUtc
-            }))
+            entries: entries.map((entry) => {
+              const menuItem = data.menuItems.find((item) => item.id === entry.menuItemId);
+              return {
+                trainingMenuItemId: entry.menuItemId,
+                trainingNameSnapshot: entry.trainingName,
+                bodyPartSnapshot: entry.bodyPart.trim() || undefined,
+                equipmentSnapshot: entry.equipment.trim() || undefined,
+                isAiGeneratedSnapshot: menuItem?.isAiGenerated === true,
+                frequencySnapshot: menuItem?.frequency,
+                note: entry.note?.trim() || undefined,
+                weightKg: entry.weightKg,
+                reps: entry.reps,
+                sets: entry.sets,
+                performedAtUtc: endedAtUtc
+              };
+            })
           });
 
           setData((prev) => {

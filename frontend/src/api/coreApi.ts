@@ -55,6 +55,8 @@ type GymVisitEntryInput = {
   trainingNameSnapshot: string;
   bodyPartSnapshot?: string;
   equipmentSnapshot?: string;
+  isAiGeneratedSnapshot?: boolean;
+  frequencySnapshot?: number;
   note?: string;
   weightKg: number;
   reps: number;

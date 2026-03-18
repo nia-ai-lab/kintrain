@@ -27,7 +27,7 @@
   - 回数レンジ（`defaultRepsMin/defaultRepsMax`）
 - Daily記録
   - 体重・体脂肪率・測定時刻
-  - 体調（5段階）・コメント・日記・その他運動
+  - 体調/気分（10段階）・コメント・日記・その他運動
   - 自動保存（3秒デバウンス）+ 明示保存ボタン
 - カレンダー表示（月次、実施日/体調アイコン、当日ハイライト）
 - AIチャットUI（キャラクター表示つき、モックストリーミング）
@@ -49,25 +49,22 @@
   - `daily-record-api`
   - `ai-settings-api`
 - DynamoDB
-  - `UserProfileTable`（物理名はCloudFormation自動命名）
-  - `TrainingMenuTable`（物理名はCloudFormation自動命名）
-  - `TrainingHistoryTable`（物理名はCloudFormation自動命名）
-  - `DailyRecordTable`（物理名はCloudFormation自動命名）
-  - `GoalTable`（物理名はCloudFormation自動命名）
-  - `AiSettingTable`（物理名はCloudFormation自動命名）
+  - `KinTrain-UserProfileTable-{branch}`
+  - `KinTrain-TrainingMenuTable-{branch}`
+  - `KinTrain-TrainingMenuSetTable-{branch}`
+  - `KinTrain-TrainingMenuSetItemTable-{branch}`
+  - `KinTrain-TrainingHistoryTable-{branch}`
+  - `KinTrain-TrainingPerformanceTable-{branch}`
+  - `KinTrain-DailyRecordTable-{branch}`
+  - `KinTrain-GoalTable-{branch}`
+  - `KinTrain-AiSettingTable-{branch}`
+  - `KinTrain-AiAdviceLogTable-{branch}`
 
 ## ローカル実行
 
 ```bash
 npm install
-npm run sync:branch-outputs
-npm run frontend:dev
-```
-
-`dev` ブランチのバックエンドへ接続した状態で起動する場合:
-
-```bash
-npm run frontend:dev:with-dev-backend
+npm run dev
 ```
 
 ## 推奨デプロイ方式（main/dev Branch Deploy）

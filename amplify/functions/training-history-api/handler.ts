@@ -1,10 +1,11 @@
-import { BatchGetCommand, DeleteCommand, GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response } from "../shared/http";
 
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
+const trainingPerformanceTableName = process.env.TRAINING_PERFORMANCE_TABLE_NAME ?? "";
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
 const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
@@ -12,12 +13,18 @@ const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NA
 const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
 const defaultSetMarker = "DEFAULT";
+const userStartedAtIndex = "UserStartedAtIndex";
+const userTrainingMenuItemPerformedAtIndex = "UserTrainingMenuItemPerformedAtIndex";
+const userVisitIndex = "UserVisitIndex";
+const maxVisitEntryCount = 10;
 
 type ExerciseEntry = {
-  trainingMenuItemId?: string;
+  trainingMenuItemId: string;
   trainingNameSnapshot: string;
   bodyPartSnapshot?: string;
   equipmentSnapshot?: string;
+  isAiGeneratedSnapshot?: boolean;
+  frequencySnapshot?: number;
   weightKg: number;
   reps: number;
   sets: number;
@@ -86,6 +93,8 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
   }
   return entries.every((entry) => {
     return (
+      typeof entry.trainingMenuItemId === "string" &&
+      entry.trainingMenuItemId.trim().length > 0 &&
       typeof entry.trainingNameSnapshot === "string" &&
       entry.trainingNameSnapshot.trim().length > 0 &&
       isPositiveNumber(entry.weightKg) &&
@@ -95,6 +104,12 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       entry.performedAtUtc.length > 0 &&
       (entry.bodyPartSnapshot === undefined || typeof entry.bodyPartSnapshot === "string") &&
       (entry.equipmentSnapshot === undefined || typeof entry.equipmentSnapshot === "string") &&
+      (entry.isAiGeneratedSnapshot === undefined || typeof entry.isAiGeneratedSnapshot === "boolean") &&
+      (entry.frequencySnapshot === undefined ||
+        (typeof entry.frequencySnapshot === "number" &&
+          Number.isInteger(entry.frequencySnapshot) &&
+          entry.frequencySnapshot >= 1 &&
+          entry.frequencySnapshot <= 8)) &&
       (entry.note === undefined || (typeof entry.note === "string" && entry.note.trim().length <= 500))
     );
   });
@@ -107,15 +122,172 @@ function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
     const note = toTrimmedString(entry.note);
     return {
       ...entry,
+      trainingMenuItemId: entry.trainingMenuItemId.trim(),
       trainingNameSnapshot: entry.trainingNameSnapshot.trim(),
       bodyPartSnapshot,
       equipmentSnapshot,
+      isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
+      frequencySnapshot:
+        typeof entry.frequencySnapshot === "number" &&
+        Number.isInteger(entry.frequencySnapshot) &&
+        entry.frequencySnapshot >= 1 &&
+        entry.frequencySnapshot <= 8
+          ? entry.frequencySnapshot
+          : undefined,
       note
     };
   });
 }
 
+type TrainingPerformanceItem = {
+  userId: string;
+  trainingPerformanceId: string;
+  visitId: string;
+  trainingMenuItemId: string;
+  trainingMenuItemPerformedAtKey: string;
+  performedAtUtc: string;
+  visitDateLocal: string;
+  timeZoneId: string;
+  trainingNameSnapshot: string;
+  bodyPartSnapshot: string;
+  equipmentSnapshot: string;
+  isAiGeneratedSnapshot: boolean;
+  frequencySnapshot?: number;
+  weightKg: number;
+  reps: number;
+  sets: number;
+  note: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
+function buildTrainingPerformanceId(visitId: string, sequence: number): string {
+  return `${visitId}#${sequence.toString().padStart(3, "0")}`;
+}
+
+function buildTrainingMenuItemPerformedAtKey(trainingMenuItemId: string, performedAtUtc: string): string {
+  return `${trainingMenuItemId}#${performedAtUtc}`;
+}
+
+function buildTrainingPerformanceItems(params: {
+  userId: string;
+  visitId: string;
+  visitDateLocal: string;
+  timeZoneId: string;
+  entries: ExerciseEntry[];
+  createdAt: string;
+  updatedAt: string;
+}): TrainingPerformanceItem[] {
+  return params.entries.map((entry, index) => ({
+    userId: params.userId,
+    trainingPerformanceId: buildTrainingPerformanceId(params.visitId, index + 1),
+    visitId: params.visitId,
+    trainingMenuItemId: entry.trainingMenuItemId,
+    trainingMenuItemPerformedAtKey: buildTrainingMenuItemPerformedAtKey(entry.trainingMenuItemId, entry.performedAtUtc),
+    performedAtUtc: entry.performedAtUtc,
+    visitDateLocal: params.visitDateLocal,
+    timeZoneId: params.timeZoneId,
+    trainingNameSnapshot: entry.trainingNameSnapshot,
+    bodyPartSnapshot: entry.bodyPartSnapshot ?? "",
+    equipmentSnapshot: entry.equipmentSnapshot ?? "",
+    isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
+    frequencySnapshot: entry.frequencySnapshot,
+    weightKg: entry.weightKg,
+    reps: entry.reps,
+    sets: entry.sets,
+    note: entry.note ?? "",
+    createdAt: params.createdAt,
+    updatedAt: params.updatedAt
+  }));
+}
+
+function buildVisitItem(params: {
+  userId: string;
+  visitId: string;
+  startedAtUtc: string;
+  endedAtUtc: string;
+  timeZoneId: string;
+  visitDateLocal: string;
+  entries: ExerciseEntry[];
+  note?: string;
+  createdAt: string;
+  updatedAt: string;
+}) {
+  return {
+    userId: params.userId,
+    visitId: params.visitId,
+    startedAtUtc: params.startedAtUtc,
+    endedAtUtc: params.endedAtUtc,
+    timeZoneId: params.timeZoneId,
+    visitDateLocal: params.visitDateLocal,
+    entries: params.entries,
+    note: params.note ?? "",
+    createdAt: params.createdAt,
+    updatedAt: params.updatedAt
+  };
+}
+
+async function listTrainingPerformanceItemsByVisitId(userId: string, visitId: string): Promise<TrainingPerformanceItem[]> {
+  if (!trainingPerformanceTableName) {
+    throw new Error("Lambda environment is not configured.");
+  }
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingPerformanceTableName,
+      IndexName: userVisitIndex,
+      KeyConditionExpression: "userId = :userId AND visitId = :visitId",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":visitId": visitId
+      }
+    })
+  );
+
+  return (result.Items ?? []) as TrainingPerformanceItem[];
+}
+
+async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: string): Promise<Record<string, unknown> | undefined> {
+  if (!trainingPerformanceTableName) {
+    throw new Error("Lambda environment is not configured.");
+  }
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingPerformanceTableName,
+      IndexName: userTrainingMenuItemPerformedAtIndex,
+      KeyConditionExpression: "userId = :userId AND begins_with(trainingMenuItemPerformedAtKey, :prefix)",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":prefix": `${trainingMenuItemId}#`
+      },
+      ScanIndexForward: false,
+      Limit: 1
+    })
+  );
+
+  const item = result.Items?.[0] as TrainingPerformanceItem | undefined;
+  if (!item) {
+    return undefined;
+  }
+  return {
+    performedAtUtc: item.performedAtUtc,
+    weightKg: item.weightKg,
+    reps: item.reps,
+    sets: item.sets,
+    bodyPartSnapshot: item.bodyPartSnapshot ?? "",
+    equipmentSnapshot: item.equipmentSnapshot ?? "",
+    note: item.note ?? "",
+    visitDateLocal: item.visitDateLocal
+  };
+}
+
+function exceedsTransactionLimit(existingPerformanceCount: number, newEntryCount: number): boolean {
+  return existingPerformanceCount + newEntryCount + 1 > 25;
+}
+
 async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
+  if (!trainingPerformanceTableName) {
+    return response(500, { message: "Lambda environment is not configured." });
+  }
   const body = parseBody<GymVisitInput>(event);
   if (!body || !validateEntries(body.entries)) {
     return response(400, { message: "Invalid request body." });
@@ -123,27 +295,53 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
   if (!parseYmd(body.visitDateLocal)) {
     return response(400, { message: "visitDateLocal must be YYYY-MM-DD." });
   }
+  if (body.entries.length > maxVisitEntryCount) {
+    return response(400, { message: `1回の記録で登録できる種目数は最大${maxVisitEntryCount}件です。` });
+  }
 
   const visitId = body.visitId?.trim() || randomUUID();
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
+  const visitItem = buildVisitItem({
+    userId,
+    visitId,
+    startedAtUtc: body.startedAtUtc,
+    endedAtUtc: body.endedAtUtc,
+    timeZoneId: body.timeZoneId,
+    visitDateLocal: body.visitDateLocal,
+    entries: normalizedEntries,
+    note: body.note,
+    createdAt: ts,
+    updatedAt: ts
+  });
+  const performanceItems = buildTrainingPerformanceItems({
+    userId,
+    visitId,
+    visitDateLocal: body.visitDateLocal,
+    timeZoneId: body.timeZoneId,
+    entries: normalizedEntries,
+    createdAt: ts,
+    updatedAt: ts
+  });
 
   await ddb.send(
-    new PutCommand({
-      TableName: trainingHistoryTableName,
-      Item: {
-        userId,
-        visitId,
-        startedAtUtc: body.startedAtUtc,
-        endedAtUtc: body.endedAtUtc,
-        timeZoneId: body.timeZoneId,
-        visitDateLocal: body.visitDateLocal,
-        entries: normalizedEntries,
-        note: body.note ?? "",
-        createdAt: ts,
-        updatedAt: ts
-      },
-      ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(visitId)"
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: trainingHistoryTableName,
+            Item: visitItem,
+            ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(visitId)"
+          }
+        },
+        ...performanceItems.map((item) => ({
+          Put: {
+            TableName: trainingPerformanceTableName,
+            Item: item,
+            ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingPerformanceId)"
+          }
+        }))
+      ]
     })
   );
 
@@ -161,7 +359,7 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
 }
 
 async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
-  if (!trainingMenuTableName || !trainingMenuSetTableName || !trainingMenuSetItemTableName) {
+  if (!trainingMenuTableName || !trainingMenuSetTableName || !trainingMenuSetItemTableName || !trainingPerformanceTableName) {
     return response(500, { message: "Lambda environment is not configured." });
   }
 
@@ -238,7 +436,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   const todayVisitsResult = await ddb.send(
     new QueryCommand({
       TableName: trainingHistoryTableName,
-      IndexName: "UserStartedAtIndex",
+      IndexName: userStartedAtIndex,
       KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
       ExpressionAttributeValues: {
         ":userId": userId,
@@ -256,60 +454,29 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
       }
     }
   }
-
-  const recentVisitsResult = await ddb.send(
-    new QueryCommand({
-      TableName: trainingHistoryTableName,
-      IndexName: "UserStartedAtIndex",
-      KeyConditionExpression: "userId = :userId",
-      ExpressionAttributeValues: {
-        ":userId": userId
-      },
-      ScanIndexForward: false,
-      Limit: 200
-    })
-  );
-  const recentVisits = recentVisitsResult.Items ?? [];
-
-  const items = activeMenuItems.map((menu) => {
+  const items = await Promise.all(
+    activeMenuItems.map(async (menu) => {
     const trainingMenuItemId = String(menu.trainingMenuItemId);
     const repsRange = toRepsRange(menu as Record<string, unknown>);
+      const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(userId, trainingMenuItemId);
 
-    let lastPerformanceSnapshot: Record<string, unknown> | undefined;
-    for (const visit of recentVisits) {
-      const entries = (visit.entries as ExerciseEntry[] | undefined) ?? [];
-      const matched = entries.find((entry) => entry.trainingMenuItemId === trainingMenuItemId);
-      if (matched) {
-        lastPerformanceSnapshot = {
-          performedAtUtc: matched.performedAtUtc,
-          weightKg: matched.weightKg,
-          reps: matched.reps,
-          sets: matched.sets,
-          bodyPartSnapshot: matched.bodyPartSnapshot ?? "",
-          equipmentSnapshot: matched.equipmentSnapshot ?? "",
-          note: typeof matched.note === "string" ? matched.note : "",
-          visitDateLocal: visit.visitDateLocal
-        };
-        break;
-      }
-    }
-
-    return {
-      trainingMenuItemId,
-      trainingName: menu.trainingName,
-      bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
-      equipment: typeof menu.equipment === "string" ? menu.equipment : "",
-      frequency: toFrequencyDays(menu.frequency),
-      defaultWeightKg: menu.defaultWeightKg,
-      defaultRepsMin: repsRange.defaultRepsMin,
-      defaultRepsMax: repsRange.defaultRepsMax,
-      defaultReps: repsRange.defaultRepsMax,
-      defaultSets: menu.defaultSets,
-      displayOrder: menu.displayOrder,
-      isActive: menu.isActive,
-      lastPerformanceSnapshot
-    };
-  });
+      return {
+        trainingMenuItemId,
+        trainingName: menu.trainingName,
+        bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
+        equipment: typeof menu.equipment === "string" ? menu.equipment : "",
+        frequency: toFrequencyDays(menu.frequency),
+        defaultWeightKg: menu.defaultWeightKg,
+        defaultRepsMin: repsRange.defaultRepsMin,
+        defaultRepsMax: repsRange.defaultRepsMax,
+        defaultReps: repsRange.defaultRepsMax,
+        defaultSets: menu.defaultSets,
+        displayOrder: menu.displayOrder,
+        isActive: menu.isActive,
+        lastPerformanceSnapshot
+      };
+    })
+  );
 
   return response(200, {
     items,
@@ -336,7 +503,7 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
   const result = await ddb.send(
     new QueryCommand({
       TableName: trainingHistoryTableName,
-      IndexName: "UserStartedAtIndex",
+      IndexName: userStartedAtIndex,
       KeyConditionExpression: keyConditionExpression,
       ExpressionAttributeValues: expressionAttributeValues,
       ScanIndexForward: false,
@@ -379,6 +546,12 @@ async function putGymVisit(
   if (!parseYmd(body.visitDateLocal)) {
     return response(400, { message: "visitDateLocal must be YYYY-MM-DD." });
   }
+  if (!trainingPerformanceTableName) {
+    return response(500, { message: "Lambda environment is not configured." });
+  }
+  if (body.entries.length > maxVisitEntryCount) {
+    return response(400, { message: `1回の記録で登録できる種目数は最大${maxVisitEntryCount}件です。` });
+  }
 
   const existing = await ddb.send(
     new GetCommand({
@@ -392,21 +565,58 @@ async function putGymVisit(
 
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
+  const existingPerformanceItems = await listTrainingPerformanceItemsByVisitId(userId, visitId);
+  if (exceedsTransactionLimit(existingPerformanceItems.length, normalizedEntries.length)) {
+    return response(400, { message: `1回の記録で更新できる種目数は最大${maxVisitEntryCount}件です。` });
+  }
+  const createdAt = typeof existing.Item.createdAt === "string" ? existing.Item.createdAt : ts;
+  const visitItem = buildVisitItem({
+    userId,
+    visitId,
+    startedAtUtc: body.startedAtUtc,
+    endedAtUtc: body.endedAtUtc,
+    timeZoneId: body.timeZoneId,
+    visitDateLocal: body.visitDateLocal,
+    entries: normalizedEntries,
+    note: body.note,
+    createdAt,
+    updatedAt: ts
+  });
+  const performanceItems = buildTrainingPerformanceItems({
+    userId,
+    visitId,
+    visitDateLocal: body.visitDateLocal,
+    timeZoneId: body.timeZoneId,
+    entries: normalizedEntries,
+    createdAt,
+    updatedAt: ts
+  });
+
   await ddb.send(
-    new PutCommand({
-      TableName: trainingHistoryTableName,
-      Item: {
-        userId,
-        visitId,
-        startedAtUtc: body.startedAtUtc,
-        endedAtUtc: body.endedAtUtc,
-        timeZoneId: body.timeZoneId,
-        visitDateLocal: body.visitDateLocal,
-        entries: normalizedEntries,
-        note: body.note ?? "",
-        createdAt: existing.Item.createdAt ?? ts,
-        updatedAt: ts
-      }
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: trainingHistoryTableName,
+            Item: visitItem
+          }
+        },
+        ...existingPerformanceItems.map((item) => ({
+          Delete: {
+            TableName: trainingPerformanceTableName,
+            Key: {
+              userId,
+              trainingPerformanceId: item.trainingPerformanceId
+            }
+          }
+        })),
+        ...performanceItems.map((item) => ({
+          Put: {
+            TableName: trainingPerformanceTableName,
+            Item: item
+          }
+        }))
+      ]
     })
   );
 
@@ -419,19 +629,43 @@ async function putGymVisit(
     visitDateLocal: body.visitDateLocal,
     entries: normalizedEntries,
     note: body.note ?? "",
-    createdAt: existing.Item.createdAt ?? ts,
+    createdAt,
     updatedAt: ts
   });
 }
 
 async function deleteGymVisit(userId: string, visitId: string): Promise<APIGatewayProxyResult> {
+  if (!trainingPerformanceTableName) {
+    return response(500, { message: "Lambda environment is not configured." });
+  }
+
+  const performanceItems = await listTrainingPerformanceItemsByVisitId(userId, visitId);
+  if (performanceItems.length + 1 > 25) {
+    return response(400, { message: "削除対象が多すぎるため、この記録は削除できません。" });
+  }
+
   await ddb.send(
-    new DeleteCommand({
-      TableName: trainingHistoryTableName,
-      Key: {
-        userId,
-        visitId
-      }
+    new TransactWriteCommand({
+      TransactItems: [
+        {
+          Delete: {
+            TableName: trainingHistoryTableName,
+            Key: {
+              userId,
+              visitId
+            }
+          }
+        },
+        ...performanceItems.map((item) => ({
+          Delete: {
+            TableName: trainingPerformanceTableName,
+            Key: {
+              userId,
+              trainingPerformanceId: item.trainingPerformanceId
+            }
+          }
+        }))
+      ]
     })
   );
 
