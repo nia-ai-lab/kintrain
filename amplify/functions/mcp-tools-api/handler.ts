@@ -6,6 +6,7 @@ const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
 const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
+const trainingPerformanceTableName = process.env.TRAINING_PERFORMANCE_TABLE_NAME ?? "";
 const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
 const goalTableName = process.env.GOAL_TABLE_NAME ?? "";
 const aiSettingTableName = process.env.AI_SETTING_TABLE_NAME ?? "";
@@ -57,6 +58,7 @@ const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
 const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
 const trainingNameIndex = "UserTrainingNameIndex";
 const defaultSetMarker = "DEFAULT";
+const trainingPerformanceByMenuItemIndex = "UserTrainingMenuItemPerformedAtIndex";
 
 function normalizeTrainingName(name: string): string {
   return name.trim().toLowerCase();
@@ -350,50 +352,44 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<Lambd
   if (!trainingMenuItemId) {
     return jsonResponse(400, { message: "trainingMenuItemId is required." });
   }
+  if (!trainingPerformanceTableName) {
+    return jsonResponse(500, { message: "Training performance table is not configured." });
+  }
   const limit = toBoundedInt(args.limit, 30, 1, 100);
 
-  const visitsResult = await ddb.send(
+  const performanceResult = await ddb.send(
     new QueryCommand({
-      TableName: trainingHistoryTableName,
-      IndexName: "UserStartedAtIndex",
-      KeyConditionExpression: "userId = :userId",
+      TableName: trainingPerformanceTableName,
+      IndexName: trainingPerformanceByMenuItemIndex,
+      KeyConditionExpression: "userId = :userId AND begins_with(trainingMenuItemPerformedAtKey, :prefix)",
       ExpressionAttributeValues: {
-        ":userId": userId
+        ":userId": userId,
+        ":prefix": `${trainingMenuItemId}#`
       },
       ScanIndexForward: false,
-      Limit: 200
+      Limit: limit
     })
   );
-
-  const entries: Array<Record<string, unknown>> = [];
-  for (const visit of visitsResult.Items ?? []) {
-    const visitId = toNonEmptyString((visit as Record<string, unknown>).visitId) ?? "";
-    const visitDateLocal = toNonEmptyString((visit as Record<string, unknown>).visitDateLocal) ?? "";
-    const visitEntries = Array.isArray((visit as Record<string, unknown>).entries)
-      ? ((visit as Record<string, unknown>).entries as Array<Record<string, unknown>>)
-      : [];
-
-    for (const entry of visitEntries) {
-      if ((entry.trainingMenuItemId as string | undefined) === trainingMenuItemId) {
-        entries.push({
-          ...entry,
-          visitId,
-          visitDateLocal
-        });
-      }
-      if (entries.length >= limit) {
-        break;
-      }
-    }
-    if (entries.length >= limit) {
-      break;
-    }
-  }
+  const items = (performanceResult.Items ?? []).map((item) => ({
+    trainingMenuItemId: item.trainingMenuItemId,
+    trainingNameSnapshot: item.trainingNameSnapshot,
+    bodyPartSnapshot: item.bodyPartSnapshot ?? "",
+    equipmentSnapshot: item.equipmentSnapshot ?? "",
+    isAiGeneratedSnapshot: item.isAiGeneratedSnapshot === true,
+    frequencySnapshot: item.frequencySnapshot,
+    note: typeof item.note === "string" ? item.note : "",
+    weightKg: item.weightKg,
+    reps: item.reps,
+    sets: item.sets,
+    performedAtUtc: item.performedAtUtc,
+    visitId: item.visitId,
+    visitDateLocal: item.visitDateLocal
+  }));
 
   return jsonResponse(200, {
     tool: "get_training_history",
     trainingMenuItemId,
-    items: entries
+    items
   });
 }
 

@@ -132,6 +132,33 @@ trainingHistoryTable.addGlobalSecondaryIndex({
   sortKey: { name: "startedAtUtc", type: dynamodb.AttributeType.STRING }
 });
 
+const trainingPerformanceTable = new dynamodb.Table(stack, "TrainingPerformanceTable", {
+  tableName: tableNameFor("TrainingPerformanceTable"),
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "trainingPerformanceId", type: dynamodb.AttributeType.STRING },
+  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+  pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+  removalPolicy: RemovalPolicy.RETAIN
+});
+
+trainingPerformanceTable.addGlobalSecondaryIndex({
+  indexName: "UserTrainingMenuItemPerformedAtIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "trainingMenuItemPerformedAtKey", type: dynamodb.AttributeType.STRING }
+});
+
+trainingPerformanceTable.addGlobalSecondaryIndex({
+  indexName: "UserPerformedAtIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "performedAtUtc", type: dynamodb.AttributeType.STRING }
+});
+
+trainingPerformanceTable.addGlobalSecondaryIndex({
+  indexName: "UserVisitIndex",
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "visitId", type: dynamodb.AttributeType.STRING }
+});
+
 const dailyRecordTable = new dynamodb.Table(stack, "DailyRecordTable", {
   tableName: tableNameFor("DailyRecordTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
@@ -200,6 +227,7 @@ trainingMenuTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetItemTable.grantReadWriteData(trainingMenuApiLambda);
 trainingHistoryTable.grantReadWriteData(trainingHistoryApiLambda);
+trainingPerformanceTable.grantReadWriteData(trainingHistoryApiLambda);
 trainingMenuTable.grantReadData(trainingHistoryApiLambda);
 trainingMenuSetTable.grantReadData(trainingHistoryApiLambda);
 trainingMenuSetItemTable.grantReadData(trainingHistoryApiLambda);
@@ -212,6 +240,7 @@ dailyRecordTable.grantReadWriteData(mcpToolsApiLambda);
 goalTable.grantReadData(mcpToolsApiLambda);
 aiSettingTable.grantReadData(mcpToolsApiLambda);
 aiAdviceLogTable.grantWriteData(mcpToolsApiLambda);
+trainingPerformanceTable.grantReadData(mcpToolsApiLambda);
 trainingMenuTable.grantReadWriteData(mcpToolsApiLambda);
 trainingMenuSetTable.grantReadWriteData(mcpToolsApiLambda);
 trainingMenuSetItemTable.grantReadWriteData(mcpToolsApiLambda);
@@ -225,6 +254,7 @@ trainingMenuApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTab
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
+trainingHistoryApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerformanceTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
@@ -242,6 +272,7 @@ mcpToolsApiLambda.addEnvironment("AI_ADVICE_LOG_TABLE_NAME", aiAdviceLogTable.ta
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
+mcpToolsApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerformanceTable.tableName);
 
 const coreApi = new apigateway.RestApi(stack, "CoreApiGateway", {
   restApiName: `KinTrainCoreApi-${deploymentBranchSuffix}`,

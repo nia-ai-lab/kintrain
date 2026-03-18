@@ -1,9 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
-import type { SetDetail, TrainingMenuItem } from '../types';
+import type { DraftEntry, SetDetail, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
+
+const maxTrainingSessionEntryCount = 12;
+const maxTrainingSessionEntryMessage =
+  '一度に登録できる実施は12件までです。トレーニングを続ける場合は一度記録してください。';
 
 function toPositiveNumberOrUndefined(value: string): number | undefined {
   if (value.trim() === '') {
@@ -40,6 +44,10 @@ function formatRepsInputLabel(min: number, max: number): string {
   return `回数 (${min}回 - ${max}回)`;
 }
 
+function hasStartedDraftEntry(entry: Partial<DraftEntry> | undefined): boolean {
+  return (entry?.weightKg ?? 0) > 0 || (entry?.reps ?? 0) > 0 || (entry?.sets ?? 0) > 0;
+}
+
 export function TrainingSessionPage() {
   const { data, setDraftEntry, setDraftSetDetails, clearDraftEntry, clearDraft, finalizeTrainingSession } = useAppState();
   const today = useTodayYmd();
@@ -48,6 +56,8 @@ export function TrainingSessionPage() {
   const [statusText, setStatusText] = useState('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const toastTimerRef = useRef<number | null>(null);
 
   const draftEntries = data.trainingDraft?.entriesByItemId ?? {};
   const defaultMenuSet = useMemo(() => {
@@ -111,6 +121,43 @@ export function TrainingSessionPage() {
 
   const validEnteredItems = enteredItems.filter((entry) => entry.isValid);
   const incompleteEnteredItems = enteredItems.filter((entry) => !entry.isValid);
+  const startedItemCount = enteredItems.length;
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+    };
+  }, []);
+
+  function showToast(message: string) {
+    setToastMessage(message);
+    if (toastTimerRef.current !== null) {
+      window.clearTimeout(toastTimerRef.current);
+    }
+    toastTimerRef.current = window.setTimeout(() => {
+      setToastMessage('');
+      toastTimerRef.current = null;
+    }, 3500);
+  }
+
+  function guardTrainingEntryLimit(menuItemId: string, patch: Partial<DraftEntry>): boolean {
+    const current = draftEntries[menuItemId];
+    const currentStarted = hasStartedDraftEntry(current);
+    const nextStarted = hasStartedDraftEntry({
+      ...(current ?? { menuItemId }),
+      ...patch
+    });
+
+    if (currentStarted || !nextStarted || startedItemCount < maxTrainingSessionEntryCount) {
+      return true;
+    }
+
+    setStatusText(maxTrainingSessionEntryMessage);
+    showToast(maxTrainingSessionEntryMessage);
+    return false;
+  }
 
   return (
     <div className="stack-lg training-session-page">
@@ -174,6 +221,16 @@ export function TrainingSessionPage() {
                     type="button"
                     className="btn subtle copy-last-button"
                     onClick={() => {
+                      if (
+                        !guardTrainingEntryLimit(item.id, {
+                          menuItemId: item.id,
+                          weightKg: seedWeightKg,
+                          reps: seedReps,
+                          sets: seedSets
+                        })
+                      ) {
+                        return;
+                      }
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
                         weightKg: seedWeightKg,
@@ -212,12 +269,21 @@ export function TrainingSessionPage() {
                     step={0.01}
                     value={weightValue ?? ''}
                     placeholder="未入力"
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextWeightKg = toWeightNumber(e.target.value);
+                      if (
+                        !guardTrainingEntryLimit(item.id, {
+                          menuItemId: item.id,
+                          weightKg: nextWeightKg
+                        })
+                      ) {
+                        return;
+                      }
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
-                        weightKg: toWeightNumber(e.target.value)
-                      })
-                    }
+                        weightKg: nextWeightKg
+                      });
+                    }}
                   />
                 </label>
                 <label>
@@ -228,12 +294,21 @@ export function TrainingSessionPage() {
                     step={1}
                     value={repsValue ?? ''}
                     placeholder="未入力"
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextReps = toCountNumber(e.target.value);
+                      if (
+                        !guardTrainingEntryLimit(item.id, {
+                          menuItemId: item.id,
+                          reps: nextReps
+                        })
+                      ) {
+                        return;
+                      }
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
-                        reps: toCountNumber(e.target.value)
-                      })
-                    }
+                        reps: nextReps
+                      });
+                    }}
                   />
                 </label>
                 <label>
@@ -244,12 +319,21 @@ export function TrainingSessionPage() {
                     step={1}
                     value={setsValue ?? ''}
                     placeholder="未入力"
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const nextSets = toCountNumber(e.target.value);
+                      if (
+                        !guardTrainingEntryLimit(item.id, {
+                          menuItemId: item.id,
+                          sets: nextSets
+                        })
+                      ) {
+                        return;
+                      }
                       setDraftEntry(item.id, {
                         menuItemId: item.id,
-                        sets: toCountNumber(e.target.value)
-                      })
-                    }
+                        sets: nextSets
+                      });
+                    }}
                   />
                 </label>
               </div>
@@ -410,6 +494,12 @@ export function TrainingSessionPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+
+      {toastMessage && (
+        <div className="page-toast" role="status" aria-live="polite">
+          {toastMessage}
         </div>
       )}
     </div>

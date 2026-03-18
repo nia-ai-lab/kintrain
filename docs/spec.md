@@ -74,6 +74,7 @@
 - `GymVisit`: ジム来館1回分の記録
 - `ExerciseEntry`: GymVisit内の1種目記録（例: チェストプレス 22.5kg 12回 3セット）
 - `TrainingHistory`: 確定済みトレーニング実施履歴の集合（`GymVisit` + `ExerciseEntry`）
+- `TrainingPerformance`: 確定済み `ExerciseEntry` を1種目1件で保持する読取最適化モデル
 - `LastPerformanceSnapshot`: 各 `TrainingMenuItem` の直近実績を保持する読取最適化用サマリ
 - `BodyMetric`: 体重・体脂肪率の記録
 - `DailyRecord`: 日付単位の総合記録（体重/体脂肪率、体調、気分、日記、その他トレーニング）
@@ -154,6 +155,9 @@
 - `trainingMenuItemId`
 - `trainingNameSnapshot`
 - `bodyPartSnapshot`（任意、保存時点の部位名スナップショット）
+- `equipmentSnapshot`（任意、保存時点の用具スナップショット）
+- `isAiGeneratedSnapshot`（任意、保存時点のAI生成フラグ）
+- `frequencySnapshot`（任意、保存時点の頻度スナップショット）
 - `weightKg`
 - `reps`
 - `sets`
@@ -162,6 +166,7 @@
 - `note`（任意）
 - `weightKg > 0`、`reps > 0`、`sets > 0` を満たすこと。
 - `0` は有効値として扱わないこと（削除マーカーとしても使用しない）。
+- 1回の `GymVisit` に保存できる `ExerciseEntry` 数は最大12件とする。
 - 前日実施トレーニングを参照できること。
 - UIの種目表示は `トレーニング名 : 部位` とし、`bodyPart` 未設定時はトレーニング名のみ表示すること。
 
@@ -359,7 +364,7 @@
 
 #### 7.3.1 UserProfileテーブル
 
-- テーブル名: CloudFormation自動命名（論理ID: `UserProfileTable`）
+- テーブル名: `KinTrain-UserProfileTable-{branch}`（論理ID: `UserProfileTable`）
 - 主キー:
 - `userId`（パーティションキー、Cognito `sub`）
 - 主な属性:
@@ -373,7 +378,7 @@
 
 #### 7.3.2 TrainingMenuテーブル
 
-- テーブル名: CloudFormation自動命名（論理ID: `TrainingMenuTable`）
+- テーブル名: `KinTrain-TrainingMenuTable-{branch}`（論理ID: `TrainingMenuTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - `trainingMenuItemId`（ソートキー）
@@ -395,7 +400,7 @@
 
 #### 7.3.3 TrainingHistoryテーブル
 
-- テーブル名: CloudFormation自動命名（論理ID: `TrainingHistoryTable`）
+- テーブル名: `KinTrain-TrainingHistoryTable-{branch}`（論理ID: `TrainingHistoryTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - `visitId`（ソートキー）
@@ -411,9 +416,38 @@
 - GSI:
 - `UserStartedAtIndex`（`userId`, `startedAtUtc`）
 
-#### 7.3.4 DailyRecordテーブル
+#### 7.3.4 TrainingPerformanceテーブル
 
-- テーブル名: CloudFormation自動命名（論理ID: `DailyRecordTable`）
+- テーブル名: `KinTrain-TrainingPerformanceTable-{branch}`（論理ID: `TrainingPerformanceTable`）
+- 主キー:
+- `userId`（パーティションキー）
+- `trainingPerformanceId`（ソートキー）
+- 主な属性:
+- `visitId`
+- `trainingMenuItemId`
+- `trainingMenuItemPerformedAtKey`
+- `performedAtUtc`
+- `visitDateLocal`
+- `timeZoneId`
+- `trainingNameSnapshot`
+- `bodyPartSnapshot`
+- `equipmentSnapshot`
+- `isAiGeneratedSnapshot`
+- `frequencySnapshot`
+- `weightKg`
+- `reps`
+- `sets`
+- `note`
+- `createdAt`
+- `updatedAt`
+- GSI:
+- `UserTrainingMenuItemPerformedAtIndex`（`userId`, `trainingMenuItemPerformedAtKey`）
+- `UserPerformedAtIndex`（`userId`, `performedAtUtc`）
+- `UserVisitIndex`（`userId`, `visitId`）
+
+#### 7.3.5 DailyRecordテーブル
+
+- テーブル名: `KinTrain-DailyRecordTable-{branch}`（論理ID: `DailyRecordTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - `recordDate`（ソートキー、`YYYY-MM-DD`）
@@ -432,9 +466,9 @@
 - `createdAt`
 - `updatedAt`
 
-#### 7.3.5 AiSettingテーブル
+#### 7.3.6 AiSettingテーブル
 
-- テーブル名: CloudFormation自動命名（論理ID: `AiSettingTable`）
+- テーブル名: `KinTrain-AiSettingTable-{branch}`（論理ID: `AiSettingTable`）
 - 主キー:
 - `userId`（パーティションキー）
 - 主な属性:
@@ -474,6 +508,18 @@
 - `userId` + `startedAtUtc`
 - 用途: GymVisitを時系列で取得（一覧・期間検索・月次表示）
 
+- `TrainingPerformance.UserTrainingMenuItemPerformedAtIndex`
+- `userId` + `trainingMenuItemPerformedAtKey`
+- 用途: 特定種目の履歴一覧と直近1件取得
+
+- `TrainingPerformance.UserPerformedAtIndex`
+- `userId` + `performedAtUtc`
+- 用途: 種目実施の時系列参照（将来拡張含む）
+
+- `TrainingPerformance.UserVisitIndex`
+- `userId` + `visitId`
+- 用途: `GymVisit` 更新/削除時に紐づく performance 群を取得
+
 ### 7.6 アクセスパターンとクエリ設計（Scan禁止）
 
 - AP-01 プロファイル取得（UserProfile）: `GetItem(userId=sub)`
@@ -484,17 +530,19 @@
 - AP-06 トレーニングメニュー更新（TrainingMenu）: `UpdateItem(userId=sub, trainingMenuItemId=...)`
 - AP-07 トレーニングメニュー削除（TrainingMenu）: `DeleteItem(userId=sub, trainingMenuItemId=...)`
 - AP-08 トレーニングメニュー並び替え（TrainingMenu）: `TransactWriteItems` で複数 `displayOrder` 更新
-- AP-09 GymVisit作成（TrainingHistory）: `PutItem(userId=sub, visitId=uuid)`
+- AP-09 GymVisit作成（TrainingHistory + TrainingPerformance）: `TransactWriteItems` で `GymVisit` 1件 + `TrainingPerformance` 複数件を保存
 - AP-10 GymVisit一覧（TrainingHistory）: `Query UserStartedAtIndex(userId=sub, startedAtUtc BETWEEN fromUtc AND toUtc)`
 - AP-11 GymVisit詳細（TrainingHistory）: `GetItem(userId=sub, visitId=...)`
-- AP-12 GymVisit更新（TrainingHistory）: `PutItem(userId=sub, visitId=...)`
-- AP-13 GymVisit削除（TrainingHistory）: `DeleteItem(userId=sub, visitId=...)`
+- AP-12 GymVisit更新（TrainingHistory + TrainingPerformance）: `UserVisitIndex` で旧 performance 群を取得し、`TransactWriteItems` で visit 更新 + performance 再構築
+- AP-13 GymVisit削除（TrainingHistory + TrainingPerformance）: `UserVisitIndex` で旧 performance 群を取得し、`TransactWriteItems` で visit + performance を削除
 - AP-14 DailyRecord範囲（DailyRecord）: `Query(userId=sub, recordDate BETWEEN from AND to)`
 - AP-15 DailyRecord単日取得（DailyRecord）: `GetItem(userId=sub, recordDate=...)`
 - AP-16 DailyRecord単日更新（DailyRecord）: `PutItem(userId=sub, recordDate=...)`
 - AP-17 カレンダー（月次）: `Query DailyRecord` + `Query TrainingHistory.UserStartedAtIndex` を合成
 - AP-18 AIキャラクター設定取得（AiSetting）: `GetItem(userId=sub)`
 - AP-19 AIキャラクター設定更新（AiSetting）: `PutItem(userId=sub)`
+- AP-20 種目別直近実績取得（TrainingPerformance）: `Query UserTrainingMenuItemPerformedAtIndex(userId=sub, begins_with(trainingMenuItemPerformedAtKey, "{trainingMenuItemId}#"), desc, limit=1)`
+- AP-21 種目別履歴取得（TrainingPerformance）: `Query UserTrainingMenuItemPerformedAtIndex(userId=sub, begins_with(trainingMenuItemPerformedAtKey, "{trainingMenuItemId}#"), desc, limit=n)`
 
 ### 7.7 クエリ上限・ページング規約（コスト制御）
 
@@ -504,7 +552,7 @@
 - `GET /gym-visits` は `limit <= 200`（既定100）を適用する（`nextToken` 未実装）。
 - `GET /daily-records?from&to` は範囲Queryを実行する（`limit/nextToken` 未実装）。
 - `GET /calendar?month=YYYY-MM` は対象月のみ（最大31日）を取得する。
-- `GET /training-session-view?date=YYYY-MM-DD` は対象日をキーに1日分を取得する。
+- `GET /training-session-view?date=YYYY-MM-DD` は対象日の実施済み種目判定に `TrainingHistory` を使い、直近実績は `TrainingPerformance` を使って取得する。
 - 次フェーズの目標:
 - `GET /gym-visits` の `nextToken` ページング対応
 - `GET /daily-records` の `limit/nextToken` 対応
@@ -661,7 +709,7 @@
 
 ### 14.5 DynamoDB命名
 
-- テーブル名: 物理名はCloudFormation自動命名を使用し、論理IDは `PascalCase`（例: `TrainingMenuTable`, `TrainingHistoryTable`）
+- テーブル名: `KinTrain-{LogicalId}-{branch}`（例: `KinTrain-TrainingMenuTable-dev`, `KinTrain-TrainingHistoryTable-main`）
 - パーティション/ソートキー属性名はドメイン語彙を使用する（例: `userId`, `trainingMenuItemId`, `visitId`, `recordDate`）
 - GSIキー属性名もドメイン語彙を使用する（例: `displayOrder`, `normalizedTrainingName`, `startedAtUtc`）
 - エンティティ属性名: `camelCase`（例: `createdAt`, `trainingNameSnapshot`）
