@@ -37,6 +37,7 @@ import type {
   DraftEntry,
   ExerciseEntry,
   Goal,
+  MoodRating,
   SetDetail,
   TrainingEquipment,
   TrainingFrequencyDays,
@@ -65,6 +66,7 @@ interface AppStateContextValue {
   finalizeTrainingSession: (date: string) => Promise<{ savedCount: number; ok: boolean; message?: string }>;
   saveDailyRecord: (date: string, patch: Partial<DailyRecord>) => void;
   setConditionRating: (date: string, rating: ConditionRating) => void;
+  setMoodRating: (date: string, rating: MoodRating) => void;
   addOtherActivity: (date: string, value: string) => void;
   removeOtherActivity: (date: string, index: number) => void;
   flushDailyRecord: (date: string) => Promise<{ ok: boolean; message?: string }>;
@@ -155,6 +157,10 @@ function getDefaultDailySaveStatus(): DailySaveStatus {
     isDirty: false,
     isSaving: false
   };
+}
+
+function isTenPointRating(value: unknown): value is ConditionRating {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 10;
 }
 
 function ensureDailyRecord(data: AppData, date: string): DailyRecord {
@@ -483,7 +489,8 @@ function mapRemoteDailyRecord(
     bodyWeightKg?: number;
     bodyFatPercent?: number;
     bodyMetricMeasuredTimeLocal?: string;
-    conditionRating?: 1 | 2 | 3 | 4 | 5;
+    conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     conditionComment?: string;
     diary?: string;
     otherActivities?: string[];
@@ -494,16 +501,16 @@ function mapRemoteDailyRecord(
   if (!date) {
     return null;
   }
-  const rating = item.conditionRating;
-  const normalizedRating =
-    rating === 1 || rating === 2 || rating === 3 || rating === 4 || rating === 5 ? rating : undefined;
+  const normalizedConditionRating = isTenPointRating(item.conditionRating) ? item.conditionRating : undefined;
+  const normalizedMoodRating = isTenPointRating(item.moodRating) ? item.moodRating : undefined;
   return {
     date,
     timeZoneId: item.timeZoneId ?? fallbackTimeZoneId,
     bodyWeightKg: typeof item.bodyWeightKg === 'number' ? item.bodyWeightKg : undefined,
     bodyFatPercent: typeof item.bodyFatPercent === 'number' ? item.bodyFatPercent : undefined,
     bodyMetricMeasuredTime: normalizeMeasuredTime(item.bodyMetricMeasuredTimeLocal),
-    conditionRating: normalizedRating,
+    conditionRating: normalizedConditionRating,
+    moodRating: normalizedMoodRating,
     conditionComment: typeof item.conditionComment === 'string' ? item.conditionComment : undefined,
     diary: typeof item.diary === 'string' ? item.diary : undefined,
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : []
@@ -571,7 +578,8 @@ function toDailyRecordPayload(record: DailyRecord): {
   bodyFatPercent?: number;
   bodyMetricMeasuredTimeLocal?: string;
   timeZoneId: string;
-  conditionRating?: 1 | 2 | 3 | 4 | 5;
+  conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   conditionComment?: string;
   diary?: string;
   otherActivities: string[];
@@ -582,6 +590,7 @@ function toDailyRecordPayload(record: DailyRecord): {
     bodyMetricMeasuredTimeLocal: record.bodyMetricMeasuredTime,
     timeZoneId: record.timeZoneId,
     conditionRating: record.conditionRating,
+    moodRating: record.moodRating,
     conditionComment: record.conditionComment,
     diary: record.diary,
     otherActivities: record.otherActivities
@@ -1059,6 +1068,31 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               [date]: {
                 ...prevCurrent,
                 conditionRating: rating,
+                date,
+                timeZoneId: prev.userProfile.timeZoneId
+              }
+            }
+          };
+        });
+        void scheduleDailyRecordPersist(date, nextRecord);
+      },
+      setMoodRating: (date, rating) => {
+        const current = ensureDailyRecord(data, date);
+        const nextRecord: DailyRecord = {
+          ...current,
+          moodRating: rating,
+          date,
+          timeZoneId: data.userProfile.timeZoneId
+        };
+        setData((prev) => {
+          const prevCurrent = ensureDailyRecord(prev, date);
+          return {
+            ...prev,
+            dailyRecords: {
+              ...prev.dailyRecords,
+              [date]: {
+                ...prevCurrent,
+                moodRating: rating,
                 date,
                 timeZoneId: prev.userProfile.timeZoneId
               }

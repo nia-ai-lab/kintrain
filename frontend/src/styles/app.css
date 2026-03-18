@@ -331,7 +331,7 @@ a {
 
 .dashboard-summary-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
   gap: 10px;
   margin-top: 12px;
 }
@@ -1222,31 +1222,113 @@ a {
   }
 }
 
-.rating-picker {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 8px;
+.daily-rating-section-card {
+  gap: 14px;
 }
 
-.rating-button {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: #fff;
-  padding: 8px 10px;
+.daily-rating-grid {
   display: grid;
-  gap: 4px;
-  min-width: 62px;
-  justify-items: center;
+  gap: 12px;
 }
 
-.rating-button.selected {
-  border-color: rgba(14, 122, 115, 0.38);
-  background: rgba(14, 122, 115, 0.1);
+.daily-rating-slider-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid rgba(24, 32, 40, 0.06);
 }
 
-.rating-picker.compact .rating-button {
-  min-width: 42px;
+.daily-rating-label-group {
+  display: grid;
+  gap: 3px;
+}
+
+.daily-rating-slider-card h3 {
+  font-size: 0.96rem;
+  font-family: 'Noto Sans JP', system-ui, -apple-system, sans-serif;
+  font-weight: 700;
+}
+
+.daily-rating-value-pill {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 74px;
+  min-height: 34px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.daily-rating-slider-shell {
+  padding: 6px 2px;
+}
+
+.daily-rating-slider-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: var(--rating-track);
+  box-shadow: inset 0 0 0 1px rgba(24, 32, 40, 0.08);
+}
+
+.daily-rating-slider-input::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  height: 14px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.daily-rating-slider-input::-moz-range-track {
+  height: 14px;
+  border-radius: 999px;
+  background: var(--rating-track);
+  border: 0;
+}
+
+.daily-rating-slider-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fffdf9;
+  border: 4px solid var(--rating-thumb-color);
+  box-shadow: 0 8px 18px rgba(18, 28, 35, 0.18);
+  margin-top: -5px;
+}
+
+.daily-rating-slider-input::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  background: #fffdf9;
+  border: 4px solid var(--rating-thumb-color);
+  box-shadow: 0 8px 18px rgba(18, 28, 35, 0.18);
+}
+
+.daily-rating-scale {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: center;
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.daily-rating-scale span:nth-child(2) {
+  text-align: center;
+}
+
+.daily-rating-scale span:last-child {
+  text-align: right;
 }
 
 .calendar-grid {
@@ -1278,6 +1360,7 @@ a {
   padding: 8px;
   display: grid;
   grid-template-rows: auto 1fr auto;
+  gap: 6px;
   align-items: center;
   justify-items: center;
   cursor: pointer;
@@ -1319,13 +1402,19 @@ a {
   visibility: hidden;
 }
 
-.condition-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  line-height: 1;
-  min-height: 1.2em;
-  justify-self: center;
+.calendar-rating-stripes {
+  width: 100%;
+  display: grid;
+  gap: 4px;
+  align-self: end;
+}
+
+.calendar-rating-stripe {
+  display: block;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(24, 32, 40, 0.05);
 }
 
 .set-detail-list {
@@ -1741,8 +1830,8 @@ a {
   color: var(--primary-strong);
 }
 
-.condition-icon {
-  font-size: 1rem;
+.calendar-rating-stripe {
+  height: 7px;
 }
 
 .daily-hero-card {
@@ -1912,6 +2001,18 @@ a {
   .calendar-cell {
     border-radius: 14px;
     padding: 8px 6px 7px;
+  }
+
+  .calendar-rating-stripes {
+    gap: 3px;
+  }
+
+  .calendar-rating-stripe {
+    height: 6px;
+  }
+
+  .daily-rating-slider-card {
+    padding: 12px;
   }
 
   .day-number {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
-import { ConditionRatingPicker } from '../components/ConditionRatingPicker';
+import { DailyRatingSlider } from '../components/DailyRatingSlider';
 import { ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel } from '../utils/training';
 
@@ -15,6 +15,7 @@ export function DailyPage() {
     refreshDailyRecord,
     saveDailyRecord,
     setConditionRating,
+    setMoodRating,
     addOtherActivity,
     removeOtherActivity,
     flushDailyRecord,
@@ -128,9 +129,12 @@ export function DailyPage() {
         </div>
       </section>
 
-      <section className="card daily-section-card">
-        <h2>体調</h2>
-        <ConditionRatingPicker value={record.conditionRating} onChange={(rating) => setConditionRating(targetDate, rating)} />
+      <section className="card daily-section-card daily-rating-section-card">
+        <h2>体調・気分</h2>
+        <div className="daily-rating-grid">
+          <DailyRatingSlider label="体調" value={record.conditionRating} onChange={(rating) => setConditionRating(targetDate, rating)} />
+          <DailyRatingSlider label="気分" value={record.moodRating} onChange={(rating) => setMoodRating(targetDate, rating)} />
+        </div>
         <label>
           コメント
           <textarea
@@ -138,7 +142,7 @@ export function DailyPage() {
             rows={2}
             value={record.conditionComment ?? ''}
             onChange={(e) => saveDailyRecord(targetDate, { conditionComment: e.target.value })}
-            placeholder="任意で体調メモ"
+            placeholder="体調や気分のメモ"
           />
         </label>
       </section>

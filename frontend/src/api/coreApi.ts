@@ -93,7 +93,8 @@ type DailyRecordDto = {
   bodyWeightKg?: number;
   bodyFatPercent?: number;
   bodyMetricMeasuredTimeLocal?: string;
-  conditionRating?: 1 | 2 | 3 | 4 | 5;
+  conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   conditionComment?: string;
   diary?: string;
   otherActivities?: string[];
@@ -107,7 +108,8 @@ type ListDailyRecordsResponse = {
 type CalendarDayDto = {
   date?: string;
   trained?: boolean;
-  conditionRating?: 1 | 2 | 3 | 4 | 5 | null;
+  conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | null;
+  moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | null;
 };
 
 type CalendarMonthResponse = {
@@ -382,7 +384,8 @@ export async function putDailyRecord(
     bodyFatPercent: number;
     bodyMetricMeasuredTimeLocal: string;
     timeZoneId: string;
-    conditionRating: 1 | 2 | 3 | 4 | 5;
+    conditionRating: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    moodRating: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     conditionComment: string;
     diary: string;
     otherActivities: string[];
