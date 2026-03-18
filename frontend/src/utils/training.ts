@@ -41,6 +41,70 @@ export function getLastPerformance(menuItemId: string, gymVisits: GymVisit[]): L
   return null;
 }
 
+type PrioritizableTrainingSessionItem = {
+  frequency: TrainingMenuItem['frequency'];
+  order: number;
+  lastPerformanceSnapshot?: {
+    visitDateLocal?: string;
+  };
+};
+
+function scoreTrainingSessionItem<T extends PrioritizableTrainingSessionItem>(params: {
+  item: T;
+  todayYmd: string;
+}): {
+  neverDone: boolean;
+  overdueDays: number;
+  daysSinceLast: number;
+} {
+  const { item, todayYmd } = params;
+  const lastDate = item.lastPerformanceSnapshot?.visitDateLocal;
+  if (!lastDate) {
+    return {
+      neverDone: true,
+      overdueDays: Number.POSITIVE_INFINITY,
+      daysSinceLast: Number.MAX_SAFE_INTEGER
+    };
+  }
+
+  const daysSinceLast = Math.max(0, diffDays(lastDate, todayYmd));
+  const intervalDays = getFrequencyDays(item.frequency);
+  return {
+    neverDone: false,
+    overdueDays: daysSinceLast - intervalDays,
+    daysSinceLast
+  };
+}
+
+export function getPrioritizedTrainingSessionItems<T extends PrioritizableTrainingSessionItem>(params: {
+  items: T[];
+  todayYmd: string;
+}): T[] {
+  const { items, todayYmd } = params;
+
+  return [...items].sort((a, b) => {
+    const scoreA = scoreTrainingSessionItem({
+      item: a,
+      todayYmd
+    });
+    const scoreB = scoreTrainingSessionItem({
+      item: b,
+      todayYmd
+    });
+
+    if (scoreA.neverDone !== scoreB.neverDone) {
+      return scoreA.neverDone ? -1 : 1;
+    }
+    if (scoreA.overdueDays !== scoreB.overdueDays) {
+      return scoreB.overdueDays - scoreA.overdueDays;
+    }
+    if (scoreA.daysSinceLast !== scoreB.daysSinceLast) {
+      return scoreB.daysSinceLast - scoreA.daysSinceLast;
+    }
+    return a.order - b.order;
+  });
+}
+
 function getFrequencyDays(days: TrainingMenuItem['frequency']): number {
   return days;
 }

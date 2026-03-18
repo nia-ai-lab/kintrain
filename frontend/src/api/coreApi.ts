@@ -89,6 +89,38 @@ type ListGymVisitsResponse = {
   items: GymVisitDto[];
 };
 
+export type TrainingSessionViewItemDto = {
+  trainingMenuItemId: string;
+  trainingName: string;
+  bodyPart?: string;
+  equipment?: string;
+  isAiGenerated?: boolean;
+  memo?: string;
+  frequency?: number | string;
+  defaultWeightKg: number;
+  defaultRepsMin: number;
+  defaultRepsMax: number;
+  defaultReps?: number;
+  defaultSets: number;
+  displayOrder: number;
+  isActive: boolean;
+  lastPerformanceSnapshot?: {
+    performedAtUtc: string;
+    weightKg: number;
+    reps: number;
+    sets: number;
+    bodyPartSnapshot?: string;
+    equipmentSnapshot?: string;
+    note?: string;
+    visitDateLocal: string;
+  };
+};
+
+export type TrainingSessionViewResponse = {
+  items: TrainingSessionViewItemDto[];
+  todayDoneTrainingMenuItemIds: string[];
+};
+
 type DailyRecordDto = {
   recordDate?: string;
   timeZoneId?: string;
@@ -375,6 +407,14 @@ export async function listGymVisits(params?: { from?: string; to?: string; limit
   const path = query ? `/gym-visits?${query}` : '/gym-visits';
 
   return coreApiFetch<ListGymVisitsResponse>(path, {
+    method: 'GET'
+  });
+}
+
+export async function getTrainingSessionView(date: string): Promise<TrainingSessionViewResponse> {
+  const search = new URLSearchParams();
+  search.set('date', date);
+  return coreApiFetch<TrainingSessionViewResponse>(`/training-session-view?${search.toString()}`, {
     method: 'GET'
   });
 }

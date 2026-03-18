@@ -1,13 +1,47 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
-import type { DraftEntry, SetDetail, TrainingMenuItem } from '../types';
+import { getTrainingSessionView } from '../api/coreApi';
+import type { DraftEntry, SetDetail, TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
-import { formatTrainingLabel, getLastPerformance, getPrioritizedMenuItems } from '../utils/training';
+import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
 
 const maxTrainingSessionEntryCount = 12;
 const maxTrainingSessionEntryMessage =
   '一度に登録できる実施は12件までです。トレーニングを続ける場合は一度記録してください。';
+
+type TrainingSessionLastPerformanceSnapshot = {
+  performedAtUtc: string;
+  weightKg: number;
+  reps: number;
+  sets: number;
+  note?: string;
+  visitDateLocal: string;
+};
+
+type TrainingSessionMenuItem = TrainingMenuItem & {
+  lastPerformanceSnapshot?: TrainingSessionLastPerformanceSnapshot;
+};
+
+function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
+  if (value === 'マシン' || value === 'フリー' || value === '自重' || value === 'その他') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const legacy = value.trim();
+    if (legacy === 'バーベル' || legacy === 'ダンベル' || legacy === 'ケトルベル') {
+      return 'フリー';
+    }
+  }
+  return 'マシン';
+}
+
+function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
+  if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 8) {
+    return value as TrainingFrequencyDays;
+  }
+  return 3;
+}
 
 function toPositiveNumberOrUndefined(value: string): number | undefined {
   if (value.trim() === '') {
@@ -57,6 +91,9 @@ export function TrainingSessionPage() {
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
+  const [sessionItems, setSessionItems] = useState<TrainingSessionMenuItem[]>([]);
+  const [isSessionViewLoading, setIsSessionViewLoading] = useState(true);
+  const [sessionViewError, setSessionViewError] = useState('');
   const toastTimerRef = useRef<number | null>(null);
 
   const draftEntries = data.trainingDraft?.entriesByItemId ?? {};
@@ -64,29 +101,71 @@ export function TrainingSessionPage() {
     return data.menuSets.find((set) => set.isDefault) ?? data.menuSets[0] ?? null;
   }, [data.menuSets]);
 
-  const prioritized = useMemo(() => {
-    if (!defaultMenuSet) {
-      return [];
-    }
-    const selectedItems = defaultMenuSet.itemIds
-      .map((itemId, index) => {
-        const base = data.menuItems.find((item) => item.id === itemId);
-        if (!base) {
-          return null;
-        }
-        return {
-          ...base,
-          order: index + 1
-        };
-      })
-      .filter((item): item is TrainingMenuItem => item !== null);
+  useEffect(() => {
+    let isActive = true;
 
-    return getPrioritizedMenuItems({
-      menuItems: selectedItems,
-      gymVisits: data.gymVisits,
+    const loadTrainingSessionView = async () => {
+      setIsSessionViewLoading(true);
+      setSessionViewError('');
+      try {
+        const remote = await getTrainingSessionView(today);
+        if (!isActive) {
+          return;
+        }
+        const items = (remote.items ?? [])
+          .filter((item) => item.isActive !== false)
+          .map((item) => ({
+            id: item.trainingMenuItemId,
+            trainingName: item.trainingName,
+            bodyPart: item.bodyPart ?? '',
+            equipment: normalizeTrainingEquipment(item.equipment),
+            isAiGenerated: item.isAiGenerated === true,
+            memo: typeof item.memo === 'string' ? item.memo : '',
+            frequency: normalizeTrainingFrequency(item.frequency),
+            defaultWeightKg: Number(item.defaultWeightKg),
+            defaultRepsMin: Number(item.defaultRepsMin),
+            defaultRepsMax: Number(item.defaultRepsMax),
+            defaultSets: Number(item.defaultSets),
+            order: Number(item.displayOrder),
+            isActive: item.isActive !== false,
+            lastPerformanceSnapshot: item.lastPerformanceSnapshot
+              ? {
+                  performedAtUtc: item.lastPerformanceSnapshot.performedAtUtc,
+                  weightKg: Number(item.lastPerformanceSnapshot.weightKg),
+                  reps: Number(item.lastPerformanceSnapshot.reps),
+                  sets: Number(item.lastPerformanceSnapshot.sets),
+                  note: typeof item.lastPerformanceSnapshot.note === 'string' ? item.lastPerformanceSnapshot.note : undefined,
+                  visitDateLocal: item.lastPerformanceSnapshot.visitDateLocal
+                }
+              : undefined
+          }));
+        setSessionItems(items);
+      } catch (error) {
+        if (!isActive) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : '実施メニューの取得に失敗しました。';
+        setSessionViewError(message);
+        setSessionItems([]);
+      } finally {
+        if (isActive) {
+          setIsSessionViewLoading(false);
+        }
+      }
+    };
+
+    void loadTrainingSessionView();
+    return () => {
+      isActive = false;
+    };
+  }, [today]);
+
+  const prioritized = useMemo(() => {
+    return getPrioritizedTrainingSessionItems({
+      items: sessionItems,
       todayYmd: today
     });
-  }, [data.menuItems, data.gymVisits, data.menuSets, defaultMenuSet, today]);
+  }, [sessionItems, today]);
 
   function initSetDetails(menuItemId: string, sets: number, weightKg: number, reps: number) {
     const details: SetDetail[] = Array.from({ length: Math.max(1, sets) }).map((_, idx) => ({
@@ -185,9 +264,27 @@ export function TrainingSessionPage() {
       </section>
 
       <section className="stack-md training-session-list">
+        {isSessionViewLoading && (
+          <article className="card training-session-card">
+            <p className="muted">実施メニューを読み込み中です。</p>
+          </article>
+        )}
+
+        {!isSessionViewLoading && sessionViewError && (
+          <article className="card training-session-card">
+            <p className="status-text">{sessionViewError}</p>
+          </article>
+        )}
+
+        {!isSessionViewLoading && !sessionViewError && prioritized.length === 0 && (
+          <article className="card training-session-card">
+            <p className="muted">デフォルトのメニューセットに有効な種目がありません。</p>
+          </article>
+        )}
+
         {prioritized.map((item, index) => {
           const draft = draftEntries[item.id];
-          const last = getLastPerformance(item.id, data.gymVisits);
+          const last = item.lastPerformanceSnapshot;
           const seedWeightKg = last?.weightKg ?? item.defaultWeightKg;
           const seedReps = last?.reps ?? item.defaultRepsMax;
           const seedSets = last?.sets ?? item.defaultSets;
@@ -212,7 +309,7 @@ export function TrainingSessionPage() {
                   <p className="muted">
                     直近:{' '}
                     {last
-                      ? `${isoToDisplayDateTime(last.endedAtLocal)} ${last.weightKg}kg x ${last.reps}回 x ${last.sets}set`
+                      ? `${isoToDisplayDateTime(last.performedAtUtc)} ${last.weightKg}kg x ${last.reps}回 x ${last.sets}set`
                       : `未実施（メニュー: ${item.defaultWeightKg}kg x ${formatRepsTarget(item.defaultRepsMin, item.defaultRepsMax)} x ${item.defaultSets}set）`}
                   </p>
                 </div>
