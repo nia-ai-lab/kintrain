@@ -498,6 +498,24 @@ a {
   font-size: 0.9rem;
 }
 
+.page-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(160px + var(--safe-bottom));
+  transform: translateX(-50%);
+  z-index: 65;
+  width: min(calc(100vw - 28px), 460px);
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: rgba(24, 32, 40, 0.94);
+  color: #fffdf9;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  box-shadow: 0 20px 40px rgba(12, 18, 24, 0.22);
+  font-size: 0.92rem;
+  line-height: 1.45;
+  text-align: center;
+}
+
 .training-session-card.is-entered {
   background: linear-gradient(180deg, rgba(255, 192, 120, 0.34), rgba(255, 224, 176, 0.2));
   border-color: rgba(217, 138, 51, 0.38);
