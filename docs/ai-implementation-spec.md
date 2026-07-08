@@ -131,12 +131,12 @@
 - Runtime内のアプリは Strands を使用する。
 - Runtimeエージェントの役割名（ドメイン上の正本）は `AIコーチ` とする。
 - モデルは BedrockModel を使い、モデルIDは環境変数で切替可能にする。
-- 初期候補は Claude Sonnet 4.6 系を利用する（利用可能リージョンで有効化）。
+- 初期候補は Claude Sonnet 5 系を利用する（利用可能リージョンで有効化）。
 - Runtime は AIチャットとAIメニュー生成で共通利用し、用途別のエージェント分岐や mode 切替は設けない。
 
 ### 5.1.1 Runtime環境変数（必須）
 
-- `MODEL_ID`: 利用モデルID（例: `global.anthropic.claude-sonnet-4-6`）
+- `MODEL_ID`: 利用モデルID（例: `global.anthropic.claude-sonnet-5`）
 - `AWS_REGION`: Runtime実行リージョン
 - `MCP_GATEWAY_URL`: GatewayのMCPエンドポイント
 - `SOUL_FILE_PATH` / `PERSONA_FILE_PATH` / `SYSTEM_PROMPT_FILE_PATH`
@@ -206,10 +206,9 @@
 ## 7. モデル方針
 
 - Runtimeのモデル指定は `MODEL_ID` 環境変数で管理する。
-- Claude Sonnet 4.6 を使う場合のモデルID例:
-- `global.anthropic.claude-sonnet-4-6`（推奨）
-- `jp.anthropic.claude-sonnet-4-6`（日本リージョン優先で使う場合）
-- `anthropic.claude-sonnet-4-6`（foundation-model ID）
+- Claude Sonnet 5 を使う場合のモデルID例:
+- `global.anthropic.claude-sonnet-5`（推奨。東京リージョンから Global Cross-Region inference で利用する場合）
+- `anthropic.claude-sonnet-5`（In-Region 対応リージョンで利用する場合の foundation-model ID）
 - モデル可用性はリージョンに依存するため、デプロイ時にBedrock有効化を確認する。
 
 ## 8. システムプロンプト管理方針（非ハードコード）

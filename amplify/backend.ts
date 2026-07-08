@@ -479,7 +479,7 @@ if (enableAgentCoreResources) {
       ]
     },
     environmentVariables: {
-      MODEL_ID: process.env.MODEL_ID ?? "global.anthropic.claude-sonnet-4-6",
+      MODEL_ID: process.env.MODEL_ID ?? "global.anthropic.claude-sonnet-5",
       APP_TIMEZONE_DEFAULT: process.env.APP_TIMEZONE_DEFAULT ?? "Asia/Tokyo",
       MCP_GATEWAY_URL: aiCoachGateway.gatewayUrl ?? "",
       ENABLE_MCP_TOOLS: process.env.ENABLE_MCP_TOOLS ?? "true",

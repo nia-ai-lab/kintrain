@@ -137,7 +137,7 @@ Amplify Console の `アプリ設定 > 環境変数` で設定します。
 AI Runtime設定（任意、未指定時はデフォルト値）:
 
 - `MODEL_ID`  
-  例: `global.anthropic.claude-sonnet-4-6`
+  例: `global.anthropic.claude-sonnet-5`
 - `APP_TIMEZONE_DEFAULT`  
   例: `Asia/Tokyo`
 - `ENABLE_MCP_TOOLS`  

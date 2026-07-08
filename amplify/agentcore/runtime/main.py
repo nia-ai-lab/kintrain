@@ -23,7 +23,7 @@ from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
 
-MODEL_ID = os.getenv("MODEL_ID", "global.anthropic.claude-sonnet-4-6")
+MODEL_ID = os.getenv("MODEL_ID", "global.anthropic.claude-sonnet-5")
 MEMORY_ID = os.getenv("MEMORY_ID", "").strip()
 AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-northeast-1"
 APP_TIMEZONE_DEFAULT = os.getenv("APP_TIMEZONE_DEFAULT", "Asia/Tokyo")
