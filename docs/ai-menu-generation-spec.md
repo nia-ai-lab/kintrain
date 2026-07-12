@@ -1,8 +1,8 @@
 # KinTrain AIメニュー生成 仕様書
 
-最終更新日: 2026-03-06
-対象: 設計レビュー用
-ステータス: 実装前
+最終更新日: 2026-07-12
+対象: 実装正本
+ステータス: 実装済み
 
 ## 1. 目的
 
@@ -118,19 +118,15 @@
 
 ## 8. 想定MCPツール
 
-- `search_gym_facility`
-- 入力: `gymInput`
-- 役割: ジム名称またはURLから設備情報取得方針を決める
+- RuntimeのWeb取得ツール（`http_request` / `tavily` / `exa`）
+- 役割: ジム名称またはURLから設備情報を取得する
 - `create_training_menu_set_from_ai`
 - 入力: `setName`, `items[]`, `isDefault?`
 - 役割: 新規メニューセットと新規種目を一括登録する
-- `preview_training_menu_set_from_ai`
-- 入力: `draft proposal`
-- 役割: AI内部で構造化データを明示するための論理上の中間モデル
 
 注記:
-- 実際に永続化するMCPツールは `create_training_menu_set_from_ai` が中心となる
-- `preview_*` はUIに返す構造化出力設計として必要な場合のみ採用する
+- 永続化するMCPツールは `create_training_menu_set_from_ai` のみで、preview専用ツールは実装していない
+- 現行のWeb取得ツールには無効化判定とURL制限の欠陥があるため、セキュリティレビュー記載の改修完了までは信頼できないWebコンテンツを入力しない
 
 ## 9. AI出力要件
 
@@ -149,7 +145,9 @@
 
 - 初回の登録対象は `TrainingMenuSet` と `TrainingMenuItem` のみ
 - AIメニュー生成画面から `Goal` や `DailyRecord` は更新しない
-- 登録後に自動でその新規メニューセットをアクティブ表示対象にするかは別途決定する
+- 既定セットが存在しない場合だけ新規セットを既定にする。既定セットがある場合は切り替えない
+- 1回の登録は最大20種目
+- リクエスト内の名前重複、および同一ユーザーの既存メニュー名との重複は409で拒否する
 
 ## 12. 非対象
 

@@ -536,7 +536,6 @@ async def _run_agent_turn_stream(
     ) as session_manager:
         system_prompt_for_turn = (
             f"{system_prompt}\n\n"
-            f"Tool calling rule: MCP tool arguments must include userId=\"{actor_id}\" exactly.\n"
             "When calling save_daily_diary without explicit date, include timeZoneId from user profile."
         )
         web_search_tools = _load_web_search_tools()

@@ -3,7 +3,7 @@ backend:
   phases:
     build:
       commands:
-        - npm install
+        - npm ci
         - export AGENTCORE_VENDOR_DIR=amplify/agentcore/runtime/vendor
         - rm -rf $AGENTCORE_VENDOR_DIR amplify/agentcore/runtime/__pycache__
         - python3 -m pip install --upgrade pip

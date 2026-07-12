@@ -1,6 +1,6 @@
 # KinTrain AI実装仕様（AgentCore Runtime + Gateway）
 
-最終更新日: 2026-03-01
+最終更新日: 2026-07-12
 対象: MVP
 
 ## 1. 目的
@@ -32,7 +32,7 @@
 - AI用途のAPI Gatewayエンドポイント（例: `/ai/chat`, `/ai/advice`）は作成しない。
 - UIは `AiRuntimeEndpoint` に直接 `InvokeAgentRuntime` を実行する。
 
-### 2.4 実装ステータス（2026-03-01）
+### 2.4 実装ステータス（2026-07-12）
 
 - 実装済み:
 - Core API 側の認証/認可（Cognito access token + scope）
@@ -41,9 +41,13 @@
 - Runtime の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` 読込
 - Runtime の `chatSessionId` 管理（UIと同一IDを `sessionId` に利用）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
+- AgentCore Gateway、MCP Lambda target、全9ツール
+- Gateway REQUEST InterceptorによるJWT再検証、ユーザーID照合、内部identity注入
+- AIメニュー生成画面と `create_training_menu_set_from_ai`
+- AIキャラクター設定・アバターのCore API永続化
 - 未実装:
-- AgentCore Gateway（MCP）経由のツール実行
 - Memoryを使ったドメイン知識検索結果のプロンプト注入最適化
+- Web取得ツールのURL allow/deny制御とprompt injection隔離
 
 ## 3. 認証・認可方式（必須）
 
@@ -73,7 +77,7 @@
 
 ## 3.4 AgentCore Runtime -> AgentCore Gateway（JWT使い回し）
 
-- Runtime 側で `Authorization` ヘッダを受け取るため、Runtime の `request_header_allowlist` に `Authorization` を設定する。
+- Runtime 側で `Authorization` ヘッダを受け取るため、Runtime のrequest header allowlistに `Authorization` を設定する。
 - Runtime のエントリポイントで `context.request_headers["Authorization"]` を取得する。
 - 取得した同一JWTを、GatewayへのMCP接続ヘッダ `Authorization: Bearer ...` にそのまま設定する。
 - Gateway 側にも Inbound JWT authorizer を設定し、同じ Cognito 設定で検証する。
@@ -84,8 +88,10 @@
 - credential provider は `GATEWAY_IAM_ROLE` を使用する（Gateway実行ロールでLambda呼び出し）。
 - Lambda のDynamoDBアクセスは最小権限IAMで制限する。
 - Lambda target では、`event` には tool の inputSchema に定義した引数マップが渡され、ツール名は `context` 側に渡される。Inbound認証で使われた `Authorization` ヘッダ値の受け渡しは標準仕様に含まれない。
-- したがって、MVPでは Runtime 側で `sub` を抽出し、`userId` としてツール引数へ注入して利用する。
-- 将来、Gateway Request Interceptor（`passRequestHeaders=true`）で受信ヘッダを扱う方式へ拡張する余地はあるが、Lambda handler で `Authorization` ヘッダを直接参照する設計は採用しない。
+- Gateway REQUEST Interceptorは `passRequestHeaders=true` でAuthorization headerを受け取り、Cognito JWKSでaccess tokenの署名、user pool、client、期限、scopeを検証する。
+- `tools/call` の引数に `userId` / `actorId` が指定されてJWT `sub` と異なる場合、Interceptorはtargetを呼ばず403を返す。
+- 一致または未指定の場合、公開identity引数を削除し、JWT `sub` を内部専用 `__principalUserId` として注入する。
+- MCP Lambdaは `__principalUserId` だけを使用し、Authorization headerやモデル由来のidentityを直接参照しない。
 
 ## 3.6 日時コンテキスト（必須）
 
@@ -141,6 +147,11 @@
 - `MCP_GATEWAY_URL`: GatewayのMCPエンドポイント
 - `SOUL_FILE_PATH` / `PERSONA_FILE_PATH` / `SYSTEM_PROMPT_FILE_PATH`
 - `APP_TIMEZONE_DEFAULT`: ユーザー設定未取得時の既定（`Asia/Tokyo`）
+- `ENABLE_MCP_TOOLS`: MCPツールを読み込むか（既定 `true`）
+- `ENABLE_WEB_SEARCH_TOOL`: Web取得ツールを読み込むか（既定 `false`）
+- `WEB_SEARCH_PROVIDER`: `http_request` / `tavily` / `exa`
+
+現行コードでは `WEB_SEARCH_PROVIDER=http_request` の場合に `ENABLE_WEB_SEARCH_TOOL` を確認せずツールをロードする。設定契約との不一致であり、falseなら空配列を返すよう修正する。HTTP取得を有効にする場合も、loopback、link-local、private IP、AWS metadata/credential endpointsを拒否する。
 
 ### 5.2 トークン使い回し処理（必須）
 
@@ -153,7 +164,8 @@
 
 - `sub` claim をユーザー識別子の唯一の正とする。
 - モデル入力に `userId` を直接受け取らせない。
-- Runtimeコード側で `sub` をツール引数へ注入して Gateway/Lambda に渡す。
+- Gateway REQUEST Interceptorが検証済み `sub` を内部引数へ注入する。
+- MCP tool schemaには `userId` / `actorId` / `__principalUserId` を公開しない。
 
 ### 5.4 AIキャラクター適用（必須）
 
@@ -357,10 +369,10 @@
 
 ## 11. エラー処理要件
 
-- Runtime/GatewayでJWT欠落時は401を返す。
+- Runtime/GatewayでJWT欠落時は401を返す。2026-07-12の未認証疎通確認ではCore APIとRuntimeはいずれも401を返した。
 - JWT期限切れ時はUIで再ログインまたはトークン更新導線へ遷移する。
 - Gateway呼び出し失敗時はRuntime側で安全な汎用メッセージを返す。
-- Lambda異常時はトレースIDをログ出力し、UIには内部詳細を返さない。
+- Lambda異常時はトレースIDをログ出力し、UIには内部詳細を返さない。現行RuntimeとMCP Lambdaは例外messageを応答へ含めるため是正対象である。
 - Memory検索失敗時はフォールバックしてDynamoDBのみで応答生成する。
 - プロンプトファイル読み込み失敗時はRuntimeを起動しない（fail-fast）。
 
@@ -410,7 +422,7 @@
 - Header propagation制約（Authorization allowlist不可/Interceptorで上書き可）  
   https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-headers.html
 - Gateway Request Interceptor（`passRequestHeaders`）  
-  https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-target-request-interceptor.html
+  https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/gateway-interceptors.html
 - AgentCore Memory 概要  
   https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/memory.html
 - AgentCore Memory の仕組み  

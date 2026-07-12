@@ -9,7 +9,7 @@
 - 認証: 実装済み（Amazon Cognito / アクセストークン認可）
 - Core API: 実装済み（API Gateway + Lambda分割）
 - DynamoDB: 実装済み（モデル別テーブル）
-- AI Runtime/Gateway/Memory: 設計済み、未実装
+- AI Runtime/Gateway/Memory: 実装済み（環境変数 `ENABLE_AGENTCORE_RESOURCES=true` のブランチで有効）
 
 ## 主な機能
 
@@ -30,12 +30,14 @@
   - 体調/気分（10段階）・コメント・日記・その他運動
   - 自動保存（3秒デバウンス）+ 明示保存ボタン
 - カレンダー表示（月次、実施日/体調アイコン、当日ハイライト）
-- AIチャットUI（キャラクター表示つき、モックストリーミング）
+- AIチャット（AgentCore RuntimeへのSSE接続。Runtime未設定時のみモック応答へフォールバック）
+- AIメニュー生成（対話で提案を調整し、MCP経由で新規セットとして登録）
+- ユーザー／AIコーチのアバター画像アップロードと永続化
 - iPhoneホーム画面追加対応（PWA manifest / standalone起動メタタグ）
 
 注記:
-- AIチャット応答は現時点でモックです。
-- AIキャラクター設定API（`/ai-character-profile`）は実装済みですが、UIは現在ローカル反映のみです。
+- AI Runtimeが出力に含まれないローカル環境では、通常AIチャットだけモック応答へフォールバックします。AIメニュー生成はRuntime必須です。
+- AIキャラクター設定とアバターはCore APIへ永続保存します。
 
 ## バックエンド構成
 
@@ -48,6 +50,8 @@
   - `training-history-api`
   - `daily-record-api`
   - `ai-settings-api`
+  - `avatar-upload-api`
+  - `mcp-tools-api`（AgentCore GatewayのLambda target）
 - DynamoDB
   - `KinTrain-UserProfileTable-{branch}`
   - `KinTrain-TrainingMenuTable-{branch}`
@@ -63,75 +67,44 @@
 ## ローカル実行
 
 ```bash
-npm install
+npm ci
 npm run dev
 ```
 
-## 推奨デプロイ方式（main/dev Branch Deploy）
+## デプロイ方式（GitHub push → Amplify）
 
-今後の標準運用は、Amplify Hosting の Fullstack Branch Deployment（`main`/`dev`）です。  
-ローカルの `sandbox + s3 sync` は補助用途として扱います。
+デプロイ操作はGitHubへのpushだけです。Amplify Hostingが `main` / `dev` を監視し、pushされたコミットに対して `amplify.yml` を実行して、バックエンドとフロントエンドを一括デプロイします。ローカルからAWSへデプロイしません。
 
 ### 必須運用ルール（固定）
 
 - 開発作業は必ず `dev` ブランチで行う。
-- 変更は必ず `dev` に `commit / push` して、`dev` 環境で動作確認する。
-- `dev` で確認完了後にのみ、`main` へ取り込んで `commit / push` する。
-- `main` へ直接作業・直接pushはしない。
+- `git push origin dev` でAmplifyのdev環境を自動デプロイし、動作確認する。
+- dev確認後に変更を `main` へ取り込み、mainのコミットをGitHubへpushする。Amplifyが本番環境を自動デプロイする。
+- `main` 上で直接開発せず、必ずdevで検証したコミットを反映する。
+- `ampx sandbox`、`scripts/deploy-backend.sh`、`scripts/deploy-frontend.sh`、`aws s3 sync` はmain/devのデプロイには使用しない。
 
-### あなたが次にやる手順
-
-1. GitHubブランチを用意する
-
-```bash
-git checkout -b dev
-git push -u origin dev
-git checkout main
-git push -u origin main
-```
-
-2. Amplify Console でこのGitHubリポジトリを接続する
-- Hosting type は SSR ではなく通常の Web app（このアプリはSPA）を選択
-- Build settings はリポジトリの `amplify.yml` を使用
-
-3. `main` と `dev` を両方 Branch Deploy 対象にする
-- `main`: 本番
-- `dev`: 検証
-
-4. それぞれを Fullstack branch として有効化する
-- フロントエンド + バックエンドを同時デプロイ
-- 既存 `amplify.yml` の `ampx pipeline-deploy` を利用
-
-5. GitHub保護ルールを設定する
-- `main` 直push禁止（PR必須）
-- 推奨: `feature/* -> dev -> main`
-
-6. 動作確認
-- `dev` へコミットして検証環境が更新されること
-- `main` へマージして本番環境が更新されること
+構築・デプロイ・ロールバック・動作確認の正本は [`docs/deployment.md`](docs/deployment.md) を参照してください。
 
 ### Branch Deploy運用の注意
 
-- Branch Deploy運用では `AMPLIFY_IDENTIFIER` は使用しません（sandbox専用）。
-- `tableName` は未指定のため、`main` と `dev` で DynamoDB物理テーブルは分離されます。
+- Amplifyが提供する `AWS_BRANCH` により、main/devのリソース名を分離します。
+- `AMPLIFY_IDENTIFIER`、`FRONTEND_S3_BUCKET`、ローカルAWS認証情報はデプロイに使用しません。
+- DynamoDB物理名は `KinTrain-{モデル名}-{branch}` として明示し、`main` と `dev` を分離します。
 - 機密情報（AWSキー等）はGitHubに置かないでください。
 
-### Amplifyで設定する環境変数（Branchごと）
+### Amplifyで設定する環境変数
 
-Amplify Console の `アプリ設定 > 環境変数` で設定します。  
-`dev` / `main` で値を分ける前提です。
+Amplify Console の `アプリ設定 > 環境変数` で設定します。ブランチ名はAmplifyの `AWS_BRANCH` を使用するため、`AMPLIFY_BRANCH` の手動設定は不要です。
 
-必須（推奨）:
+AgentCoreを利用するブランチで必須:
 
-- `AMPLIFY_BRANCH`  
-  例: `dev` / `main`（リソース名サフィックスに利用）
 - `ENABLE_AGENTCORE_RESOURCES`  
   `true` で AgentCore Runtime/Gateway/Memory を作成。`false` で作成しない。
-- `AI_COACH_GATEWAY_NAME`  
+- `AI_COACH_GATEWAY_NAME`（省略時はブランチ名から生成）
   例: `kintrain-ai-coach-gateway-dev`
-- `AI_COACH_MEMORY_NAME`  
+- `AI_COACH_MEMORY_NAME`（省略時はブランチ名から生成）
   例: `kintrainCoachMemory_dev`
-- `AI_COACH_RUNTIME_NAME`  
+- `AI_COACH_RUNTIME_NAME`（省略時はブランチ名から生成）
   例: `kintrainCoachRuntime_dev`
 
 AI Runtime設定（任意、未指定時はデフォルト値）:
@@ -146,82 +119,13 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
   `true` / `false`
 - `WEB_SEARCH_PROVIDER`  
   `tavily` または `exa`
-- `TAVILY_API_KEY`  
-  `WEB_SEARCH_PROVIDER=tavily` で Web検索を有効化する場合に必須
-- `EXA_API_KEY`  
-  `WEB_SEARCH_PROVIDER=exa` で Web検索を有効化する場合に必須
+- `TAVILY_API_KEY` / `EXA_API_KEY`
+  現行コードはRuntime環境変数へ渡す実装のため、利用前にSecrets Manager参照へ移行すること。値をリポジトリへ保存しない。
 
 既存Runtimeを使う場合のみ:
 
 - `AI_RUNTIME_ENDPOINT_URL`  
   AgentCoreリソースを新規作成せず、既存Runtimeエンドポイントを参照する場合に設定
-
-## ローカル手動デプロイ（任意）
-
-### 1. 前提
-
-- AWSアカウントとデプロイ権限（Cognito/API Gateway/Lambda/DynamoDB/S3）
-- Node.js 20+ / npm 10+
-- AWS CLI v2
-
-### 2. セキュア設定ファイル作成（必須）
-
-本リポジトリでは、固有情報（バケット名、プロファイル名、識別子等）をハードコードしません。  
-`.env.local` に設定してください（`.gitignore` でコミット除外）。
-
-```bash
-cp .env.example .env.local
-```
-
-`.env.local` の例:
-
-```ini
-AWS_PROFILE=your-aws-profile
-AWS_REGION=ap-northeast-1
-AWS_APP_ID=your-amplify-app-id
-AMPLIFY_BRANCH=dev
-AMPLIFY_IDENTIFIER=dev
-FRONTEND_S3_BUCKET=your-frontend-bucket-name
-```
-
-### 3. 依存関係インストール
-
-```bash
-cd /path/to/KinTrain
-npm install
-```
-
-### 4. AWS認証確認
-
-```bash
-aws sts get-caller-identity
-```
-
-### 5. バックエンド反映（sandbox）
-
-```bash
-./scripts/deploy-backend.sh
-```
-
-### 6. フロントエンド反映（S3）
-
-```bash
-./scripts/deploy-frontend.sh
-```
-
-### 7. 手動で実行したい場合（任意）
-
-```bash
-npx ampx sandbox --once --identifier "$AMPLIFY_IDENTIFIER"
-npx ampx generate outputs
-cp amplify_outputs.json frontend/src/amplify_outputs.json
-npm run frontend:build
-aws s3 sync frontend/dist "s3://$FRONTEND_S3_BUCKET" --delete
-```
-
-補足:
-- `--delete` はS3側の不要ファイルを削除します。
-- `amplify_outputs.json` / `frontend/src/amplify_outputs.json` は環境固有ファイルのためgit管理しません。
 
 ## 補足
 
@@ -232,3 +136,5 @@ aws s3 sync frontend/dist "s3://$FRONTEND_S3_BUCKET" --delete
 - 要件定義: `docs/spec.md`
 - UI仕様: `docs/ui-spec.md`
 - AI実装仕様: `docs/ai-implementation-spec.md`
+- ビルド・デプロイ手順: `docs/deployment.md`
+- セキュリティレビュー: `docs/review/security-review-2026-07-12.md`

@@ -1,6 +1,6 @@
 # KinTrain 要件定義書（MVP）
 
-最終更新日: 2026-03-01
+最終更新日: 2026-07-12
 
 ## 1. 目的
 
@@ -13,7 +13,7 @@
 - 対応端末: スマホ/PC（レスポンシブ）
 - 利用形態: オンライン前提
 
-### 2.1 実装ステータス（2026-03-01）
+### 2.1 実装ステータス（2026-07-12）
 
 - 実装済み:
 - Cognito認証（ログイン/ログアウト/パスワード再設定）
@@ -26,17 +26,17 @@
 - AgentCore Runtime 接続（`AiRuntimeEndpoint`）
 - Runtime のプロンプトファイル読込（`SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt`）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
+- AgentCore Gateway（MCP）とDynamoDB参照・日記保存・AIメニューセット登録ツール
+- UIからのAIキャラクター設定、ユーザー／AIコーチアバターの永続保存
+- 複数トレーニングメニューセットと実施画面でのセット切替
 - 未実装:
-- AgentCore Gateway（MCP）経由ツール呼び出しの本番連携強化
-- UIからの `PUT /ai-character-profile` 永続保存連携（現在はローカル反映）
 - `bodyMetricMeasuredAtUtc/bodyMetricMeasuredAtLocal` のサーバー自動生成
 - `/history` `/progress` の本実装（現状プレースホルダ）
 
 ## 3. システム構成要件
 
 - Frontend: Web SPA
-- 配信（現行）: S3静的配信（`aws s3 sync`）
-- 配信（目標）: AWS Amplify Hosting（マネージドCloudFront + S3）
+- 配信（標準）: AWS Amplify Hosting
 - 認証: Amazon Cognito
 - API: Amazon API Gateway + AWS Lambda
 - データ保存: Amazon DynamoDB
@@ -46,7 +46,7 @@
 
 ### 3.1 デプロイ方式（フロント/バック一括反映）
 
-- 標準デプロイ方式は Amplify Gen2 の Fullstack Branch Deployment とする。
+- デプロイ方式はGitHub `main` / `dev` へのpushを起点とするAmplify Gen2 Fullstack Branch Deploymentに限定する。
 - 標準ブランチ運用は `dev` / `main` の2系統とする（`dev`: 検証、`main`: 本番）。
 - 必須フローは `dev` で実装・検証後に `main` へ反映する順序とする。
 - 1回のブランチデプロイ（Git push起点）で、以下を同時に反映すること。
@@ -54,6 +54,7 @@
 - フロントエンド（SPAビルド成果物のHosting反映）
 - バックエンド拡張リソースは Amplify Gen2 の `backend.createStack()`（CDK）で管理すること。
 - デプロイ単位はブランチ単位とし、フロントとバックで別タイミングの手動デプロイを標準運用にしないこと。
+- main/devへのデプロイでローカルのsandbox、S3同期、デプロイスクリプトを使用しないこと。
 - 将来 custom pipeline を採用する場合でも、最終的に1回のパイプライン実行でフロント/バックが反映される設計を維持すること。
 
 ### 3.2 Core APIのサービス分割
@@ -61,10 +62,12 @@
 - API Gateway は `ANY /{proxy+}` を使用せず、リソース/メソッドを明示定義する。
 - Lambda は機能単位で分割する。
 - `profile-api`: `/me/profile`
-- `training-menu-api`: `/training-menu-items` 系
+- `training-menu-api`: `/training-menu-items`, `/training-menu-sets` 系
 - `training-history-api`: `/gym-visits`, `/training-session-view`
-- `daily-record-api`: `/daily-records`, `/calendar`
+- `daily-record-api`: `/daily-records`, `/calendar`, `/goals`
 - `ai-settings-api`: `/ai-character-profile`
+- `avatar-upload-api`: `/avatar-upload/presign`
+- `mcp-tools-api`: AgentCore Gateway Lambda target（HTTP API Gateway外）
 
 ## 4. ドメイン定義（ユビキタス言語）
 
@@ -242,9 +245,9 @@
 - キャラクター設定方法:
 - 初回表示時は `GET /ai-character-profile` を取得し、未設定時は上記ファイルを読み込む。
 - ユーザーは `/settings` の「AIコーチキャラクター設定」で変更する。
-- Core API は `PUT /ai-character-profile` を提供する。
-- 現行UIの「AI設定を反映」はローカル状態更新のみで、`PUT` 呼び出し連携は次フェーズで実装する。
-- 未設定時は `nyaruko` 既定値へフォールバックする。
+- Core API は `GET/PUT /ai-character-profile` を提供し、UIの「AI設定を反映」で永続保存する。
+- 未設定時は `AIコーチ` と `/assets/characters/default.png` を既定値とする。
+- ユーザー／AIコーチ画像は `/avatar-upload/presign` でprivate S3へ直接アップロードし、所有ユーザー配下のobject keyだけをプロフィールへ保存する。
 
 ## 6. API要件（CoreApiEndpoint: API Gateway）
 
@@ -256,6 +259,13 @@
 - `PUT /training-menu-items/{trainingMenuItemId}`
 - `DELETE /training-menu-items/{trainingMenuItemId}`（物理削除）
 - `PUT /training-menu-items/reorder`
+- `GET /training-menu-sets`
+- `POST /training-menu-sets`
+- `PUT /training-menu-sets/{trainingMenuSetId}`
+- `DELETE /training-menu-sets/{trainingMenuSetId}`
+- `POST /training-menu-sets/{trainingMenuSetId}/items`
+- `DELETE /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
+- `PUT /training-menu-sets/{trainingMenuSetId}/items/reorder`
 - `POST /gym-visits`
 - `GET /gym-visits?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=n`（`from/to` は任意）
 - `GET /gym-visits/{visitId}`
@@ -269,6 +279,7 @@
 - `PUT /ai-character-profile`
 - `GET /goals`
 - `PUT /goals`
+- `POST /avatar-upload/presign`
 
 ### 6.1 AI Runtime呼び出し要件（AiRuntimeEndpoint）
 
@@ -373,6 +384,7 @@
 - `birthDate`
 - `heightCm`
 - `timeZoneId`
+- `userAvatarObjectKey`
 - `createdAt`
 - `updatedAt`
 
@@ -474,10 +486,45 @@
 - 主な属性:
 - `characterId`
 - `characterName`
-- `avatarImageUrl`
+- `coachAvatarObjectKey`
 - `tonePreset`
+- `characterDescription`
+- `speechEnding`
 - `createdAt`
 - `updatedAt`
+
+#### 7.3.7 TrainingMenuSetテーブル
+
+- テーブル名: `KinTrain-TrainingMenuSetTable-{branch}`
+- 主キー: `userId`（PK）、`trainingMenuSetId`（SK）
+- GSI: `UserMenuSetByOrderIndex`、`UserDefaultMenuSetIndex`
+- 主な属性: `setName`、`menuSetOrder`、`isDefault`、`defaultSetMarker`、`createdAt`、`updatedAt`
+
+#### 7.3.8 TrainingMenuSetItemテーブル
+
+- テーブル名: `KinTrain-TrainingMenuSetItemTable-{branch}`
+- 主キー: `userId`（PK）、`trainingMenuSetItemId`（SK）
+- GSI: `UserSetItemsBySetOrderIndex`、`UserSetItemsBySetAndItemIndex`、`UserSetItemsByMenuItemIndex`
+- 主な属性: `trainingMenuSetId`、`trainingMenuItemId`、`displayOrder`、`menuSetOrderKey`、`menuSetItemKey`
+
+#### 7.3.9 Goalテーブル
+
+- テーブル名: `KinTrain-GoalTable-{branch}`
+- 主キー: `userId`（PK）
+- 主な属性: `targetWeightKg`、`targetBodyFatPercent`、`deadlineDate`、`comment`、`createdAt`、`updatedAt`
+
+#### 7.3.10 AiAdviceLogテーブル
+
+- テーブル名: `KinTrain-AiAdviceLogTable-{branch}`
+- 主キー: `userId`（PK）、`adviceLogId`（SK）
+- 主な属性: `advice`、`requestId`、`createdAt`
+
+#### 7.3.11 AvatarImageBucket
+
+- private S3 bucket（Block Public Access、SSE-S3、SSL強制）
+- object key: `users/{userId}/avatars/{user|coach}/...`
+- アップロードは5分有効のpresigned POST、取得は10分有効のsigned URLを使用する
+- 許可Content-TypeはPNG/JPEG/WEBP、保存上限は2 MiB
 
 ### 7.4 日付・時刻フォーマット規約（共通）
 
@@ -575,6 +622,11 @@
 - パブリックリポジトリ運用のため、リソース識別子（バケット名、API URL、User Pool IDなど）や認証情報をソースコード/ドキュメントへハードコードしないこと。
 - 環境固有値は `.env.local` などのローカル設定ファイルで管理し、`.gitignore` でコミット除外すること。
 - 公開可能なテンプレートは `.env.example` を使用すること。
+- アバターS3はBlock Public AccessとSSL強制を有効にし、ユーザー所有prefix以外のobject keyを受理しないこと。
+- AgentCoreのHTTP取得ツールは `ENABLE_WEB_SEARCH_TOOL=true` の場合だけロードし、link-local、loopback、private network、AWS metadata/credential endpointsへのアクセスを拒否すること。現行実装はこの要件を満たしていないため、セキュリティレビューの最優先改修対象とする。
+- MCPの `userId` はモデルが指定できる公開引数に含めない。Gateway REQUEST InterceptorがCognitoアクセストークンを署名検証し、JWT `sub` を内部専用 `__principalUserId` として注入すること。
+- REQUEST Interceptorは呼び出し元が `userId` / `actorId` を指定した場合にJWT `sub` と照合し、不一致または内部専用引数の直接指定を403で拒否すること。
+- APIキーはSecrets Manager等から実行時取得し、CloudFormation、Runtime環境変数、ログへ平文で保存しないこと。
 
 ## 9. AgentCore Runtime / Gateway 要件
 
@@ -595,8 +647,10 @@
 - `get_daily_record(date)`
 - `get_goal()`
 - `get_ai_character_profile()`
+- `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_advice_log(advice)`
-- `userId` はツール公開引数に含めず、RuntimeがJWT `sub` を内部注入すること。
+- `create_training_menu_set_from_ai(setName, items, makeDefault)`
+- `userId` はツール公開引数に含めず、Gateway REQUEST Interceptorが検証済みJWT `sub` から内部注入する。MCP Lambdaは内部専用 `__principalUserId` だけをユーザー識別子として採用する。
 - MCP Lambda はメソッド名を `context.clientContext.custom.bedrockAgentCoreToolName` から判定すること（`event` 起点で判定しない）。
 
 ### 9.3 連携方式

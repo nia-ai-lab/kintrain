@@ -1,55 +1,22 @@
 # KinTrain AIメニュー生成 タスクリスト
 
-最終更新日: 2026-03-06
-対象: 実装前
-ステータス: 未着手
+最終更新日: 2026-07-12
+ステータス: 実装完了（セキュリティ是正を除く）
 
-## 1. UI
+## 完了
 
-- `TrainingMenuAiGeneratePage` をモック一覧画面からチャット画面へ作り替える
-- 初回条件フォームを追加する
-- `方針 / 目標 / 週間頻度 / ジム施設入力 / 自由入力欄` を実装する
-- 条件送信後も追加チャットできる入力欄を持たせる
-- メニュー生成専用セッション状態を保持する
-- 登録成功後にメニュー画面へ反映する導線を作る
+- 条件フォーム、専用チャット、セッション分離、追加指示、登録導線
+- 通常AIチャットと共通のAgentCore Runtime接続
+- `create_training_menu_set_from_ai` tool schema、Gateway公開、MCP Lambda実装
+- 新規セット・新規種目・紐付けの単一DynamoDB transaction
+- `isAiGenerated=true` 強制、最大20種目、名前重複拒否
+- 登録後の `refreshCoreData()`
+- 仕様書、実装設計、UI設計、README更新
 
-## 2. Runtime
+## 残タスク
 
-- 通常AIチャットと同じ Runtime をそのまま利用する
-- UIから送る固定メニュー生成プロンプトと初回条件を Runtime リクエストへ合成する
-- `userProfile` / `aiCharacterProfile` を通常AIチャットと同様に送る
-- ジム施設入力に対して web tool を使って設備情報を取得する
-- AIが登録前に保持する提案構造モデルを決める
-- ユーザ明示指示があるまで登録ツールを呼ばない制御を入れる
-
-## 3. MCP / Lambda
-
-- `create_training_menu_set_from_ai` ツールスキーマを追加する
-- Gateway 配下でツール公開する
-- Lambda 側に新規セット + 新規種目 + 新規紐付け一括登録処理を実装する
-- `isAiGenerated=true` を強制保存する
-- 既存データ更新を拒否する検証を入れる
-- 一括登録の失敗時にロールバックされるようにする
-
-## 4. 共通ロジック
-
-- 既存 `training-menu-api` の検証ロジックを共通化するか判断する
-- 名前重複や入力不正時のエラーメッセージを統一する
-- `refreshCoreData()` で新規セット反映できることを確認する
-
-## 5. テスト
-
-- UI条件入力からAI提案までのE2Eテスト
-- ユーザの再指示で提案が更新されること
-- ユーザ指示なしでは登録されないこと
-- 登録指示時に新規メニューセットだけが増えること
-- 既存メニューセット/メニューが不変であること
-- 生成メニューがすべて `isAiGenerated=true` で保存されること
-- URL入力/名称入力それぞれの設備取得パス確認
-
-## 6. ドキュメント更新
-
-- `docs/ui-spec.md` の `AIメニュー生成` 章を書き換える
-- `docs/spec.md` に AIメニュー生成のデータ/API要件を追記する
-- `docs/ai-implementation-spec.md` にメニュー生成モードとMCPツールを追記する
-- `README.md` の機能一覧を更新する
+- MCP `userId` をモデル公開引数から削除し、検証済みidentityだけをLambdaへ渡す
+- `ENABLE_WEB_SEARCH_TOOL=false` でHTTP取得ツールを確実に無効化する
+- HTTP取得先のloopback、link-local、private IP、AWS metadata/credential endpointを拒否する
+- Webコンテンツを非信頼データとして扱い、内容を理由に書き込みツールを実行しない制御を追加する
+- UI条件入力から登録までの自動E2E、重複・ロールバック・ユーザー境界テストを追加する

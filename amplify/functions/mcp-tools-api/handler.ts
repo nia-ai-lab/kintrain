@@ -306,18 +306,8 @@ async function existsByTrainingName(userId: string, normalizedTrainingName: stri
   return Boolean(result.Items?.[0]);
 }
 
-function requireUserId(args: ToolArgs, context: LambdaToolContext): string | null {
-  return (
-    toNonEmptyString(args.userId) ??
-    toNonEmptyString(args.actorId) ??
-    toNonEmptyString(context.clientContext?.custom?.bedrockAgentCoreActorId) ??
-    toNonEmptyString(context.client_context?.custom?.bedrockAgentCoreActorId) ??
-    toNonEmptyString(context.clientContext?.custom?.actorId) ??
-    toNonEmptyString(context.client_context?.custom?.actorId) ??
-    toNonEmptyString(context.clientContext?.custom?.userId) ??
-    toNonEmptyString(context.client_context?.custom?.userId) ??
-    null
-  );
+function requireUserId(args: ToolArgs): string | null {
+  return toNonEmptyString(args.__principalUserId) ?? null;
 }
 
 async function getRecentGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
@@ -790,9 +780,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
       });
     }
 
-    const userId = requireUserId(event, context);
+    const userId = requireUserId(event);
     if (!userId) {
-      return jsonResponse(400, { message: "userId is required (args.userId or context actor identifier)." });
+      return jsonResponse(403, { message: "Trusted user identity is required." });
     }
 
     if (toolName === "get_recent_gym_visits") {

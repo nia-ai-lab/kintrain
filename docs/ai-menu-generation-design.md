@@ -1,8 +1,8 @@
 # KinTrain AIメニュー生成 実装設計
 
-最終更新日: 2026-03-06
-対象: 設計レビュー用
-ステータス: 実装前
+最終更新日: 2026-07-12
+対象: 実装正本
+ステータス: 実装済み
 
 ## 1. 設計方針
 
@@ -44,14 +44,9 @@
 
 ### 3.1 Runtime入力メタデータ
 
-- `menuGenerationContext`
-- `policy`
-- `goal`
-- `daysPerWeek`
-- `gymInput`
-- `freeTextRequest`
-- `userProfile`
-- `aiCharacterProfile`
+- Runtime payloadの `inputText` に `policy`、`goal`、`daysPerWeek`、`gymInput`、個別要求、既存メニュー名、既存セット名を固定指示として組み込む
+- Runtime payloadの `metadata.userProfile` / `metadata.aiCharacterProfile` は通常AIチャットと共通
+- 専用 `menuGenerationContext` フィールドは使用しない
 
 ### 3.2 UIが付与する固定指示
 
@@ -114,12 +109,11 @@
   memo?: string,
   isAiGenerated: true
 }>`
-- `makeDefault?: boolean`
+- `makeDefault?: boolean`（現行Lambdaは既定セットが存在するとtrueを拒否し、既定セットがない場合だけ自動で既定化）
 - `userId: string`
 
 出力:
 - `trainingMenuSetId`
-- `trainingMenuItemIds[]`
 - `createdCount`
 
 ### 5.2 Lambda実装方針
@@ -127,12 +121,9 @@
 - 既存 `training-menu-api` のロジックを直接 HTTP 経由で再利用しない
 - MCP専用 Lambda から DynamoDB へ直接書くか、共有モジュール化した登録ロジックを呼ぶ
 
-推奨:
-- `training-menu-api` に閉じた実装を共通ライブラリへ切り出して、HTTP Lambda と MCP Lambda の両方から利用する
-
-理由:
-- ビジネスルール重複を避ける
-- 一括登録時の検証を統一できる
+現行実装:
+- MCP専用Lambdaが検証とDynamoDB書き込みを直接実装している
+- HTTP Lambdaとの検証ロジック共通化は未実施
 
 ### 5.3 一括登録トランザクション
 
@@ -154,11 +145,7 @@
 - `trainingMenuSetId` は新規 UUID
 - `trainingMenuItemId` はすべて新規 UUID
 - 既存 item / set の `Put` / `Update` は禁止
-- 既存メニュー名重複は許容するか別途ルール化する必要がある
-
-推奨:
-- AI生成では重複メニュー名を許容しない
-- 同一ユーザ内で `normalizedTrainingName` 重複がある場合は、AIにリネーム再提案させる
+- リクエスト内および既存メニューとの `normalizedTrainingName` 重複は409で拒否する
 
 ## 6. ジム設備情報の扱い
 
@@ -194,7 +181,7 @@
 ### 7.2 UI更新
 
 - 登録成功後、UI は `refreshCoreData()` を呼ぶ
-- 新規作成されたセットをアクティブにするかは要件確認が必要
+- 新規作成されたセットへの自動切替は行わず、再取得後も現在の選択を維持する
 
 ## 8. 既存仕様との整合
 
@@ -203,10 +190,10 @@
 - 通常AIチャットとAIメニュー生成は別セッションにし、Runtime 側のモード切替は行わない
 - 既存 `TrainingMenuItem.isAiGenerated` フラグを利用できるため、新規テーブル追加は不要
 
-## 9. 要件上の未確定事項
+## 9. 実装上の決定事項
 
-- 登録成功後に新規メニューセットを `isDefault=true` にするか
-- 登録成功後に自動でそのセットを表示対象に切り替えるか
-- AI提案メニューが既存メニュー名と重複した場合の扱い
-- 条件入力変更時に同一セッション継続か、新規セッション化か
-- AIが返す提案の構造化形式を、自由文内埋め込みにするか tool/state として保持するか
+- 既定セットがない場合だけ新規セットを既定にし、既存の既定セットは切り替えない
+- 登録後は `refreshCoreData()` で再取得するが、表示対象セットの自動切替はしない
+- 既存メニュー名との重複は拒否する
+- 条件変更時は新規セッション、同条件の追加指示は同一セッションとする
+- 提案は会話文脈に保持し、登録時にモデルがtool inputへ構造化する

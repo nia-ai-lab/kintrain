@@ -11,6 +11,7 @@ import { auth } from "./auth/resource";
 import { aiSettingsApiFunction } from "./functions/ai-settings-api/resource";
 import { avatarUploadApiFunction } from "./functions/avatar-upload-api/resource";
 import { dailyRecordApiFunction } from "./functions/daily-record-api/resource";
+import { mcpIdentityInterceptorFunction } from "./functions/mcp-identity-interceptor/resource";
 import { mcpToolsApiFunction } from "./functions/mcp-tools-api/resource";
 import { profileApiFunction } from "./functions/profile-api/resource";
 import { trainingHistoryApiFunction } from "./functions/training-history-api/resource";
@@ -24,6 +25,7 @@ const backend = defineBackend({
   trainingHistoryApiFunction,
   dailyRecordApiFunction,
   aiSettingsApiFunction,
+  mcpIdentityInterceptorFunction,
   mcpToolsApiFunction
 });
 
@@ -215,6 +217,7 @@ const trainingMenuApiLambda = backend.trainingMenuApiFunction.resources.lambda a
 const trainingHistoryApiLambda = backend.trainingHistoryApiFunction.resources.lambda as lambda.Function;
 const dailyRecordApiLambda = backend.dailyRecordApiFunction.resources.lambda as lambda.Function;
 const aiSettingsApiLambda = backend.aiSettingsApiFunction.resources.lambda as lambda.Function;
+const mcpIdentityInterceptorLambda = backend.mcpIdentityInterceptorFunction.resources.lambda as lambda.Function;
 const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda.Function;
 
 userProfileTable.grantReadWriteData(profileApiLambda);
@@ -273,6 +276,11 @@ mcpToolsApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.t
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerformanceTable.tableName);
+mcpIdentityInterceptorLambda.addEnvironment("USER_POOL_ID", backend.auth.resources.userPool.userPoolId);
+mcpIdentityInterceptorLambda.addEnvironment(
+  "USER_POOL_CLIENT_ID",
+  backend.auth.resources.userPoolClient.userPoolClientId
+);
 
 const coreApi = new apigateway.RestApi(stack, "CoreApiGateway", {
   restApiName: `KinTrainCoreApi-${deploymentBranchSuffix}`,
@@ -424,7 +432,12 @@ if (enableAgentCoreResources) {
     authorizerConfiguration: agentcore.GatewayAuthorizer.usingCognito({
       userPool: backend.auth.resources.userPool,
       allowedScopes: ["aws.cognito.signin.user.admin"]
-    })
+    }),
+    interceptorConfigurations: [
+      agentcore.LambdaInterceptor.forRequest(mcpIdentityInterceptorLambda, {
+        passRequestHeaders: true
+      })
+    ]
   });
 
   aiCoachGateway.addLambdaTarget("KinTrainMcpTools", {

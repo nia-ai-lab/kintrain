@@ -5,10 +5,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "days": {
           "type": "integer",
           "description": "何日前まで取得するか（1-365）"
@@ -17,8 +13,7 @@
           "type": "integer",
           "description": "取得件数上限（1-100）"
         }
-      },
-      "required": ["userId"]
+      }
     }
   },
   {
@@ -27,10 +22,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "trainingMenuItemId": {
           "type": "string",
           "description": "対象トレーニングメニューID"
@@ -40,7 +31,7 @@
           "description": "取得件数上限（1-100）"
         }
       },
-      "required": ["userId", "trainingMenuItemId"]
+      "required": ["trainingMenuItemId"]
     }
   },
   {
@@ -49,10 +40,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "from": {
           "type": "string",
           "description": "開始日（YYYY-MM-DD）"
@@ -61,8 +48,7 @@
           "type": "string",
           "description": "終了日（YYYY-MM-DD）"
         }
-      },
-      "required": ["userId"]
+      }
     }
   },
   {
@@ -71,16 +57,12 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "date": {
           "type": "string",
           "description": "対象日（YYYY-MM-DD）"
         }
       },
-      "required": ["userId", "date"]
+      "required": ["date"]
     }
   },
   {
@@ -89,10 +71,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "diary": {
           "type": "string",
           "description": "保存する日記本文"
@@ -110,7 +88,7 @@
           "description": "既存日記がある場合の保存モード。append または overwrite。"
         }
       },
-      "required": ["userId", "diary"]
+      "required": ["diary"]
     }
   },
   {
@@ -118,13 +96,7 @@
     "description": "体重・体脂肪率の目標情報を取得する",
     "inputSchema": {
       "type": "object",
-      "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        }
-      },
-      "required": ["userId"]
+      "properties": {}
     }
   },
   {
@@ -132,13 +104,7 @@
     "description": "AIコーチキャラクター設定を取得する",
     "inputSchema": {
       "type": "object",
-      "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        }
-      },
-      "required": ["userId"]
+      "properties": {}
     }
   },
   {
@@ -147,10 +113,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "requestId": {
           "type": "string",
           "description": "Runtime側要求ID"
@@ -160,7 +122,7 @@
           "description": "保存するアドバイス本文"
         }
       },
-      "required": ["userId", "advice"]
+      "required": ["advice"]
     }
   },
   {
@@ -169,10 +131,6 @@
     "inputSchema": {
       "type": "object",
       "properties": {
-        "userId": {
-          "type": "string",
-          "description": "内部利用。Runtime がJWT subを設定する。"
-        },
         "setName": {
           "type": "string",
           "description": "新規作成するメニューセット名"
@@ -230,7 +188,7 @@
           }
         }
       },
-      "required": ["userId", "setName", "items"]
+      "required": ["setName", "items"]
     }
   }
 ]
