@@ -71,6 +71,7 @@ const chatGptOAuthDomain = backend.auth.resources.userPool.addDomain("ChatGptOAu
 const chatGptOAuthClient = backend.auth.resources.userPool.addClient("ChatGptOAuthClient", {
   userPoolClientName: `KinTrain-ChatGPT-${deploymentBranchSuffix}`,
   generateSecret: true,
+  authFlows: {},
   preventUserExistenceErrors: true,
   enableTokenRevocation: true,
   accessTokenValidity: Duration.hours(1),
