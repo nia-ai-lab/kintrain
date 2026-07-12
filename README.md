@@ -7,6 +7,7 @@
 
 - フロントエンド: 実装済み（React + Vite + TypeScript）
 - 認証: 実装済み（Amazon Cognito / アクセストークン認可）
+- MCPユーザー境界: Gateway REQUEST Interceptorでアクセストークンを再検証し、JWT `sub` をサーバー側で強制
 - Core API: 実装済み（API Gateway + Lambda分割）
 - DynamoDB: 実装済み（モデル別テーブル）
 - AI Runtime/Gateway/Memory: 実装済み（環境変数 `ENABLE_AGENTCORE_RESOURCES=true` のブランチで有効）
@@ -136,5 +137,7 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
 - 要件定義: `docs/spec.md`
 - UI仕様: `docs/ui-spec.md`
 - AI実装仕様: `docs/ai-implementation-spec.md`
+- MCPユーザー境界セキュリティ設計: `docs/mcp-security-design.md`
+- ChatGPT MCP接続: `docs/chatgpt-mcp-connection.md`
 - ビルド・デプロイ手順: `docs/deployment.md`
 - セキュリティレビュー: `docs/review/security-review-2026-07-12.md`

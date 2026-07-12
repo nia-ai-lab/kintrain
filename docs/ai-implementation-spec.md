@@ -194,13 +194,17 @@
 - `get_training_history(trainingMenuItemId, limit)`
 - `get_daily_records(from, to)`
 - `get_daily_record(date)`
+- `save_daily_diary(date, diary, mode, timeZoneId)`
 - `get_goal()`
 - `get_ai_character_profile()`
 - `save_advice_log(advice)`
+- `create_training_menu_set_from_ai(setName, items, makeDefault)`
 
 注記:
 - ツール引数には `userId` を公開しない。
-- RuntimeがJWT claimsから `sub` を補完して内部的に付与する。
+- RuntimeはCognitoアクセストークンをGatewayへ中継する。
+- Gateway REQUEST Interceptorがアクセストークンを再検証し、JWT `sub` を内部専用 `__principalUserId` として付与する。
+- MCP Lambdaは `__principalUserId` だけをユーザー識別子として採用する。
 
 ### 6.2 ツール実体
 
@@ -470,5 +474,6 @@
 1) RuntimeがAuthorizationヘッダをagent codeへ受け渡せる。  
 2) Gateway呼び出しでAuthorizationヘッダ付きMCP接続が可能。
 - 上記は公式の個別機能を組み合わせた実装方針であり、本仕様ではこの方式を正式採用する。
-- GatewayのLambda target入力仕様からは、Inbound認証で使用したBearerトークンをLambda handlerで直接取得する方法は明示されていない。  
-  このため、本仕様ではRuntimeで `sub` を確定しツール引数へ付与する方式を正とする。
+- GatewayのLambda target入力仕様では、Inbound認証で使用したBearerトークンをLambda targetが直接参照する方式を採用しない。
+  REQUEST Interceptorを `passRequestHeaders=true` で構成し、InterceptorがBearer tokenを再検証して `sub` を内部専用引数へ変換する方式を正とする。
+- 詳細な信頼境界と拒否条件は `docs/mcp-security-design.md` を参照する。

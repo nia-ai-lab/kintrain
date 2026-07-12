@@ -1,21 +1,21 @@
 # KinTrain セキュリティレビュー報告書
 
 実施日: 2026-07-12
-対象: Reactフロントエンド、Amplify Gen 2/CDKバックエンド、Lambda、AgentCore Runtime/Gateway/Memory、依存関係、Git管理ファイル／履歴、デプロイ済みdev接続先
+対象: Reactフロントエンド、Amplify Gen 2/CDKバックエンド、Lambda、AgentCore Runtime/Gateway/Memory、依存関係、Git管理ファイル／履歴、デプロイ済みdev/main接続先
 
 ## 1. 総合判定
 
-**要改善（本番でAI/MCPを利用する前にCritical 1件とHigh 2件を優先是正）**
+**要改善（CriticalのSEC-01は修正済み。HighのSEC-02・SEC-03を引き続き優先是正）**
 
 通常のCore APIはCognito authorizerとscopeで保護され、Lambdaは検証後の `sub` をDynamoDBの `userId` に使っている。private S3、presigned upload制約、DynamoDB PITR、IAMの機能別grantなど、基礎的な防御は実装されている。未認証でCore APIとAgentCore Runtimeへアクセスした実測結果はいずれも401だった。
 
-一方、AI経路ではモデルが指定する `userId` をMCP Lambdaが認可根拠として採用するため、認証済みユーザーが別ユーザーの識別子を指定してデータを参照・変更できる。さらに、Web取得を無効にした設定でも汎用HTTPツールがロードされ、取得先制限もない。AI/MCPを有効にした環境では、これらを最優先で修正する必要がある。
+レビュー時に確認した「モデルが指定する `userId` をMCP Lambdaが認可根拠として採用する」問題は、Gateway REQUEST InterceptorによるJWT再検証と内部identity注入へ変更し、dev/mainへ反映済みである。現在も、Web取得を無効にした設定で汎用HTTPツールがロードされる問題と、Memory `actorId` を署名未検証JWT payloadから決定できる問題は残る。
 
 ## 2. 指摘一覧
 
 | ID | 深刻度 | 指摘 | 影響 | 優先対応 |
 |---|---|---|---|---|
-| SEC-01 | Critical | MCPがモデル入力 `userId` を信頼 | 他ユーザーの履歴・Daily・目標・AI設定の参照、日記・助言ログ・AIメニューの他ユーザー領域への書込み | 修正済み（dev反映対象） |
+| SEC-01 | Critical | MCPがモデル入力 `userId` を信頼 | 他ユーザーの履歴・Daily・目標・AI設定の参照、日記・助言ログ・AIメニューの他ユーザー領域への書込み | **修正済み（dev/main反映・検証済み）** |
 | SEC-02 | High | Web取得falseでもHTTPツールが有効、URL制限なし | SSRF、metadata/credential endpoint探索、外部コンテンツによるprompt injection | 即時 |
 | SEC-03 | High | 署名未検証JWTからMemory `actorId` を決定可能 | custom authorization headerを使った他ユーザーMemoryの読書き・混線 | 即時 |
 | SEC-04 | High | npm本番依存に既知脆弱性9件 | XML処理、cookie、redirect等の既知脆弱性。経路により情報漏えい・DoS等 | 短期 |
@@ -29,7 +29,9 @@
 
 ## 3. 重大指摘の詳細
 
-### SEC-01: MCPのユーザー境界をモデル入力で決定している
+### SEC-01: MCPのユーザー境界をモデル入力で決定していた（修正済み）
+
+以下の「根拠」と「影響」は初回レビュー時点の状態を記録したものである。現行実装は後述の是正方式へ移行済みである。
 
 根拠:
 
@@ -48,13 +50,25 @@ GatewayでJWTが正しく検証されても、Lambdaが「認証した本人」�
 4. 「攻撃者の有効JWT + 被害者subをtool引数」のテストを追加し、全toolで403または引数無視を確認する。
 5. 修正まで、デプロイ環境の `ENABLE_MCP_TOOLS=false` またはAgentCore機能停止を検討する。
 
-実装した是正（dev反映対象）:
+実装した是正（dev/main反映済み）:
 
 - Gateway REQUEST Interceptorを追加し、Cognito access tokenを `aws-jwt-verify` で再検証する。
 - 旧 `userId` / `actorId` がJWT `sub` と異なる場合は403でshort-circuitする。
 - 一致または未指定の場合は、公開identity引数を削除して内部専用 `__principalUserId` を注入する。
 - 全9 tool schemaから `userId` を削除し、MCP Lambdaは `__principalUserId` だけを採用する。
 - identity注入、不一致拒否、予約引数spoof拒否、認証失敗、schema非公開を単体テストする。
+
+実装後の信頼境界、判定表、回帰テスト要件は `docs/mcp-security-design.md` を正本とする。
+
+検証結果:
+
+- 単体テスト7件が成功した。
+- Dev環境で有効JWTによるidentity引数なしのtool callが本人データを取得できた。
+- Dev環境でJWT `sub` と異なる `userId` を指定したtool callが拒否された。
+- 全9 tool schemaから `userId` / `actorId` / `__principalUserId` が非公開であることを確認した。
+- Cognito `sub`、DynamoDB `userId`、Interceptorが注入するidentityが一致することを実データで確認した。
+- Amplify dev Job 12、main Job 12が成功し、両Gatewayが `READY` になった。
+- 実装コミット: `cf9114a` (`fix: enforce MCP user identity at gateway`)
 
 ### SEC-02: 無効化を迂回する汎用HTTPツールとSSRF
 
@@ -187,9 +201,10 @@ AWS CLI再認証後、ap-northeast-1のAmplify `dev` branchを読み取り中心
 
 ### AgentCore / Amplify Hosting
 
-- dev Runtime / Gateway / MemoryはいずれもREADY/ACTIVE。
+- dev/main Runtime / GatewayはいずれもREADY。dev MemoryもACTIVE。
 - RuntimeはPUBLIC network + Cognito custom JWT authorizer + required scope。Gatewayも同じJWT authorizer。
-- Runtime allowlistにAuthorizationとcustom authorizationがあり、Gateway interceptor / policy engineは未設定。SEC-01とSEC-03が実環境でも成立する構成。
+- Gateway REQUEST Interceptorはdev/mainで設定済みで、`passRequestHeaders=true`、Cognito access token再検証、JWT `sub` の内部注入を行う。SEC-01は実環境で解消した。
+- Runtime allowlistにはAuthorizationとcustom authorizationがあり、Runtime Memoryの `actorId` 決定には署名未検証payloadを使用するため、SEC-03は引き続き成立する。
 - Memoryは90日、preference / summary / semantic strategyがactorId namespaceで有効。
 - devでは `ENABLE_AGENTCORE_RESOURCES=true`、`ENABLE_WEB_SEARCH_TOOL=true`、providerはTavily。したがってSEC-02の「falseでもhttp_requestがロード」は現在のdev設定では休眠しているが、外部検索結果のprompt injection対策は必要。
 - `TAVILY_API_KEY` はAmplify app environment variableとRuntime environment variableに設定済み。値は監査出力へ表示していないが、Secrets Managerへ移行すべき。
@@ -197,13 +212,12 @@ AWS CLI再認証後、ap-northeast-1のAmplify `dev` branchを読み取り中心
 
 ## 8. 推奨対応順
 
-1. MCPを一時停止し、SEC-01のidentity強制を修正・テスト。
-2. Web取得ツールを一時停止し、SEC-02のflag判定とSSRF防御を実装。
-3. custom authorizationを廃止し、Memory actorを検証済みclaimへ固定。
-4. npm依存関係を更新し、全監査とビルド／E2Eを通す。
-5. Secrets Manager移行、入力schema共通化、エラー応答標準化。
-6. AWS stage/log/WAF/throttling、Cognito MFA、SPA security headersを環境別に設定。
-7. CIへsecret scan、dependency audit、IaC scan、認可回帰テストを追加。
+1. Web取得ツールを一時停止し、SEC-02のflag判定とSSRF防御を実装。
+2. custom authorizationを廃止し、Memory actorを検証済みclaimへ固定。
+3. npm依存関係を更新し、全監査とビルド／E2Eを通す。
+4. Secrets Manager移行、入力schema共通化、エラー応答標準化。
+5. AWS stage/log/WAF/throttling、Cognito MFA、SPA security headersを環境別に設定。
+6. CIへsecret scan、dependency audit、IaC scan、認可回帰テストを追加。
 
 ## 9. 実施した検証
 

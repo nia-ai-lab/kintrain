@@ -626,6 +626,7 @@
 - AgentCoreのHTTP取得ツールは `ENABLE_WEB_SEARCH_TOOL=true` の場合だけロードし、link-local、loopback、private network、AWS metadata/credential endpointsへのアクセスを拒否すること。現行実装はこの要件を満たしていないため、セキュリティレビューの最優先改修対象とする。
 - MCPの `userId` はモデルが指定できる公開引数に含めない。Gateway REQUEST InterceptorがCognitoアクセストークンを署名検証し、JWT `sub` を内部専用 `__principalUserId` として注入すること。
 - REQUEST Interceptorは呼び出し元が `userId` / `actorId` を指定した場合にJWT `sub` と照合し、不一致または内部専用引数の直接指定を403で拒否すること。
+- MCPユーザー境界の信頼モデル、判定表、回帰テスト要件は `docs/mcp-security-design.md` を正本とすること。
 - APIキーはSecrets Manager等から実行時取得し、CloudFormation、Runtime環境変数、ログへ平文で保存しないこと。
 
 ## 9. AgentCore Runtime / Gateway 要件

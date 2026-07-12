@@ -25,7 +25,7 @@
 
 レビュー時点で次の2点は、危険なコードを正しい設計として文書化せず、安全な目標要件を維持した。
 
-1. MCP tool schemaが `userId` をモデル入力として公開し、Lambdaが `args.userId` を優先していた。Gateway REQUEST InterceptorによるJWT検証・不一致拒否・内部identity注入へ修正した。
+1. MCP tool schemaが `userId` をモデル入力として公開し、Lambdaが `args.userId` を優先していた。Gateway REQUEST InterceptorによるJWT検証・不一致拒否・内部identity注入へ修正し、dev/mainへ反映した。現行の正本は `docs/mcp-security-design.md` とする。
 2. `ENABLE_WEB_SEARCH_TOOL=false` でも、providerが既定の `http_request` ならHTTP取得ツールがロードされる。設定名が示す契約を正とし、無効時はロードしない要件を明記した。
 
 詳細と優先度は `docs/review/security-review-2026-07-12.md` を参照する。
@@ -39,6 +39,7 @@
 - メニューセットDB/API: `docs/training-menu-set-backend-design.md`
 - TrainingPerformance: `docs/training-performance-design.md`
 - ビルド／デプロイ: `docs/deployment.md`
+- MCPユーザー境界: `docs/mcp-security-design.md`
 - 構成図: `docs/kintrain-architecture.svg`
 
 ## 残課題

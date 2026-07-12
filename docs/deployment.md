@@ -89,6 +89,10 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
 - `MODEL_ID`
 - `APP_TIMEZONE_DEFAULT`
 - `ENABLE_MCP_TOOLS`
+- `CHATGPT_OAUTH_CALLBACK_URLS`
+  - ChatGPT Developer mode appが発行する `https://chatgpt.com/connector/oauth/...` を設定する
+  - 複数指定はカンマ区切り
+  - ChatGPT接続手順は `docs/chatgpt-mcp-connection.md` を参照する
 - `ENABLE_WEB_SEARCH_TOOL`
 - `WEB_SEARCH_PROVIDER`
 - 必要に応じて `AI_COACH_GATEWAY_NAME` / `AI_COACH_MEMORY_NAME` / `AI_COACH_RUNTIME_NAME`

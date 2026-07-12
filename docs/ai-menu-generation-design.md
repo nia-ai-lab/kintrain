@@ -110,7 +110,12 @@
   isAiGenerated: true
 }>`
 - `makeDefault?: boolean`（現行Lambdaは既定セットが存在するとtrueを拒否し、既定セットがない場合だけ自動で既定化）
-- `userId: string`
+
+identity:
+- `userId` / `actorId` は公開schemaへ含めない。
+- Gateway REQUEST Interceptorが検証済みCognitoアクセストークンの `sub` を内部専用 `__principalUserId` として注入する。
+- MCP Lambdaは `__principalUserId` だけをDynamoDBの `userId` として使用する。
+- 詳細は `docs/mcp-security-design.md` を参照する。
 
 出力:
 - `trainingMenuSetId`
