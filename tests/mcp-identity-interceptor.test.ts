@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { processInterceptorEvent } from "../amplify/functions/mcp-identity-interceptor/handler.ts";
+import {
+  processInterceptorEvent,
+  resolveUserPoolClientIds
+} from "../amplify/functions/mcp-identity-interceptor/handler.ts";
 
 type JsonObject = Record<string, unknown>;
 
@@ -28,6 +31,17 @@ function eventFor(argumentsObject: JsonObject, authorization = "Bearer valid-tok
 }
 
 const verifyAsPrincipal = async () => ({ sub: principalUserId });
+
+test("multiple Cognito app client IDs are parsed and deduplicated", () => {
+  assert.deepEqual(resolveUserPoolClientIds("frontend-client, chatgpt-client,frontend-client", undefined), [
+    "frontend-client",
+    "chatgpt-client"
+  ]);
+});
+
+test("legacy single Cognito app client ID remains supported", () => {
+  assert.deepEqual(resolveUserPoolClientIds(undefined, "legacy-client"), ["legacy-client"]);
+});
 
 function transformedArguments(output: JsonObject): JsonObject {
   const mcp = output.mcp as JsonObject;

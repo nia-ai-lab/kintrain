@@ -22,6 +22,17 @@ const requiredScope = "aws.cognito.signin.user.admin";
 const trustedPrincipalArgument = "__principalUserId";
 let verifier: ReturnType<typeof CognitoJwtVerifier.create> | undefined;
 
+export function resolveUserPoolClientIds(
+  clientIdsValue = process.env.USER_POOL_CLIENT_IDS,
+  legacyClientIdValue = process.env.USER_POOL_CLIENT_ID
+): string[] {
+  const values = [clientIdsValue, legacyClientIdValue]
+    .flatMap((value) => value?.split(",") ?? [])
+    .map((value) => value.trim())
+    .filter(Boolean);
+  return Array.from(new Set(values));
+}
+
 function asObject(value: unknown): JsonObject | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -83,15 +94,15 @@ function gatewayErrorOutput(body: JsonObject | null, statusCode: number, message
 
 async function verifyCognitoAccessToken(token: string): Promise<VerifiedIdentity> {
   const userPoolId = process.env.USER_POOL_ID?.trim();
-  const userPoolClientId = process.env.USER_POOL_CLIENT_ID?.trim();
-  if (!userPoolId || !userPoolClientId) {
+  const userPoolClientIds = resolveUserPoolClientIds();
+  if (!userPoolId || userPoolClientIds.length === 0) {
     throw new Error("JWT verifier environment is not configured.");
   }
 
   verifier ??= CognitoJwtVerifier.create({
     userPoolId,
     tokenUse: "access",
-    clientId: userPoolClientId
+    clientId: userPoolClientIds
   });
 
   const payload = await verifier.verify(token);

@@ -2,6 +2,7 @@ import { defineBackend } from "@aws-amplify/backend";
 import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as agentcore from "@aws-cdk/aws-bedrock-agentcore-alpha";
+import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
@@ -37,6 +38,58 @@ const deploymentBranchSuffix =
     .replace(/[^a-z0-9-]/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "") || "local";
+
+const legacyChatGptOAuthCallbackUrl = "https://chatgpt.com/connector_platform_oauth_redirect";
+const configuredChatGptOAuthCallbackUrls = (process.env.CHATGPT_OAUTH_CALLBACK_URLS ?? "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+const chatGptOAuthCallbackUrls = Array.from(
+  new Set([legacyChatGptOAuthCallbackUrl, ...configuredChatGptOAuthCallbackUrls])
+);
+
+for (const callbackUrl of chatGptOAuthCallbackUrls) {
+  const parsed = new URL(callbackUrl);
+  const isLegacyCallback = callbackUrl === legacyChatGptOAuthCallbackUrl;
+  const isCurrentCallback =
+    parsed.protocol === "https:" &&
+    parsed.hostname === "chatgpt.com" &&
+    parsed.pathname.startsWith("/connector/oauth/");
+  if (!isLegacyCallback && !isCurrentCallback) {
+    throw new Error(
+      "CHATGPT_OAUTH_CALLBACK_URLS must contain only https://chatgpt.com/connector/oauth/... URLs."
+    );
+  }
+}
+
+const authStack = Stack.of(backend.auth.resources.userPool);
+const chatGptOAuthDomain = backend.auth.resources.userPool.addDomain("ChatGptOAuthDomain", {
+  cognitoDomain: {
+    domainPrefix: `kintrain-${deploymentBranchSuffix.slice(0, 20)}-${authStack.account}`
+  }
+});
+const chatGptOAuthClient = backend.auth.resources.userPool.addClient("ChatGptOAuthClient", {
+  userPoolClientName: `KinTrain-ChatGPT-${deploymentBranchSuffix}`,
+  generateSecret: true,
+  preventUserExistenceErrors: true,
+  enableTokenRevocation: true,
+  accessTokenValidity: Duration.hours(1),
+  idTokenValidity: Duration.hours(1),
+  refreshTokenValidity: Duration.days(30),
+  supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+  oAuth: {
+    flows: {
+      authorizationCodeGrant: true
+    },
+    scopes: [
+      cognito.OAuthScope.OPENID,
+      cognito.OAuthScope.EMAIL,
+      cognito.OAuthScope.PROFILE,
+      cognito.OAuthScope.COGNITO_ADMIN
+    ],
+    callbackUrls: chatGptOAuthCallbackUrls
+  }
+});
 
 function tableNameFor(baseName: string): string {
   return `KinTrain-${baseName}-${deploymentBranchSuffix}`;
@@ -278,8 +331,8 @@ mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMe
 mcpToolsApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerformanceTable.tableName);
 mcpIdentityInterceptorLambda.addEnvironment("USER_POOL_ID", backend.auth.resources.userPool.userPoolId);
 mcpIdentityInterceptorLambda.addEnvironment(
-  "USER_POOL_CLIENT_ID",
-  backend.auth.resources.userPoolClient.userPoolClientId
+  "USER_POOL_CLIENT_IDS",
+  `${backend.auth.resources.userPoolClient.userPoolClientId},${chatGptOAuthClient.userPoolClientId}`
 );
 
 const coreApi = new apigateway.RestApi(stack, "CoreApiGateway", {
@@ -537,6 +590,11 @@ backend.addOutput({
       enabled: enableAgentCoreResources ? "true" : "false",
       aiGatewayId,
       aiMemoryId
+    },
+    chatGptOAuth: {
+      clientId: chatGptOAuthClient.userPoolClientId,
+      managedLoginUrl: chatGptOAuthDomain.baseUrl(),
+      callbackUrls: chatGptOAuthCallbackUrls.join(",")
     },
     storage: {
       avatarImageBucketName: avatarImageBucket.bucketName
