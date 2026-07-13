@@ -18,6 +18,7 @@
     "build": "npm run frontend:build",
     "amplify:sandbox": "npx ampx sandbox",
     "amplify:pipeline-deploy": "npx ampx pipeline-deploy",
+    "test:mcp": "tsx --test tests/mcp-*.test.ts",
     "test:mcp-identity": "tsx --test tests/mcp-identity-interceptor.test.ts",
     "test:ui-spec": "playwright test -c playwright.config.mjs"
   },

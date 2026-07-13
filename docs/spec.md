@@ -600,11 +600,11 @@
 - `GET /daily-records?from&to` は範囲Queryを実行する（`limit/nextToken` 未実装）。
 - `GET /calendar?month=YYYY-MM` は対象月のみ（最大31日）を取得する。
 - `GET /training-session-view?date=YYYY-MM-DD` は対象日の実施済み種目判定に `TrainingHistory` を使い、直近実績は `TrainingPerformance` を使って取得する。
+- MCPの履歴一覧3ツールは `from/to/timeZoneId/limit/nextToken` を共通採用し、`limit <= 100`（既定100）でページングする。
 - 次フェーズの目標:
 - `GET /gym-visits` の `nextToken` ページング対応
 - `GET /daily-records` の `limit/nextToken` 対応
 - `from/to` の最大日数バリデーション（31日上限など）
-- AI用途履歴APIの `days` / `limit` 上限制御
 - 目標とする1リクエスト最大件数（将来）:
 - `trainingMenuItems`: 100件
 - `gymVisits`: 50件
@@ -642,9 +642,9 @@
 ### 9.2 Gateway（MCP）
 
 - 以下ツールをMCPとして公開すること。
-- `get_recent_gym_visits(days)`
-- `get_training_history(trainingMenuItemId, limit)`
-- `get_daily_records(from, to)`
+- `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
+- `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)`
+- `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `get_goal()`
 - `get_ai_character_profile()`

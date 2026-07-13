@@ -98,43 +98,167 @@ function toNonEmptyString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-function toBoundedInt(value: unknown, fallback: number, min: number, max: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n)) {
-    return fallback;
-  }
-  return Math.max(min, Math.min(max, Math.floor(n)));
-}
-
-function parseYmd(value: unknown): string | undefined {
+export function parseYmd(value: unknown): string | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
-  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined;
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day
+    ? value
+    : undefined;
 }
 
-function resolveTimeZoneId(args: ToolArgs): string {
+export function resolveTimeZoneId(args: ToolArgs): string | undefined {
   const raw = toNonEmptyString(args.timeZoneId) ?? "Asia/Tokyo";
   try {
     new Intl.DateTimeFormat("en-US", { timeZone: raw }).format(new Date());
     return raw;
   } catch {
-    return "Asia/Tokyo";
+    return undefined;
   }
 }
 
-function nowYmdInTimeZone(timeZoneId: string): string {
+function nowYmdInTimeZone(timeZoneId: string, now = new Date()): string {
   const formatter = new Intl.DateTimeFormat("en-CA", {
     timeZone: timeZoneId,
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
   });
-  const parts = formatter.formatToParts(new Date());
+  const parts = formatter.formatToParts(now);
   const year = parts.find((part) => part.type === "year")?.value ?? "1970";
   const month = parts.find((part) => part.type === "month")?.value ?? "01";
   const day = parts.find((part) => part.type === "day")?.value ?? "01";
   return `${year}-${month}-${day}`;
+}
+
+export function resolveRecordDate(value: unknown, timeZoneId: string, now = new Date()): string | undefined {
+  return value === undefined ? nowYmdInTimeZone(timeZoneId, now) : parseYmd(value);
+}
+
+function addYmdDays(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return `${date.getUTCFullYear().toString().padStart(4, "0")}-${(date.getUTCMonth() + 1)
+    .toString()
+    .padStart(2, "0")}-${date.getUTCDate().toString().padStart(2, "0")}`;
+}
+
+function timeZoneOffsetMs(instant: Date, timeZoneId: string): number {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timeZoneId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(instant);
+  const value = (type: Intl.DateTimeFormatPartTypes): number =>
+    Number(parts.find((part) => part.type === type)?.value ?? 0);
+  const representedAsUtc = Date.UTC(
+    value("year"),
+    value("month") - 1,
+    value("day"),
+    value("hour"),
+    value("minute"),
+    value("second")
+  );
+  return representedAsUtc - instant.getTime();
+}
+
+export function localDateStartUtc(date: string, timeZoneId: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day);
+  let instant = new Date(localAsUtc);
+  for (let iteration = 0; iteration < 3; iteration += 1) {
+    instant = new Date(localAsUtc - timeZoneOffsetMs(instant, timeZoneId));
+  }
+  return instant.toISOString();
+}
+
+export function localDateInclusiveUpperKey(date: string, timeZoneId: string): string {
+  return localDateStartUtc(addYmdDays(date, 1), timeZoneId).replace(/Z$/, "");
+}
+
+type ListArguments = {
+  from?: string;
+  to?: string;
+  timeZoneId: string;
+  limit: number;
+  exclusiveStartKey?: Record<string, unknown>;
+  nextTokenContext: string;
+};
+
+type ListArgumentResult = { value: ListArguments } | { response: LambdaLikeResponse };
+
+function encodeNextToken(lastEvaluatedKey: Record<string, unknown> | undefined, context: string): string | undefined {
+  if (!lastEvaluatedKey) {
+    return undefined;
+  }
+  return Buffer.from(JSON.stringify({ version: 1, context, key: lastEvaluatedKey }), "utf8").toString("base64url");
+}
+
+export function decodeNextToken(value: unknown, expectedContext: string): Record<string, unknown> | undefined | null {
+  if (value === undefined || value === null || value === "") {
+    return undefined;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
+    const key = parsed?.key;
+    return parsed?.version === 1 && parsed?.context === expectedContext && key && typeof key === "object" && !Array.isArray(key)
+      ? (key as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function parseListArguments(args: ToolArgs, scope: string): ListArgumentResult {
+  const from = args.from === undefined ? undefined : parseYmd(args.from);
+  const to = args.to === undefined ? undefined : parseYmd(args.to);
+  if (args.from !== undefined && !from) {
+    return { response: jsonResponse(400, { message: "from must be a valid date in YYYY-MM-DD format." }) };
+  }
+  if (args.to !== undefined && !to) {
+    return { response: jsonResponse(400, { message: "to must be a valid date in YYYY-MM-DD format." }) };
+  }
+  if (from && to && from > to) {
+    return { response: jsonResponse(400, { message: "from must be on or before to." }) };
+  }
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!timeZoneId) {
+    return { response: jsonResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." }) };
+  }
+  const limit = args.limit === undefined ? 100 : args.limit;
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return { response: jsonResponse(400, { message: "limit must be an integer between 1 and 100." }) };
+  }
+  const nextTokenContext = JSON.stringify([scope, from ?? null, to ?? null, timeZoneId]);
+  const exclusiveStartKey = decodeNextToken(args.nextToken, nextTokenContext);
+  if (exclusiveStartKey === null) {
+    return { response: jsonResponse(400, { message: "nextToken is invalid." }) };
+  }
+  return { value: { from, to, timeZoneId, limit, exclusiveStartKey, nextTokenContext } };
+}
+
+function listRange(arguments_: ListArguments): Record<string, string | null> {
+  return {
+    from: arguments_.from ?? null,
+    to: arguments_.to ?? null,
+    timeZoneId: arguments_.timeZoneId
+  };
 }
 
 function resolveDiarySaveMode(value: unknown): DiarySaveMode | undefined {
@@ -199,14 +323,6 @@ function normalizeMemo(value: unknown): string | undefined {
     return undefined;
   }
   return trimmed;
-}
-
-function ymdDaysAgo(days: number): string {
-  const date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const y = date.getUTCFullYear().toString().padStart(4, "0");
-  const m = (date.getUTCMonth() + 1).toString().padStart(2, "0");
-  const d = date.getUTCDate().toString().padStart(2, "0");
-  return `${y}-${m}-${d}`;
 }
 
 function extractToolName(context: LambdaToolContext): string | null {
@@ -310,30 +426,43 @@ function requireUserId(args: ToolArgs): string | null {
   return toNonEmptyString(args.__principalUserId) ?? null;
 }
 
-async function getRecentGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
-  const days = toBoundedInt(args.days, 14, 1, 365);
-  const limit = toBoundedInt(args.limit, 30, 1, 100);
-  const fromDate = ymdDaysAgo(days);
-  const toDate = nowIsoSeconds().slice(0, 10);
+async function getGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+  const parsed = parseListArguments(args, "get_gym_visits");
+  if ("response" in parsed) {
+    return parsed.response;
+  }
+  const options = parsed.value;
+  const expressionAttributeValues: Record<string, unknown> = { ":userId": userId };
+  let keyConditionExpression = "userId = :userId";
+  if (options.from || options.to) {
+    expressionAttributeValues[":fromUtc"] = options.from
+      ? localDateStartUtc(options.from, options.timeZoneId)
+      : "0000-01-01T00:00:00.000Z";
+    expressionAttributeValues[":toUtc"] = options.to
+      ? localDateInclusiveUpperKey(options.to, options.timeZoneId)
+      : "9999-12-31T23:59:59Z";
+    keyConditionExpression += " AND startedAtUtc BETWEEN :fromUtc AND :toUtc";
+  }
 
   const result = await ddb.send(
     new QueryCommand({
       TableName: trainingHistoryTableName,
       IndexName: "UserStartedAtIndex",
-      KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-        ":fromUtc": `${fromDate}T00:00:00Z`,
-        ":toUtc": `${toDate}T23:59:59Z`
-      },
+      KeyConditionExpression: keyConditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
       ScanIndexForward: false,
-      Limit: limit
+      Limit: options.limit,
+      ExclusiveStartKey: options.exclusiveStartKey
     })
   );
 
   return jsonResponse(200, {
-    tool: "get_recent_gym_visits",
-    items: result.Items ?? []
+    tool: "get_gym_visits",
+    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => item),
+    range: listRange(options),
+    limit: options.limit,
+    nextToken:
+      encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, options.nextTokenContext) ?? null
   });
 }
 
@@ -345,19 +474,36 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<Lambd
   if (!trainingPerformanceTableName) {
     return jsonResponse(500, { message: "Training performance table is not configured." });
   }
-  const limit = toBoundedInt(args.limit, 30, 1, 100);
+  const parsed = parseListArguments(args, `get_training_history:${trainingMenuItemId}`);
+  if ("response" in parsed) {
+    return parsed.response;
+  }
+  const options = parsed.value;
+  const prefix = `${trainingMenuItemId}#`;
+  const expressionAttributeValues: Record<string, unknown> = { ":userId": userId };
+  let keyConditionExpression: string;
+  if (options.from || options.to) {
+    const fromUtc = options.from ? localDateStartUtc(options.from, options.timeZoneId) : "";
+    const toUtc = options.to ? localDateInclusiveUpperKey(options.to, options.timeZoneId) : undefined;
+    expressionAttributeValues[":fromKey"] = `${prefix}${fromUtc}`;
+    expressionAttributeValues[":toKey"] = `${prefix}${toUtc ?? "\uffff"}`;
+    keyConditionExpression =
+      "userId = :userId AND trainingMenuItemPerformedAtKey BETWEEN :fromKey AND :toKey";
+  } else {
+    expressionAttributeValues[":prefix"] = prefix;
+    keyConditionExpression =
+      "userId = :userId AND begins_with(trainingMenuItemPerformedAtKey, :prefix)";
+  }
 
   const performanceResult = await ddb.send(
     new QueryCommand({
       TableName: trainingPerformanceTableName,
       IndexName: trainingPerformanceByMenuItemIndex,
-      KeyConditionExpression: "userId = :userId AND begins_with(trainingMenuItemPerformedAtKey, :prefix)",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-        ":prefix": `${trainingMenuItemId}#`
-      },
+      KeyConditionExpression: keyConditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
       ScanIndexForward: false,
-      Limit: limit
+      Limit: options.limit,
+      ExclusiveStartKey: options.exclusiveStartKey
     })
   );
   const items = (performanceResult.Items ?? []).map((item) => ({
@@ -379,30 +525,48 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<Lambd
   return jsonResponse(200, {
     tool: "get_training_history",
     trainingMenuItemId,
-    items
+    items,
+    range: listRange(options),
+    limit: options.limit,
+    nextToken: encodeNextToken(
+      performanceResult.LastEvaluatedKey as Record<string, unknown> | undefined,
+      options.nextTokenContext
+    ) ?? null
   });
 }
 
 async function getDailyRecords(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
-  const to = parseYmd(args.to) ?? nowIsoSeconds().slice(0, 10);
-  const from = parseYmd(args.from) ?? ymdDaysAgo(30);
+  const parsed = parseListArguments(args, "get_daily_records");
+  if ("response" in parsed) {
+    return parsed.response;
+  }
+  const options = parsed.value;
+  const expressionAttributeValues: Record<string, unknown> = { ":userId": userId };
+  let keyConditionExpression = "userId = :userId";
+  if (options.from || options.to) {
+    expressionAttributeValues[":from"] = options.from ?? "0000-01-01";
+    expressionAttributeValues[":to"] = options.to ?? "9999-12-31";
+    keyConditionExpression += " AND recordDate BETWEEN :from AND :to";
+  }
 
   const result = await ddb.send(
     new QueryCommand({
       TableName: dailyRecordTableName,
-      KeyConditionExpression: "userId = :userId AND recordDate BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-        ":from": from,
-        ":to": to
-      },
-      ScanIndexForward: false
+      KeyConditionExpression: keyConditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ScanIndexForward: false,
+      Limit: options.limit,
+      ExclusiveStartKey: options.exclusiveStartKey
     })
   );
 
   return jsonResponse(200, {
     tool: "get_daily_records",
-    items: result.Items ?? []
+    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => item),
+    range: listRange(options),
+    limit: options.limit,
+    nextToken:
+      encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, options.nextTokenContext) ?? null
   });
 }
 
@@ -439,9 +603,12 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLik
   }
 
   const timeZoneId = resolveTimeZoneId(args);
-  const date = parseYmd(args.date) ?? nowYmdInTimeZone(timeZoneId);
+  if (!timeZoneId) {
+    return jsonResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
+  }
+  const date = resolveRecordDate(args.date, timeZoneId);
   if (!date) {
-    return jsonResponse(400, { message: "date must be YYYY-MM-DD format." });
+    return jsonResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
   }
 
   const current = await ddb.send(
@@ -785,8 +952,8 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
       return jsonResponse(403, { message: "Trusted user identity is required." });
     }
 
-    if (toolName === "get_recent_gym_visits") {
-      return getRecentGymVisits(event, userId);
+    if (toolName === "get_gym_visits") {
+      return getGymVisits(event, userId);
     }
     if (toolName === "get_training_history") {
       return getTrainingHistory(event, userId);

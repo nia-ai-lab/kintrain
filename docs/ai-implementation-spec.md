@@ -190,9 +190,9 @@
 
 ### 6.1 公開ツール
 
-- `get_recent_gym_visits(days)`
-- `get_training_history(trainingMenuItemId, limit)`
-- `get_daily_records(from, to)`
+- `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
+- `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)`
+- `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `get_goal()`
