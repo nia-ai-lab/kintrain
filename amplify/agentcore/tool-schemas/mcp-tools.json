@@ -1,17 +1,33 @@
 [
   {
-    "name": "get_recent_gym_visits",
-    "description": "指定期間の直近ジム実施履歴を取得する",
+    "name": "get_gym_visits",
+    "description": "ジム実施履歴をローカル日付範囲で取得する。nextTokenがなくなるまで呼び出すと全件取得できる。",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "days": {
-          "type": "integer",
-          "description": "何日前まで取得するか（1-365）"
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "開始ローカル日（YYYY-MM-DD、含む）。未指定なら最古から取得する。"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "終了ローカル日（YYYY-MM-DD、含む）。未指定なら最新まで取得する。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "description": "日付境界に使うIANAタイムゾーンID。既定はAsia/Tokyo。"
         },
         "limit": {
           "type": "integer",
-          "description": "取得件数上限（1-100）"
+          "minimum": 1,
+          "maximum": 100,
+          "description": "1ページの取得件数（1-100、既定100）"
+        },
+        "nextToken": {
+          "type": "string",
+          "description": "前回レスポンスのnextToken。続きがない場合は指定しない。"
         }
       }
     }
@@ -28,7 +44,27 @@
         },
         "limit": {
           "type": "integer",
-          "description": "取得件数上限（1-100）"
+          "minimum": 1,
+          "maximum": 100,
+          "description": "1ページの取得件数（1-100、既定100）"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "開始ローカル日（YYYY-MM-DD、含む）。未指定なら最古から取得する。"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "終了ローカル日（YYYY-MM-DD、含む）。未指定なら最新まで取得する。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "description": "日付境界に使うIANAタイムゾーンID。既定はAsia/Tokyo。"
+        },
+        "nextToken": {
+          "type": "string",
+          "description": "前回レスポンスのnextToken。続きがない場合は指定しない。"
         }
       },
       "required": ["trainingMenuItemId"]
@@ -42,11 +78,27 @@
       "properties": {
         "from": {
           "type": "string",
-          "description": "開始日（YYYY-MM-DD）"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "開始ローカル日（YYYY-MM-DD、含む）。未指定なら最古から取得する。"
         },
         "to": {
           "type": "string",
-          "description": "終了日（YYYY-MM-DD）"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "終了ローカル日（YYYY-MM-DD、含む）。未指定なら最新まで取得する。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "description": "日付境界を表すIANAタイムゾーンID。既定はAsia/Tokyo。"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "1ページの取得件数（1-100、既定100）"
+        },
+        "nextToken": {
+          "type": "string",
+          "description": "前回レスポンスのnextToken。続きがない場合は指定しない。"
         }
       }
     }
@@ -59,6 +111,7 @@
       "properties": {
         "date": {
           "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "description": "対象日（YYYY-MM-DD）"
         }
       },
@@ -77,6 +130,7 @@
         },
         "date": {
           "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
           "description": "対象日（YYYY-MM-DD）。未指定時はtimeZoneId基準の本日。"
         },
         "timeZoneId": {

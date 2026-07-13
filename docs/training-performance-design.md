@@ -7,7 +7,7 @@
 - `TrainingHistoryTable` に `GymVisit.entries[]` を配列保持している現行設計では、種目別の直近実績・履歴参照時に `userId` 単位で広めに `Query` して Lambda 内で絞り込む必要がある。
 - これを解消するため、種目単位の正規化テーブル `TrainingPerformanceTable` を追加し、以下を効率化する。
 - 実施画面の `lastPerformanceSnapshot` 取得
-- AI/MCP の `get_training_history(trainingMenuItemId, limit)` 取得
+- AI/MCP の `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)` 取得
 - 将来の種目別分析・進捗表示
 
 ## 2. 設計方針
@@ -41,7 +41,7 @@
 
 ### 3.2 MCP / AI
 
-現行の `get_training_history(trainingMenuItemId, limit)` は以下で履歴を取得している。
+現行の `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)` は以下で履歴を取得している。
 
 - `TrainingHistoryTable.UserStartedAtIndex` を `userId` のみで直近 200 件 `Query`
 - Lambda 内で `entries[]` を走査し、対象 `trainingMenuItemId` のみ抽出
@@ -192,7 +192,7 @@
 - `PUT /gym-visits/{visitId}`
 - `DELETE /gym-visits/{visitId}`
 - `GET /training-session-view?date=YYYY-MM-DD`
-- MCP `get_training_history(trainingMenuItemId, limit)`
+- MCP `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)`
 
 ### 7.2 API 仕様変更の有無
 
@@ -320,7 +320,7 @@ UI要件:
 
 ### 10.3 `mcp-tools-api`
 
-- `get_training_history(trainingMenuItemId, limit)`
+- `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)`
   - `TrainingPerformanceTable` 直接 Query に変更
 
 ## 11. アクセスパターン一覧
