@@ -3,8 +3,11 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import {
   decodeNextToken,
+  isValidBodyFatPercent,
+  isValidBodyWeightKg,
   localDateInclusiveUpperKey,
   localDateStartUtc,
+  parseLocalTime,
   parseYmd,
   resolveRecordDate,
   resolveTimeZoneId
@@ -22,6 +25,24 @@ test("a supplied invalid diary date does not fall back to today", () => {
   assert.equal(resolveRecordDate(undefined, "Asia/Tokyo", now), "2026-07-13");
   assert.equal(resolveRecordDate("2026/07/12", "Asia/Tokyo", now), undefined);
   assert.equal(resolveRecordDate("2026-02-29", "Asia/Tokyo", now), undefined);
+});
+
+test("body metric measurement time accepts only a valid 24-hour HH:mm value", () => {
+  assert.equal(parseLocalTime("00:00"), "00:00");
+  assert.equal(parseLocalTime("23:59"), "23:59");
+  assert.equal(parseLocalTime("24:00"), undefined);
+  assert.equal(parseLocalTime("7:30"), undefined);
+  assert.equal(parseLocalTime("12:60"), undefined);
+});
+
+test("body metric values enforce the supported numeric ranges", () => {
+  assert.equal(isValidBodyWeightKg(65.2), true);
+  assert.equal(isValidBodyWeightKg(0), false);
+  assert.equal(isValidBodyWeightKg(Number.NaN), false);
+  assert.equal(isValidBodyFatPercent(14.8), true);
+  assert.equal(isValidBodyFatPercent(0), true);
+  assert.equal(isValidBodyFatPercent(100), true);
+  assert.equal(isValidBodyFatPercent(100.1), false);
 });
 
 test("local date boundaries are converted to UTC with daylight saving time", () => {
@@ -63,4 +84,22 @@ test("history list schemas share the paging and local-date interface", async () 
   }
   const gymVisits = schemas.find((candidate) => candidate.name === "get_gym_visits");
   assert.equal(Object.hasOwn(gymVisits!.inputSchema.properties, "days"), false);
+});
+
+test("body metrics schema requires the four Core API measurement fields", async () => {
+  const schemas = JSON.parse(
+    await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
+  ) as Array<{
+    name: string;
+    inputSchema: { properties: Record<string, unknown>; required?: string[] };
+  }>;
+  const schema = schemas.find((candidate) => candidate.name === "save_body_metrics");
+  assert.ok(schema, "save_body_metrics schema is missing");
+  assert.deepEqual(schema.inputSchema.required, [
+    "bodyWeightKg",
+    "bodyFatPercent",
+    "date",
+    "bodyMetricMeasuredTimeLocal"
+  ]);
+  assert.ok(Object.hasOwn(schema.inputSchema.properties, "timeZoneId"));
 });
