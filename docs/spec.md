@@ -649,6 +649,7 @@
 - `get_goal()`
 - `get_ai_character_profile()`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
+- `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `save_advice_log(advice)`
 - `create_training_menu_set_from_ai(setName, items, makeDefault)`
 - `userId` はツール公開引数に含めず、Gateway REQUEST Interceptorが検証済みJWT `sub` から内部注入する。MCP Lambdaは内部専用 `__principalUserId` だけをユーザー識別子として採用する。

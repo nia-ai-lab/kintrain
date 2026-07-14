@@ -41,7 +41,7 @@
 - Runtime の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` 読込
 - Runtime の `chatSessionId` 管理（UIと同一IDを `sessionId` に利用）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
-- AgentCore Gateway、MCP Lambda target、全9ツール
+- AgentCore Gateway、MCP Lambda target、全10ツール
 - Gateway REQUEST InterceptorによるJWT再検証、ユーザーID照合、内部identity注入
 - AIメニュー生成画面と `create_training_menu_set_from_ai`
 - AIキャラクター設定・アバターのCore API永続化
@@ -195,6 +195,7 @@
 - `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
+- `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `get_goal()`
 - `get_ai_character_profile()`
 - `save_advice_log(advice)`

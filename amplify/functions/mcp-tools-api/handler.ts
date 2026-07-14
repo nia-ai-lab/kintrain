@@ -143,6 +143,21 @@ export function resolveRecordDate(value: unknown, timeZoneId: string, now = new 
   return value === undefined ? nowYmdInTimeZone(timeZoneId, now) : parseYmd(value);
 }
 
+export function parseLocalTime(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : undefined;
+}
+
+export function isValidBodyWeightKg(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+export function isValidBodyFatPercent(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 100;
+}
+
 function addYmdDays(value: string, days: number): string {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day + days));
@@ -666,6 +681,70 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLik
   });
 }
 
+async function saveBodyMetrics(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+  const date = parseYmd(args.date);
+  if (!date) {
+    return jsonResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
+  }
+  const measuredTimeLocal = parseLocalTime(args.bodyMetricMeasuredTimeLocal);
+  if (!measuredTimeLocal) {
+    return jsonResponse(400, { message: "bodyMetricMeasuredTimeLocal must be HH:mm in 24-hour format." });
+  }
+  const bodyWeightKg = args.bodyWeightKg;
+  if (!isValidBodyWeightKg(bodyWeightKg)) {
+    return jsonResponse(400, { message: "bodyWeightKg must be a positive number." });
+  }
+  const bodyFatPercent = args.bodyFatPercent;
+  if (!isValidBodyFatPercent(bodyFatPercent)) {
+    return jsonResponse(400, { message: "bodyFatPercent must be a number between 0 and 100." });
+  }
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!timeZoneId) {
+    return jsonResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
+  }
+
+  const current = await ddb.send(
+    new GetCommand({
+      TableName: dailyRecordTableName,
+      Key: {
+        userId,
+        recordDate: date
+      }
+    })
+  );
+  const currentItem = (current.Item as Record<string, unknown> | undefined) ?? {};
+  const ts = nowIsoSeconds();
+  const item = {
+    otherActivities: [],
+    ...currentItem,
+    userId,
+    recordDate: date,
+    bodyWeightKg,
+    bodyFatPercent,
+    bodyMetricMeasuredTimeLocal: measuredTimeLocal,
+    timeZoneId,
+    updatedAt: ts,
+    createdAt: (currentItem.createdAt as string | undefined) ?? ts
+  };
+
+  await ddb.send(
+    new PutCommand({
+      TableName: dailyRecordTableName,
+      Item: item
+    })
+  );
+
+  return jsonResponse(200, {
+    tool: "save_body_metrics",
+    recordDate: date,
+    bodyWeightKg,
+    bodyFatPercent,
+    bodyMetricMeasuredTimeLocal: measuredTimeLocal,
+    timeZoneId,
+    updatedAt: ts
+  });
+}
+
 async function getGoal(userId: string): Promise<LambdaLikeResponse> {
   const result = await ddb.send(
     new GetCommand({
@@ -966,6 +1045,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "save_daily_diary") {
       return saveDailyDiary(event, userId);
+    }
+    if (toolName === "save_body_metrics") {
+      return saveBodyMetrics(event, userId);
     }
     if (toolName === "get_goal") {
       return getGoal(userId);
