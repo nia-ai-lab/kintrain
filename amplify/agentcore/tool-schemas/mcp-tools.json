@@ -195,18 +195,23 @@
           "maxItems": 100,
           "description": "登録する1-100日分の記録。各要素にはdateと、bodyWeightKgまたはbodyFatPercentの少なくとも一方を指定する。",
           "items": {
+            "type": "object",
             "description": "レコード内容はLambdaで個別検証し、不正な要素も他の要素を止めずresultsに失敗として返す。",
             "properties": {
               "date": {
+                "type": "string",
                 "description": "文字列。測定日（YYYY-MM-DD）。未来日は登録できない。"
               },
               "bodyWeightKg": {
+                "type": "number",
                 "description": "数値。測定した体重（kg）。0より大きく500以下、小数2桁まで。体脂肪率だけを登録する場合は省略できる。"
               },
               "bodyFatPercent": {
+                "type": "number",
                 "description": "数値。測定した体脂肪率（%）。0-100、小数2桁まで。体重だけを登録する場合は省略できる。"
               },
               "bodyMetricMeasuredTimeLocal": {
+                "type": "string",
                 "description": "文字列。測定したローカル時刻（24時間表記HH:mm）。不明な場合は省略する。"
               }
             },

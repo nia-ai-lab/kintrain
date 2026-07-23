@@ -188,7 +188,7 @@ test("batch body metrics schema exposes partial-success inputs without public id
   assert.ok(schema, "save_body_metrics_batch schema is missing");
   assert.deepEqual(schema.inputSchema.required, ["records", "dryRun"]);
   assert.equal(schema.inputSchema.properties.records.maxItems, 100);
-  assert.equal(schema.inputSchema.properties.records.items?.type, undefined);
+  assert.equal(schema.inputSchema.properties.records.items?.type, "object");
   assert.equal(schema.inputSchema.properties.records.items?.additionalProperties, true);
   assert.ok(Object.hasOwn(schema.inputSchema.properties.records.items?.properties ?? {}, "date"));
   for (const property of ["records", "timeZoneId", "conflictPolicy", "dryRun"]) {
