@@ -138,6 +138,7 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
 - UI仕様: `docs/ui-spec.md`
 - AI実装仕様: `docs/ai-implementation-spec.md`
 - MCPユーザー境界セキュリティ設計: `docs/mcp-security-design.md`
+- MCP体重・体脂肪率一括登録要件: `docs/mcp-body-metrics-bulk-registration-requirements.md`
 - ChatGPT MCP接続: `docs/chatgpt-mcp-connection.md`
 - ビルド・デプロイ手順: `docs/deployment.md`
 - セキュリティレビュー: `docs/review/security-review-2026-07-12.md`

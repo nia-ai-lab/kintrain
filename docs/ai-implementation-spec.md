@@ -41,7 +41,7 @@
 - Runtime の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` 読込
 - Runtime の `chatSessionId` 管理（UIと同一IDを `sessionId` に利用）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
-- AgentCore Gateway、MCP Lambda target、全10ツール
+- AgentCore Gateway、MCP Lambda target、全11ツール
 - Gateway REQUEST InterceptorによるJWT再検証、ユーザーID照合、内部identity注入
 - AIメニュー生成画面と `create_training_menu_set_from_ai`
 - AIキャラクター設定・アバターのCore API永続化
@@ -196,10 +196,20 @@
 - `get_daily_record(date)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
+- `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `get_goal()`
 - `get_ai_character_profile()`
 - `save_advice_log(advice)`
 - `create_training_menu_set_from_ai(setName, items, makeDefault)`
+
+`save_body_metrics_batch`:
+
+- 1回1〜100件の構造化レコードを受け付ける。
+- AIは実登録前に `dryRun=true` で予定結果を確認する。
+- 正常レコードは保存し、入力不正・既存値との競合・個別書き込み失敗はレコード単位で失敗させる。
+- 応答は入力と同じ件数・順序の `results` を持ち、各行の `success` / `failed` と処理内容または失敗理由を返す。
+- 部分成功はHTTP相当200と `outcome=partially_succeeded` で返す。
+- 既存値の上書きは `conflictPolicy=overwrite` を明示し、AIは対象日と件数についてユーザーの同意を得る。
 
 注記:
 - ツール引数には `userId` を公開しない。

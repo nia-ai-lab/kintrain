@@ -650,10 +650,14 @@
 - `get_ai_character_profile()`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
+- `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `save_advice_log(advice)`
 - `create_training_menu_set_from_ai(setName, items, makeDefault)`
 - `userId` はツール公開引数に含めず、Gateway REQUEST Interceptorが検証済みJWT `sub` から内部注入する。MCP Lambdaは内部専用 `__principalUserId` だけをユーザー識別子として採用する。
 - MCP Lambda はメソッド名を `context.clientContext.custom.bedrockAgentCoreToolName` から判定すること（`event` 起点で判定しない）。
+- `save_body_metrics_batch` は1回1〜100件を受け付け、正常レコードを日付単位で登録し、入力不正・競合・書き込み失敗をレコード別結果として返すこと。
+- 一括登録の部分成功はHTTP相当200とし、入力と同じ件数・順序の `results` で `success` / `failed`、処理内容または失敗理由を識別可能にすること。
+- 一括登録の確定要件は `docs/mcp-body-metrics-bulk-registration-requirements.md` を正とする。
 
 ### 9.3 連携方式
 
