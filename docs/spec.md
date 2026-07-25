@@ -167,8 +167,8 @@
 - `performedAtUtc`（RFC3339 UTC、秒精度）
 - `rpe`（任意）
 - `note`（任意）
-- `weightKg > 0`、`reps > 0`、`sets > 0` を満たすこと。
-- `0` は有効値として扱わないこと（削除マーカーとしても使用しない）。
+- `weightKg >= 0`、`reps > 0`、`sets > 0` を満たすこと。
+- 重量 `0` は自重種目などの追加重量なしを表す有効値として扱い、削除マーカーには使用しないこと。
 - 1回の `GymVisit` に保存できる `ExerciseEntry` 数は最大12件とする。
 - 前日実施トレーニングを参照できること。
 - UIの種目表示は `トレーニング名 : 部位` とし、`bodyPart` 未設定時はトレーニング名のみ表示すること。
@@ -292,7 +292,7 @@
 - `trainingMenuItemId: string`
 - `trainingName: string`
 - `bodyPart: string`（任意。未設定時は空文字）
-- `defaultWeightKg: number`（小数2桁まで）
+- `defaultWeightKg: number`（0以上、小数2桁まで。自重種目などの追加重量なしは0）
 - `defaultRepsMin: number`
 - `defaultRepsMax: number`
 - `defaultReps: number`（後方互換のため任意で返却される場合あり）
@@ -723,7 +723,7 @@
 - AIキャラクター（名前/口調）が設定・反映できること。
 - AIキャラクターアイコンは `default` 画像が表示されること。
 - トレーニング実施時刻がRFC3339 UTC（秒精度）で保存され、表示/AI利用時に `timeZoneId` 基準へ変換されること。
-- 不正値（重量/回数/セットが0以下）は登録できないこと。
+- 不正値（重量が負数、または回数/セットが0以下）は登録できないこと。
 - 他ユーザーのデータにアクセスできないこと。
 - Amplify Gen2 の1回のブランチデプロイで、フロントエンドとバックエンドが同時に反映されること。
 

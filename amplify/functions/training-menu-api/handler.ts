@@ -449,8 +449,10 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
     });
   }
 
-  if (body.defaultWeightKg <= 0 || body.defaultSets <= 0) {
-    return response(400, { message: "defaultWeightKg/defaultSets must be greater than 0." });
+  if (!Number.isFinite(body.defaultWeightKg) || body.defaultWeightKg < 0 || body.defaultSets <= 0) {
+    return response(400, {
+      message: "defaultWeightKg must be 0 or greater and defaultSets must be greater than 0."
+    });
   }
 
   const normalizedTrainingName = normalizeTrainingName(trainingName);
@@ -572,10 +574,13 @@ async function updateTrainingMenuItem(
   }
 
   if (
-    (body.defaultWeightKg !== undefined && body.defaultWeightKg <= 0) ||
+    (body.defaultWeightKg !== undefined &&
+      (!Number.isFinite(body.defaultWeightKg) || body.defaultWeightKg < 0)) ||
     (body.defaultSets !== undefined && body.defaultSets <= 0)
   ) {
-    return response(400, { message: "defaultWeightKg/defaultSets must be greater than 0." });
+    return response(400, {
+      message: "defaultWeightKg must be 0 or greater and defaultSets must be greater than 0."
+    });
   }
 
   if (nextNormalizedName !== normalizeTrainingName(currentName)) {

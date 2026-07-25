@@ -1213,7 +1213,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         };
         if (
           !payload.trainingName ||
-          payload.defaultWeightKg <= 0 ||
+          !Number.isFinite(payload.defaultWeightKg) ||
+          payload.defaultWeightKg < 0 ||
           payload.defaultRepsMin <= 0 ||
           payload.defaultRepsMax <= 0 ||
           payload.defaultRepsMin > payload.defaultRepsMax ||
@@ -1257,7 +1258,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         if (
           !nextItem.trainingName.trim() ||
-          nextItem.defaultWeightKg <= 0 ||
+          !Number.isFinite(nextItem.defaultWeightKg) ||
+          nextItem.defaultWeightKg < 0 ||
           nextItem.defaultRepsMin <= 0 ||
           nextItem.defaultRepsMax <= 0 ||
           nextItem.defaultRepsMin > nextItem.defaultRepsMax ||

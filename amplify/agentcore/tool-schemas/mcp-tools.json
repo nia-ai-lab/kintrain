@@ -305,7 +305,8 @@
                 "maximum": 8
               },
               "defaultWeightKg": {
-                "type": "number"
+                "type": "number",
+                "minimum": 0
               },
               "defaultRepsMin": {
                 "type": "integer"

@@ -390,12 +390,11 @@ function normalizePositiveInteger(value: unknown): number | undefined {
   return Math.floor(num);
 }
 
-function normalizePositiveDecimal(value: unknown): number | undefined {
-  const num = Number(value);
-  if (!Number.isFinite(num) || num <= 0) {
+export function normalizeNonNegativeDecimal(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
     return undefined;
   }
-  return Math.round(num * 100) / 100;
+  return Math.round(value * 100) / 100;
 }
 
 function normalizeMemo(value: unknown): string | undefined {
@@ -1472,7 +1471,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
       const trainingName = toNonEmptyString(item.trainingName);
       const equipment = normalizeEquipment(item.equipment) ?? defaultEquipment;
       const frequency = normalizeFrequency(item.frequency) ?? defaultFrequency;
-      const defaultWeightKg = normalizePositiveDecimal(item.defaultWeightKg);
+      const defaultWeightKg = normalizeNonNegativeDecimal(item.defaultWeightKg);
       const defaultRepsMin = normalizePositiveInteger(item.defaultRepsMin);
       const defaultRepsMax = normalizePositiveInteger(item.defaultRepsMax);
       const defaultSets = normalizePositiveInteger(item.defaultSets);
@@ -1488,8 +1487,8 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
       if (!normalizeFrequency(item.frequency)) {
         throw new Error(`items[${index}].frequency must be one of 1..8.`);
       }
-      if (!defaultWeightKg || !defaultRepsMin || !defaultRepsMax || !defaultSets) {
-        throw new Error(`items[${index}] must include positive weight/reps/sets.`);
+      if (defaultWeightKg === undefined || !defaultRepsMin || !defaultRepsMax || !defaultSets) {
+        throw new Error(`items[${index}] must include non-negative weight and positive reps/sets.`);
       }
       if (defaultRepsMin > defaultRepsMax) {
         throw new Error(`items[${index}].defaultRepsMin must be <= defaultRepsMax.`);
