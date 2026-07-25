@@ -9,6 +9,7 @@ import {
   isValidBodyWeightKg,
   localDateInclusiveUpperKey,
   localDateStartUtc,
+  normalizeNonNegativeDecimal,
   parseLocalTime,
   parseYmd,
   resolveRecordDate,
@@ -105,6 +106,15 @@ test("body metric values enforce the supported numeric ranges", () => {
   assert.equal(isValidBodyFatPercent(14.123), false);
 });
 
+test("AI menu weight accepts zero and rejects negative values", () => {
+  assert.equal(normalizeNonNegativeDecimal(0), 0);
+  assert.equal(normalizeNonNegativeDecimal(12.345), 12.35);
+  assert.equal(normalizeNonNegativeDecimal(-0.01), undefined);
+  assert.equal(normalizeNonNegativeDecimal(Number.NaN), undefined);
+  assert.equal(normalizeNonNegativeDecimal(null), undefined);
+  assert.equal(normalizeNonNegativeDecimal("0"), undefined);
+});
+
 test("local date boundaries are converted to UTC with daylight saving time", () => {
   assert.equal(localDateStartUtc("2026-07-13", "Asia/Tokyo"), "2026-07-12T15:00:00.000Z");
   assert.equal(localDateStartUtc("2026-01-15", "America/New_York"), "2026-01-15T05:00:00.000Z");
@@ -162,6 +172,26 @@ test("body metrics schema requires the four Core API measurement fields", async 
     "bodyMetricMeasuredTimeLocal"
   ]);
   assert.ok(Object.hasOwn(schema.inputSchema.properties, "timeZoneId"));
+});
+
+test("AI menu schema declares zero as the minimum weight", async () => {
+  const schemas = JSON.parse(
+    await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
+  ) as Array<{
+    name: string;
+    inputSchema: {
+      properties: {
+        items?: {
+          items?: {
+            properties?: Record<string, { minimum?: number }>;
+          };
+        };
+      };
+    };
+  }>;
+  const schema = schemas.find((candidate) => candidate.name === "create_training_menu_set_from_ai");
+  assert.ok(schema, "create_training_menu_set_from_ai schema is missing");
+  assert.equal(schema.inputSchema.properties.items?.items?.properties?.defaultWeightKg?.minimum, 0);
 });
 
 test("batch body metrics schema exposes partial-success inputs without public identity fields", async () => {
