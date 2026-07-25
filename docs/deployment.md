@@ -96,6 +96,8 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
   - ChatGPT側でプラグインを作り直すとCallback URLが変わる可能性があり、その場合は再登録・再デプロイする
   - Client Secretはこの環境変数へ設定しない。AWS CLIまたはCognito Consoleから取得し、ChatGPT側のOAuth設定だけへ入力する
   - ChatGPT接続手順は `docs/chatgpt-mcp-connection.md` を参照する
+- Claude用Callback URLは固定値 `https://claude.ai/api/mcp/auth_callback` をCDKで登録するため、環境変数は不要
+  - Claudeカスタムコネクタ接続手順は `docs/claude-mcp-connection.md` を参照する
 - `ENABLE_WEB_SEARCH_TOOL`
 - `WEB_SEARCH_PROVIDER`
 - 必要に応じて `AI_COACH_GATEWAY_NAME` / `AI_COACH_MEMORY_NAME` / `AI_COACH_RUNTIME_NAME`
@@ -109,7 +111,7 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
 - 未認証のCore APIとAI Runtimeが401になる
 - Cognitoログイン後、プロフィール、メニュー、実施記録、Daily、AI設定を読書きできる
 - AgentCore有効環境ではAIチャットのSSE応答とMCP参照が動作する
-- ChatGPT接続環境では、Cognito認可コード取得、Client Secretを使ったtoken交換、MCP `initialize`が成功する
+- ChatGPT / Claude接続環境では、Cognito認可コード取得、Client Secretを使ったtoken交換、MCP `initialize`が成功する
 - CloudWatch LogsへJWT、APIキー、日記本文などの機微情報が出ていない
 
 ## 8. ロールバック
