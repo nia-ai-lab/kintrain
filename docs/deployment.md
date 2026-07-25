@@ -93,6 +93,8 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
   - ChatGPT Developer mode appが発行する `https://chatgpt.com/connector/oauth/...` を設定する
   - 複数指定はカンマ区切り
   - ChatGPT接続手順は `docs/chatgpt-mcp-connection.md` を参照する
+- Claude用Callback URLは固定値 `https://claude.ai/api/mcp/auth_callback` をCDKで登録するため、環境変数は不要
+  - Claudeカスタムコネクタ接続手順は `docs/claude-mcp-connection.md` を参照する
 - `ENABLE_WEB_SEARCH_TOOL`
 - `WEB_SEARCH_PROVIDER`
 - 必要に応じて `AI_COACH_GATEWAY_NAME` / `AI_COACH_MEMORY_NAME` / `AI_COACH_RUNTIME_NAME`
@@ -106,6 +108,7 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
 - 未認証のCore APIとAI Runtimeが401になる
 - Cognitoログイン後、プロフィール、メニュー、実施記録、Daily、AI設定を読書きできる
 - AgentCore有効環境ではAIチャットのSSE応答とMCP参照が動作する
+- ChatGPT / Claude接続環境では、Cognito認可コード取得、Client Secretを使ったtoken交換、MCP `initialize`が成功する
 - CloudWatch LogsへJWT、APIキー、日記本文などの機微情報が出ていない
 
 ## 8. ロールバック

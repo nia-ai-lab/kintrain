@@ -91,6 +91,30 @@ const chatGptOAuthClient = backend.auth.resources.userPool.addClient("ChatGptOAu
     callbackUrls: chatGptOAuthCallbackUrls
   }
 });
+const claudeOAuthCallbackUrls = ["https://claude.ai/api/mcp/auth_callback"];
+const claudeOAuthClient = backend.auth.resources.userPool.addClient("ClaudeOAuthClient", {
+  userPoolClientName: `KinTrain-Claude-${deploymentBranchSuffix}`,
+  generateSecret: true,
+  authFlows: {},
+  preventUserExistenceErrors: true,
+  enableTokenRevocation: true,
+  accessTokenValidity: Duration.hours(1),
+  idTokenValidity: Duration.hours(1),
+  refreshTokenValidity: Duration.days(30),
+  supportedIdentityProviders: [cognito.UserPoolClientIdentityProvider.COGNITO],
+  oAuth: {
+    flows: {
+      authorizationCodeGrant: true
+    },
+    scopes: [
+      cognito.OAuthScope.OPENID,
+      cognito.OAuthScope.EMAIL,
+      cognito.OAuthScope.PROFILE,
+      cognito.OAuthScope.COGNITO_ADMIN
+    ],
+    callbackUrls: claudeOAuthCallbackUrls
+  }
+});
 
 function tableNameFor(baseName: string): string {
   return `KinTrain-${baseName}-${deploymentBranchSuffix}`;
@@ -333,7 +357,11 @@ mcpToolsApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerf
 mcpIdentityInterceptorLambda.addEnvironment("USER_POOL_ID", backend.auth.resources.userPool.userPoolId);
 mcpIdentityInterceptorLambda.addEnvironment(
   "USER_POOL_CLIENT_IDS",
-  `${backend.auth.resources.userPoolClient.userPoolClientId},${chatGptOAuthClient.userPoolClientId}`
+  [
+    backend.auth.resources.userPoolClient.userPoolClientId,
+    chatGptOAuthClient.userPoolClientId,
+    claudeOAuthClient.userPoolClientId
+  ].join(",")
 );
 
 const coreApi = new apigateway.RestApi(stack, "CoreApiGateway", {
@@ -596,6 +624,11 @@ backend.addOutput({
       clientId: chatGptOAuthClient.userPoolClientId,
       managedLoginUrl: chatGptOAuthDomain.baseUrl(),
       callbackUrls: chatGptOAuthCallbackUrls.join(",")
+    },
+    claudeOAuth: {
+      clientId: claudeOAuthClient.userPoolClientId,
+      managedLoginUrl: chatGptOAuthDomain.baseUrl(),
+      callbackUrls: claudeOAuthCallbackUrls.join(",")
     },
     storage: {
       avatarImageBucketName: avatarImageBucket.bucketName

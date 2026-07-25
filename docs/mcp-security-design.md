@@ -127,7 +127,7 @@ MCP Lambdaは `event.__principalUserId` だけをユーザー識別子として�
 - Dev / Main Gateway `READY`
 - Main REQUEST Interceptor Lambda `Active` / update `Successful`
 
-ChatGPT OAuth Clientを追加する場合も、フロント用Client IDとChatGPT用Client IDの両方を明示的なallowlistとしてInterceptorへ渡す。User Poolが同一でも、allowlistにないApp Clientが発行したtokenは受け入れない。
+外部MCPクライアント用OAuth Clientを追加する場合も、フロント用、ChatGPT用、Claude用のClient IDを明示的なallowlistとしてInterceptorへ渡す。User Poolが同一でも、allowlistにないApp Clientが発行したtokenは受け入れない。ChatGPTとClaudeは別App Clientとし、Client Secret、Callback URL、失効・ローテーションの影響範囲を分離する。
 
 ## 8. 残存リスクと対象外
 

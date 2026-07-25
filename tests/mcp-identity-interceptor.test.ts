@@ -33,10 +33,13 @@ function eventFor(argumentsObject: JsonObject, authorization = "Bearer valid-tok
 const verifyAsPrincipal = async () => ({ sub: principalUserId });
 
 test("multiple Cognito app client IDs are parsed and deduplicated", () => {
-  assert.deepEqual(resolveUserPoolClientIds("frontend-client, chatgpt-client,frontend-client", undefined), [
-    "frontend-client",
-    "chatgpt-client"
-  ]);
+  assert.deepEqual(
+    resolveUserPoolClientIds(
+      "frontend-client, chatgpt-client, claude-client,frontend-client",
+      undefined
+    ),
+    ["frontend-client", "chatgpt-client", "claude-client"]
+  );
 });
 
 test("legacy single Cognito app client ID remains supported", () => {
@@ -116,4 +119,16 @@ test("public MCP schemas do not expose user identity fields", async () => {
     assert.equal(Object.hasOwn(schema.inputSchema.properties, "__principalUserId"), false);
     assert.equal(schema.inputSchema.required?.includes("userId") ?? false, false);
   }
+});
+
+test("backend provisions and allowlists a dedicated Claude OAuth app client", async () => {
+  const source = await readFile("amplify/backend.ts", "utf8");
+  assert.match(source, /addClient\("ClaudeOAuthClient"/);
+  assert.match(source, /KinTrain-Claude-\$\{deploymentBranchSuffix\}/);
+  assert.match(source, /https:\/\/claude\.ai\/api\/mcp\/auth_callback/);
+  assert.match(
+    source,
+    /chatGptOAuthClient\.userPoolClientId,\s*claudeOAuthClient\.userPoolClientId/
+  );
+  assert.match(source, /claudeOAuth:\s*\{\s*clientId: claudeOAuthClient\.userPoolClientId/);
 });
