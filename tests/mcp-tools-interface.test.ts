@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { encodePageToken } from "../amplify/functions/shared/pagination.ts";
 import {
   type BodyMetricDdbSender,
   type TrainingMenuLookupSender,
@@ -263,15 +264,24 @@ test("training history rejects mismatched menu ID and name references", async ()
   }
 });
 
-test("pagination tokens are bound to the original tool and range", () => {
+test("pagination tokens hide user identity and are bound to the original tool and range", async () => {
   const context = JSON.stringify(["get_daily_records", "2026-07-01", "2026-07-13", "Asia/Tokyo"]);
-  const token = Buffer.from(
-    JSON.stringify({ version: 1, context, key: { userId: "user-a", recordDate: "2026-07-05" } }),
-    "utf8"
-  ).toString("base64url");
-  assert.deepEqual(decodeNextToken(token, context), { userId: "user-a", recordDate: "2026-07-05" });
-  assert.equal(decodeNextToken(token, `${context}:changed`), null);
-  assert.equal(decodeNextToken("not-a-token", context), null);
+  const signingSecret = "test-pagination-signing-key-with-at-least-thirty-two-characters";
+  const token = await encodePageToken(
+    { userId: "user-a", recordDate: "2026-07-05" },
+    context,
+    "user-a",
+    signingSecret
+  );
+  assert.ok(token);
+  assert.equal(Buffer.from(token.split(".")[0], "base64url").toString("utf8").includes("user-a"), false);
+  assert.deepEqual(await decodeNextToken(token, context, "user-a", signingSecret), {
+    userId: "user-a",
+    recordDate: "2026-07-05"
+  });
+  assert.equal(await decodeNextToken(token, `${context}:changed`, "user-a", signingSecret), null);
+  assert.equal(await decodeNextToken(token, context, "user-b", signingSecret), null);
+  assert.equal(await decodeNextToken("not-a-token", context, "user-a", signingSecret), null);
 });
 
 test("history list schemas share the paging and local-date interface", async () => {

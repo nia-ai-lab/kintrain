@@ -1,6 +1,7 @@
 import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import { ddb } from "../shared/ddb";
+import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
@@ -318,32 +319,30 @@ type ListArguments = {
 
 type ListArgumentResult = { value: ListArguments } | { response: McpToolResponse };
 
-function encodeNextToken(lastEvaluatedKey: Record<string, unknown> | undefined, context: string): string | undefined {
-  if (!lastEvaluatedKey) {
-    return undefined;
-  }
-  return Buffer.from(JSON.stringify({ version: 1, context, key: lastEvaluatedKey }), "utf8").toString("base64url");
+async function encodeNextToken(
+  lastEvaluatedKey: Record<string, unknown> | undefined,
+  context: string,
+  userId: string
+): Promise<string | undefined> {
+  return encodePageToken(lastEvaluatedKey, context, userId);
 }
 
-export function decodeNextToken(value: unknown, expectedContext: string): Record<string, unknown> | undefined | null {
+export async function decodeNextToken(
+  value: unknown,
+  expectedContext: string,
+  expectedUserId: string,
+  signingSecret?: string
+): Promise<Record<string, unknown> | undefined | null> {
   if (value === undefined || value === null || value === "") {
     return undefined;
   }
   if (typeof value !== "string") {
     return null;
   }
-  try {
-    const parsed = JSON.parse(Buffer.from(value, "base64url").toString("utf8")) as Record<string, unknown>;
-    const key = parsed?.key;
-    return parsed?.version === 1 && parsed?.context === expectedContext && key && typeof key === "object" && !Array.isArray(key)
-      ? (key as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
+  return decodePageToken(value, expectedContext, expectedUserId, signingSecret);
 }
 
-function parseListArguments(args: ToolArgs, scope: string): ListArgumentResult {
+async function parseListArguments(args: ToolArgs, scope: string, userId: string): Promise<ListArgumentResult> {
   const from = args.from === undefined ? undefined : parseYmd(args.from);
   const to = args.to === undefined ? undefined : parseYmd(args.to);
   if (args.from !== undefined && !from) {
@@ -364,7 +363,7 @@ function parseListArguments(args: ToolArgs, scope: string): ListArgumentResult {
     return { response: mcpToolResponse(400, { message: "limit must be an integer between 1 and 100." }) };
   }
   const nextTokenContext = JSON.stringify([scope, from ?? null, to ?? null, timeZoneId]);
-  const exclusiveStartKey = decodeNextToken(args.nextToken, nextTokenContext);
+  const exclusiveStartKey = await decodeNextToken(args.nextToken, nextTokenContext, userId);
   if (exclusiveStartKey === null) {
     return { response: mcpToolResponse(400, { message: "nextToken is invalid." }) };
   }
@@ -748,14 +747,13 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   const tokenContext = JSON.stringify([
     "analysis-export",
     2,
-    userId,
     typedSection,
     selection.rangeMode,
     selection.from ?? null,
     selection.to ?? null,
     selection.timeZoneId
   ]);
-  const exclusiveStartKey = decodeNextToken(args.nextToken, tokenContext);
+  const exclusiveStartKey = await decodeNextToken(args.nextToken, tokenContext, userId);
   if (
     exclusiveStartKey === null ||
     (exclusiveStartKey !== undefined && exclusiveStartKey.userId !== userId)
@@ -874,7 +872,11 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   }
 
   const nextToken =
-    encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, tokenContext) ?? null;
+    (await encodeNextToken(
+      result.LastEvaluatedKey as Record<string, unknown> | undefined,
+      tokenContext,
+      userId
+    )) ?? null;
   return mcpToolResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
@@ -1057,7 +1059,7 @@ function requireUserId(args: ToolArgs): string | null {
 }
 
 async function getGymVisits(args: ToolArgs, userId: string): Promise<McpToolResponse> {
-  const parsed = parseListArguments(args, "get_gym_visits");
+  const parsed = await parseListArguments(args, "get_gym_visits", userId);
   if ("response" in parsed) {
     return parsed.response;
   }
@@ -1092,7 +1094,11 @@ async function getGymVisits(args: ToolArgs, userId: string): Promise<McpToolResp
     range: listRange(options),
     limit: options.limit,
     nextToken:
-      encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, options.nextTokenContext) ?? null
+      (await encodeNextToken(
+        result.LastEvaluatedKey as Record<string, unknown> | undefined,
+        options.nextTokenContext,
+        userId
+      )) ?? null
   });
 }
 
@@ -1209,7 +1215,7 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<McpTo
     return resolvedMenu.response;
   }
   const { trainingMenuItemId, trainingMenuName } = resolvedMenu.value;
-  const parsed = parseListArguments(args, `get_training_history:${trainingMenuItemId}`);
+  const parsed = await parseListArguments(args, `get_training_history:${trainingMenuItemId}`, userId);
   if ("response" in parsed) {
     return parsed.response;
   }
@@ -1269,15 +1275,17 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<McpTo
     items,
     range: listRange(options),
     limit: options.limit,
-    nextToken: encodeNextToken(
-      performanceResult.LastEvaluatedKey as Record<string, unknown> | undefined,
-      options.nextTokenContext
-    ) ?? null
+    nextToken:
+      (await encodeNextToken(
+        performanceResult.LastEvaluatedKey as Record<string, unknown> | undefined,
+        options.nextTokenContext,
+        userId
+      )) ?? null
   });
 }
 
 async function getDailyRecords(args: ToolArgs, userId: string): Promise<McpToolResponse> {
-  const parsed = parseListArguments(args, "get_daily_records");
+  const parsed = await parseListArguments(args, "get_daily_records", userId);
   if ("response" in parsed) {
     return parsed.response;
   }
@@ -1307,7 +1315,11 @@ async function getDailyRecords(args: ToolArgs, userId: string): Promise<McpToolR
     range: listRange(options),
     limit: options.limit,
     nextToken:
-      encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, options.nextTokenContext) ?? null
+      (await encodeNextToken(
+        result.LastEvaluatedKey as Record<string, unknown> | undefined,
+        options.nextTokenContext,
+        userId
+      )) ?? null
   });
 }
 

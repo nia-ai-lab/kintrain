@@ -630,7 +630,11 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
   const requestedLimit = Number(event.queryStringParameters?.limit ?? "100");
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 100;
   const tokenContext = JSON.stringify(["gym-visits", from ?? null, to ?? null]);
-  const exclusiveStartKey = decodePageToken(event.queryStringParameters?.nextToken, tokenContext, userId);
+  const exclusiveStartKey = await decodePageToken(
+    event.queryStringParameters?.nextToken,
+    tokenContext,
+    userId
+  );
   if (exclusiveStartKey === null) {
     return response(400, { message: "nextToken is invalid for this user or date range." });
   }
@@ -668,9 +672,10 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
         return visitDateLocal >= from && visitDateLocal <= to;
       })
       .map(({ userId: _userId, ...item }) => item),
-    nextToken: encodePageToken(
+    nextToken: await encodePageToken(
       result.LastEvaluatedKey as Record<string, unknown> | undefined,
-      tokenContext
+      tokenContext,
+      userId
     )
   });
 }

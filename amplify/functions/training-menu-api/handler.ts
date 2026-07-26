@@ -11,6 +11,7 @@ import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, response, toNonEmptyString } from "../shared/http";
+import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
@@ -234,25 +235,6 @@ function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, u
   };
 }
 
-function decodeNextToken(token?: string): Record<string, unknown> | undefined {
-  if (!token) {
-    return undefined;
-  }
-  try {
-    const raw = Buffer.from(token, "base64").toString("utf-8");
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return undefined;
-  }
-}
-
-function encodeNextToken(lastEvaluatedKey?: Record<string, unknown>): string | undefined {
-  if (!lastEvaluatedKey) {
-    return undefined;
-  }
-  return Buffer.from(JSON.stringify(lastEvaluatedKey), "utf-8").toString("base64");
-}
-
 const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
 const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
@@ -382,6 +364,15 @@ async function getMenuSetById(userId: string, trainingMenuSetId: string): Promis
 async function listTrainingMenuItems(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
   const requestedLimit = Number(event.queryStringParameters?.limit ?? "100");
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, requestedLimit)) : 100;
+  const tokenContext = JSON.stringify(["training-menu-items"]);
+  const exclusiveStartKey = await decodePageToken(
+    event.queryStringParameters?.nextToken,
+    tokenContext,
+    userId
+  );
+  if (exclusiveStartKey === null) {
+    return response(400, { message: "nextToken is invalid for this user." });
+  }
 
   const result = await ddb.send(
     new QueryCommand({
@@ -392,7 +383,7 @@ async function listTrainingMenuItems(event: APIGatewayProxyEvent, userId: string
         ":userId": userId
       },
       Limit: limit,
-      ExclusiveStartKey: decodeNextToken(event.queryStringParameters?.nextToken)
+      ExclusiveStartKey: exclusiveStartKey
     })
   );
 
@@ -402,7 +393,11 @@ async function listTrainingMenuItems(event: APIGatewayProxyEvent, userId: string
 
   return response(200, {
     items,
-    nextToken: encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined)
+    nextToken: await encodePageToken(
+      result.LastEvaluatedKey as Record<string, unknown> | undefined,
+      tokenContext,
+      userId
+    )
   });
 }
 
