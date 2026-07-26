@@ -485,7 +485,9 @@ export function TrainingSessionPage() {
 
               <div className="input-grid training-metrics-grid">
                 <label>
-                  {item.weightInputMode === 'perSide' ? '片側重量 (kg)' : '重量 (kg)'}
+                  <span className="training-metric-title">
+                    {item.weightInputMode === 'perSide' ? '片側重量 (kg)' : '重量 (kg)'}
+                  </span>
                   <input
                     type="number"
                     min={0}
@@ -508,7 +510,7 @@ export function TrainingSessionPage() {
                       });
                     }}
                   />
-                  <span className="muted">
+                  <span className="muted training-metric-total">
                     {item.weightInputMode === 'legacyUnspecified'
                       ? '重量の意味が未設定です。メニュー設定で指定してください。'
                       : item.weightInputMode === 'direct'
@@ -524,7 +526,9 @@ export function TrainingSessionPage() {
                   </span>
                 </label>
                 <label>
-                  {formatRepsInputLabel(item.defaultRepsMin, item.defaultRepsMax)}
+                  <span className="training-metric-title">
+                    {formatRepsInputLabel(item.defaultRepsMin, item.defaultRepsMax)}
+                  </span>
                   <input
                     type="number"
                     min={0}
@@ -549,7 +553,7 @@ export function TrainingSessionPage() {
                   />
                 </label>
                 <label>
-                  セット
+                  <span className="training-metric-title">セット</span>
                   <input
                     type="number"
                     min={0}
