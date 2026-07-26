@@ -959,6 +959,11 @@ a {
   padding: 10px 8px;
 }
 
+.training-metric-total {
+  grid-column: 1 / -1;
+  min-width: 0;
+}
+
 .menu-add-form,
 .menu-item-editor {
   display: grid;
@@ -1325,6 +1330,12 @@ a {
   .training-metric-total {
     line-height: 1.4;
   }
+
+  .training-metric-total.is-calculated {
+    white-space: nowrap;
+    font-size: clamp(0.72rem, 3.1vw, 0.8rem);
+    letter-spacing: -0.01em;
+  }
 }
 
 .daily-rating-section-card {
@@ -1520,21 +1531,6 @@ a {
   height: 8px;
   border-radius: 999px;
   box-shadow: inset 0 0 0 1px rgba(24, 32, 40, 0.05);
-}
-
-.set-detail-list {
-  margin-top: 8px;
-  border-top: 1px solid var(--line);
-  padding-top: 8px;
-  display: grid;
-  gap: 6px;
-}
-
-.set-detail-row {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr;
-  gap: 8px;
-  align-items: center;
 }
 
 .sticky-action {
