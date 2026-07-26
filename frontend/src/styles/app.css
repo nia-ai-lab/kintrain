@@ -1008,6 +1008,50 @@ a {
   gap: 10px;
 }
 
+.menu-field-group {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.menu-field-group-title {
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(15, 118, 110, 0.12);
+  color: var(--primary-strong);
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.menu-three-fields-row > label,
+.menu-weight-fields-row > label,
+.menu-reps-fields-row > label,
+.menu-training-name-field,
+.menu-training-note-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  font-size: 0.86rem;
+}
+
+.menu-weight-fields-row,
+.menu-reps-fields-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.menu-weight-fields-row input,
+.menu-reps-fields-row input {
+  text-align: center;
+}
+
+.menu-weight-help,
+.menu-total-weight {
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
 .menu-metrics-row {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1257,10 +1301,29 @@ a {
   .input-grid.training-metrics-grid {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 8px;
+    align-items: start;
   }
 
-  .input-grid.training-metrics-grid label {
+  .input-grid.training-metrics-grid > label {
+    align-content: start;
     font-size: 0.8rem;
+  }
+
+  .training-metric-title {
+    display: flex;
+    align-items: flex-end;
+    min-height: 2.6em;
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
+
+  .input-grid.training-metrics-grid input {
+    height: 48px;
+    min-height: 48px;
+  }
+
+  .training-metric-total {
+    line-height: 1.4;
   }
 }
 
@@ -2155,5 +2218,129 @@ a {
     min-height: clamp(360px, 55svh, 620px);
     height: clamp(360px, 55svh, 620px);
     max-height: clamp(360px, 55svh, 620px);
+  }
+
+  .training-menu-page,
+  .training-menu-item-list {
+    gap: 14px;
+  }
+
+  .menu-item-card {
+    padding: 12px;
+  }
+
+  .menu-item-header-under {
+    gap: 10px;
+  }
+
+  .menu-item-header-under .priority-chip {
+    margin-bottom: 0;
+  }
+
+  .menu-item-actions-under {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .menu-item-actions-under .btn {
+    width: 100%;
+    min-width: 0;
+    min-height: 46px;
+    padding: 9px 8px;
+  }
+
+  .menu-item-icon-button {
+    width: 100%;
+    min-width: 0;
+    font-size: 1.12rem;
+  }
+
+  .menu-item-editor {
+    gap: 16px;
+    padding: 12px;
+    border-radius: 18px;
+    box-shadow: none;
+  }
+
+  .menu-training-name-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .menu-ai-generated-check {
+    min-height: 44px;
+    justify-self: start;
+    align-self: auto;
+    padding: 8px 12px;
+    border: 1px solid rgba(15, 118, 110, 0.12);
+    border-radius: 999px;
+    background: rgba(15, 118, 110, 0.05);
+  }
+
+  .menu-ai-generated-check input {
+    width: 20px;
+    height: 20px;
+    min-width: 20px;
+  }
+
+  .menu-field-group {
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid rgba(24, 32, 40, 0.06);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.56);
+  }
+
+  .menu-field-group-title {
+    padding-bottom: 8px;
+    font-size: 0.8rem;
+  }
+
+  .menu-three-fields-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
+  .menu-three-fields-row > label:first-child {
+    grid-column: 1 / -1;
+  }
+
+  .menu-weight-fields-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
+
+  .menu-reps-fields-row {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .menu-training-name-row input,
+  .menu-three-fields-row input,
+  .menu-three-fields-row select,
+  .menu-weight-fields-row input,
+  .menu-weight-fields-row select,
+  .menu-reps-fields-row input {
+    min-height: 48px;
+  }
+
+  .menu-reps-fields-row > label {
+    gap: 5px;
+    font-size: 0.78rem;
+    white-space: nowrap;
+  }
+
+  .menu-reps-fields-row input {
+    padding-inline: 6px;
+  }
+
+  .menu-weight-help,
+  .menu-total-weight {
+    font-size: 0.84rem;
+  }
+
+  .menu-training-note-field textarea {
+    min-height: 96px;
+    resize: vertical;
   }
 }

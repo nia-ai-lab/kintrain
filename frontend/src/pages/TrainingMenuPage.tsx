@@ -369,62 +369,73 @@ export function TrainingMenuPage() {
                 <span>AI生成</span>
               </label>
             </div>
-            <div className="menu-three-fields-row">
-              <label>
-                鍛える部位
-                <input name="bodyPart" placeholder="例: 胸 / 背中 / 脚" />
-              </label>
-              <label>
-                用具
-                <select name="equipment" defaultValue="マシン" required>
-                  {TRAINING_EQUIPMENT_OPTIONS.map((equipment) => (
-                    <option key={equipment} value={equipment}>
-                      {equipment}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label>
-                頻度
-                <select name="frequency" defaultValue="3" required>
-                  {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
-                    <option key={frequency} value={String(frequency)}>
-                      {frequencyLabel(frequency)}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="menu-field-group">
+              <p className="menu-field-group-title">基本設定</p>
+              <div className="menu-three-fields-row">
+                <label>
+                  鍛える部位
+                  <input name="bodyPart" placeholder="例: 胸 / 背中 / 脚" />
+                </label>
+                <label>
+                  用具
+                  <select name="equipment" defaultValue="マシン" required>
+                    {TRAINING_EQUIPMENT_OPTIONS.map((equipment) => (
+                      <option key={equipment} value={equipment}>
+                        {equipment}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  頻度
+                  <select name="frequency" defaultValue="3" required>
+                    {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
+                      <option key={frequency} value={String(frequency)}>
+                        {frequencyLabel(frequency)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
             </div>
-            <div className="menu-metrics-row">
-              <label>
-                重量 (kg)
-                <input name="defaultWeightKg" type="number" step="0.01" min="0" required />
-              </label>
-              <label>
-                重量の入力方式
-                <select name="weightInputMode" defaultValue="direct" required>
-                  <option value="direct">入力値が総重量</option>
-                  <option value="perSide">片側重量 × 2</option>
-                </select>
-              </label>
-              <label>
-                バー等の固定分 (kg)
-                <input name="fixedWeightKg" type="number" step="0.01" min="0" defaultValue="0" required />
-              </label>
-              <label>
-                回数 最小
-                <input name="defaultRepsMin" type="number" step="1" min="1" required />
-              </label>
-              <label>
-                回数 最大
-                <input name="defaultRepsMax" type="number" step="1" min="1" required />
-              </label>
-              <label>
-                セット
-                <input name="defaultSets" type="number" step="1" min="1" required />
-              </label>
+            <div className="menu-field-group">
+              <p className="menu-field-group-title">重量設定</p>
+              <div className="menu-weight-fields-row">
+                <label>
+                  重量 (kg)
+                  <input name="defaultWeightKg" type="number" step="0.01" min="0" required />
+                </label>
+                <label>
+                  重量の入力方式
+                  <select name="weightInputMode" defaultValue="direct" required>
+                    <option value="direct">入力値が総重量</option>
+                    <option value="perSide">片側重量 × 2</option>
+                  </select>
+                </label>
+                <label>
+                  バー等の固定分 (kg)
+                  <input name="fixedWeightKg" type="number" step="0.01" min="0" defaultValue="0" required />
+                </label>
+              </div>
+              <p className="muted menu-weight-help">片側重量の場合: 入力重量 × 2 + バー等の固定分</p>
             </div>
-            <p className="muted">片側重量を選ぶ場合、総重量は「入力重量 × 2 + バー等の固定分」で計算します。</p>
+            <div className="menu-field-group">
+              <p className="menu-field-group-title">回数・セット</p>
+              <div className="menu-reps-fields-row">
+                <label>
+                  回数 最小
+                  <input name="defaultRepsMin" type="number" step="1" min="1" required />
+                </label>
+                <label>
+                  回数 最大
+                  <input name="defaultRepsMax" type="number" step="1" min="1" required />
+                </label>
+                <label>
+                  セット
+                  <input name="defaultSets" type="number" step="1" min="1" required />
+                </label>
+              </div>
+            </div>
             <label className="menu-training-note-field">
               説明
               <textarea
@@ -522,7 +533,7 @@ function MenuItemCard({
   onMoveDown: () => void;
 }) {
   return (
-    <article className="card">
+    <article className="card menu-item-card">
       <div className="menu-item-header-under">
         <p className="priority-chip">#{order}</p>
         <div className="menu-item-actions-under">
@@ -556,119 +567,130 @@ function MenuItemCard({
             <span>AI生成</span>
           </label>
         </div>
-        <div className="menu-three-fields-row">
-          <label>
-            鍛える部位
-            <input
-              value={item.bodyPart}
-              onChange={(e) => onUpdate({ bodyPart: e.target.value })}
-              placeholder="例: 胸 / 背中 / 脚"
+        <div className="menu-field-group">
+          <p className="menu-field-group-title">基本設定</p>
+          <div className="menu-three-fields-row">
+            <label>
+              鍛える部位
+              <input
+                value={item.bodyPart}
+                onChange={(e) => onUpdate({ bodyPart: e.target.value })}
+                placeholder="例: 胸 / 背中 / 脚"
+              />
+            </label>
+            <label>
+              用具
+              <select
+                value={item.equipment}
+                onChange={(e) =>
+                  onUpdate({
+                    equipment: e.target.value as TrainingEquipment
+                  })
+                }
+              >
+                {TRAINING_EQUIPMENT_OPTIONS.map((equipment) => (
+                  <option key={equipment} value={equipment}>
+                    {equipment}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              頻度
+              <select
+                value={item.frequency}
+                onChange={(e) =>
+                  onUpdate({
+                    frequency: Number(e.target.value) as TrainingFrequencyDays
+                  })
+                }
+              >
+                {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
+                  <option key={frequency} value={String(frequency)}>
+                    {frequencyLabel(frequency)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="menu-field-group">
+          <p className="menu-field-group-title">重量設定</p>
+          <div className="menu-weight-fields-row">
+            <MenuMetricInput
+              label="重量 (kg)"
+              value={item.defaultWeightKg}
+              min={0}
+              step={0.01}
+              onCommit={(value) => onUpdate({ defaultWeightKg: value })}
             />
-          </label>
-          <label>
-            用具
-            <select
-              value={item.equipment}
-              onChange={(e) =>
-                onUpdate({
-                  equipment: e.target.value as TrainingEquipment
-                })
-              }
-            >
-              {TRAINING_EQUIPMENT_OPTIONS.map((equipment) => (
-                <option key={equipment} value={equipment}>
-                  {equipment}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            頻度
-            <select
-              value={item.frequency}
-              onChange={(e) =>
-                onUpdate({
-                  frequency: Number(e.target.value) as TrainingFrequencyDays
-                })
-              }
-            >
-              {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
-                <option key={frequency} value={String(frequency)}>
-                  {frequencyLabel(frequency)}
-                </option>
-              ))}
-            </select>
-          </label>
+            <label>
+              重量の入力方式
+              <select
+                value={item.weightInputMode}
+                onChange={(e) => {
+                  const mode = e.target.value as WeightInputMode;
+                  onUpdate({
+                    weightInputMode: mode,
+                    loadMultiplier: mode === 'perSide' ? 2 : 1,
+                    fixedWeightKg: mode === 'direct' ? 0 : item.fixedWeightKg
+                  });
+                }}
+              >
+                {item.weightInputMode === 'legacyUnspecified' && (
+                  <option value="legacyUnspecified">未設定（従来データ）</option>
+                )}
+                <option value="direct">入力値が総重量</option>
+                <option value="perSide">片側重量 × 2</option>
+              </select>
+            </label>
+            <MenuMetricInput
+              label="バー等の固定分 (kg)"
+              value={item.fixedWeightKg}
+              min={0}
+              step={0.01}
+              onCommit={(value) => onUpdate({ fixedWeightKg: item.weightInputMode === 'direct' ? 0 : value })}
+            />
+          </div>
+          <p className="muted menu-total-weight">
+            {item.weightInputMode === 'legacyUnspecified'
+              ? '重量の意味が未設定です。総重量か片側重量かを選択してください。'
+              : item.weightInputMode === 'direct'
+                ? `換算総重量: ${item.defaultWeightKg}kg`
+                : `換算総重量: ${calculateTotalWeightKg(
+                    item.defaultWeightKg,
+                    item.weightInputMode,
+                    item.loadMultiplier,
+                    item.fixedWeightKg
+                  )}kg（片側 × ${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
+          </p>
         </div>
-        <div className="menu-metrics-row">
-          <MenuMetricInput
-            label="重量 (kg)"
-            value={item.defaultWeightKg}
-            min={0}
-            step={0.01}
-            onCommit={(value) => onUpdate({ defaultWeightKg: value })}
-          />
-          <label>
-            重量の入力方式
-            <select
-              value={item.weightInputMode}
-              onChange={(e) => {
-                const mode = e.target.value as WeightInputMode;
-                onUpdate({
-                  weightInputMode: mode,
-                  loadMultiplier: mode === 'perSide' ? 2 : 1,
-                  fixedWeightKg: mode === 'direct' ? 0 : item.fixedWeightKg
-                });
-              }}
-            >
-              {item.weightInputMode === 'legacyUnspecified' && (
-                <option value="legacyUnspecified">未設定（従来データ）</option>
-              )}
-              <option value="direct">入力値が総重量</option>
-              <option value="perSide">片側重量 × 2</option>
-            </select>
-          </label>
-          <MenuMetricInput
-            label="バー等の固定分 (kg)"
-            value={item.fixedWeightKg}
-            min={0}
-            step={0.01}
-            onCommit={(value) => onUpdate({ fixedWeightKg: item.weightInputMode === 'direct' ? 0 : value })}
-          />
-          <MenuMetricInput
-            label="回数 最小"
-            value={item.defaultRepsMin}
-            min={1}
-            step={1}
-            onCommit={(value) => onUpdate({ defaultRepsMin: value })}
-          />
-          <MenuMetricInput
-            label="回数 最大"
-            value={item.defaultRepsMax}
-            min={1}
-            step={1}
-            onCommit={(value) => onUpdate({ defaultRepsMax: value })}
-          />
-          <MenuMetricInput
-            label="セット"
-            value={item.defaultSets}
-            min={1}
-            step={1}
-            onCommit={(value) => onUpdate({ defaultSets: value })}
-          />
+        <div className="menu-field-group">
+          <p className="menu-field-group-title">回数・セット</p>
+          <div className="menu-reps-fields-row">
+            <MenuMetricInput
+              label="回数 最小"
+              value={item.defaultRepsMin}
+              min={1}
+              step={1}
+              onCommit={(value) => onUpdate({ defaultRepsMin: value })}
+            />
+            <MenuMetricInput
+              label="回数 最大"
+              value={item.defaultRepsMax}
+              min={1}
+              step={1}
+              onCommit={(value) => onUpdate({ defaultRepsMax: value })}
+            />
+            <MenuMetricInput
+              label="セット"
+              value={item.defaultSets}
+              min={1}
+              step={1}
+              onCommit={(value) => onUpdate({ defaultSets: value })}
+            />
+          </div>
         </div>
-        <p className="muted">
-          {item.weightInputMode === 'legacyUnspecified'
-            ? '重量の意味が未設定です。総重量か片側重量かを選択してください。'
-            : item.weightInputMode === 'direct'
-              ? `換算総重量: ${item.defaultWeightKg}kg`
-              : `換算総重量: ${calculateTotalWeightKg(
-                  item.defaultWeightKg,
-                  item.weightInputMode,
-                  item.loadMultiplier,
-                  item.fixedWeightKg
-                )}kg（片側 × ${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
-        </p>
         <label className="menu-training-note-field">
           説明
           <textarea
