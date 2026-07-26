@@ -7,6 +7,7 @@ import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as s3 from "aws-cdk-lib/aws-s3";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as path from "node:path";
 import { auth } from "./auth/resource";
 import { aiSettingsApiFunction } from "./functions/ai-settings-api/resource";
@@ -297,6 +298,23 @@ const dailyRecordApiLambda = backend.dailyRecordApiFunction.resources.lambda as 
 const aiSettingsApiLambda = backend.aiSettingsApiFunction.resources.lambda as lambda.Function;
 const mcpIdentityInterceptorLambda = backend.mcpIdentityInterceptorFunction.resources.lambda as lambda.Function;
 const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda.Function;
+const paginationTokenSecret = new secretsmanager.Secret(stack, "PaginationTokenSigningSecret", {
+  description: `KinTrain ${deploymentBranchSuffix} pagination token signing key`,
+  generateSecretString: {
+    excludePunctuation: true,
+    passwordLength: 64
+  }
+});
+
+for (const paginationLambda of [
+  trainingMenuApiLambda,
+  trainingHistoryApiLambda,
+  dailyRecordApiLambda,
+  mcpToolsApiLambda
+]) {
+  paginationTokenSecret.grantRead(paginationLambda);
+  paginationLambda.addEnvironment("PAGINATION_TOKEN_SECRET_ARN", paginationTokenSecret.secretArn);
+}
 
 userProfileTable.grantReadWriteData(profileApiLambda);
 userProfileTable.grantReadData(mcpToolsApiLambda);

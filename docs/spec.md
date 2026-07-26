@@ -624,6 +624,7 @@
 - `GET /calendar?month=YYYY-MM` は対象月のみ（最大31日）を取得する。
 - `GET /training-session-view?date=YYYY-MM-DD` は対象日の実施済み種目判定に `TrainingHistory` を使い、直近実績は `TrainingPerformance` を使って取得する。
 - MCPの履歴一覧3ツールは `from/to/timeZoneId/limit/nextToken` を共通採用し、`limit <= 100`（既定100）でページングする。
+- Core APIとMCPの`nextToken`は署名付きversion 2形式を共通採用し、内部`userId`を格納しない。署名を認証済みユーザーと検索条件に関連付け、改ざん・別ユーザー・別条件への流用および旧形式を拒否する。
 - 分析用エクスポート:
 - ブラウザーはCore APIを全ページ取得し、`kintrain.analysis-export` schema version 1のJSONを生成する。
 - MCPは`get_analysis_export_manifest`と`get_analysis_export_page`を提供し、セクションごとに`limit <= 50`でページングする。

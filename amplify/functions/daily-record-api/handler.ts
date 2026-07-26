@@ -140,7 +140,11 @@ async function listDailyRecords(event: APIGatewayProxyEvent, userId: string): Pr
   const requestedLimit = Number(event.queryStringParameters?.limit ?? "100");
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 100;
   const tokenContext = JSON.stringify(["daily-records", from ?? null, to ?? null]);
-  const exclusiveStartKey = decodePageToken(event.queryStringParameters?.nextToken, tokenContext, userId);
+  const exclusiveStartKey = await decodePageToken(
+    event.queryStringParameters?.nextToken,
+    tokenContext,
+    userId
+  );
   if (exclusiveStartKey === null) {
     return response(400, { message: "nextToken is invalid for this user or date range." });
   }
@@ -167,9 +171,10 @@ async function listDailyRecords(event: APIGatewayProxyEvent, userId: string): Pr
 
   return response(200, {
     items: (result.Items ?? []).map(({ userId: _userId, ...item }) => item),
-    nextToken: encodePageToken(
+    nextToken: await encodePageToken(
       result.LastEvaluatedKey as Record<string, unknown> | undefined,
-      tokenContext
+      tokenContext,
+      userId
     )
   });
 }
