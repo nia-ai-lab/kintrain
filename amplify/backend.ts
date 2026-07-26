@@ -299,6 +299,7 @@ const mcpIdentityInterceptorLambda = backend.mcpIdentityInterceptorFunction.reso
 const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda.Function;
 
 userProfileTable.grantReadWriteData(profileApiLambda);
+userProfileTable.grantReadData(mcpToolsApiLambda);
 avatarImageBucket.grantRead(profileApiLambda, "users/*");
 avatarImageBucket.grantDelete(profileApiLambda, "users/*");
 avatarImageBucket.grantRead(aiSettingsApiLambda, "users/*");
@@ -350,6 +351,7 @@ mcpToolsApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.tab
 mcpToolsApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
 mcpToolsApiLambda.addEnvironment("AI_SETTING_TABLE_NAME", aiSettingTable.tableName);
 mcpToolsApiLambda.addEnvironment("AI_ADVICE_LOG_TABLE_NAME", aiAdviceLogTable.tableName);
+mcpToolsApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);

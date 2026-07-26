@@ -1,5 +1,78 @@
 [
   {
+    "name": "get_analysis_export_manifest",
+    "description": "KinTrain分析用エクスポートの固定スキーマ、ユーザープロフィール、現在の目標、取得対象セクションを返す。全データを分析する場合は最初に呼び出し、その後get_analysis_export_pageを各セクションのnextTokenがnullになるまで呼び出す。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "rangeMode": {
+          "type": "string",
+          "enum": ["dateRange", "allAvailable"],
+          "description": "dateRangeは指定期間、allAvailableは保存されている全期間を対象にする。"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "rangeMode=dateRangeの開始ローカル日（YYYY-MM-DD、含む）。"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "rangeMode=dateRangeの終了ローカル日（YYYY-MM-DD、含む）。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "description": "日付の解釈に使うIANAタイムゾーンID。省略時はAsia/Tokyo。"
+        }
+      },
+      "required": ["rangeMode"]
+    }
+  },
+  {
+    "name": "get_analysis_export_page",
+    "description": "KinTrain分析用エクスポートをセクション別に最大50件ずつ返す。同じrangeMode、期間、timeZoneId、sectionを保ち、レスポンスのpage.nextTokenがnullになるまで繰り返し呼び出す。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "rangeMode": {
+          "type": "string",
+          "enum": ["dateRange", "allAvailable"],
+          "description": "dateRangeは指定期間、allAvailableは保存されている全期間を対象にする。"
+        },
+        "from": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "rangeMode=dateRangeの開始ローカル日（YYYY-MM-DD、含む）。"
+        },
+        "to": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "rangeMode=dateRangeの終了ローカル日（YYYY-MM-DD、含む）。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "description": "日付の解釈に使うIANAタイムゾーンID。manifestと同じ値を指定する。省略時はAsia/Tokyo。"
+        },
+        "section": {
+          "type": "string",
+          "enum": ["trainingMenus", "trainingMenuSets", "dailyRecords", "gymVisits"],
+          "description": "取得するデータセクション。"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 50,
+          "description": "1ページの最大取得件数（1-50、既定50）。"
+        },
+        "nextToken": {
+          "type": "string",
+          "description": "前回の同一セクション・同一期間レスポンスに含まれるpage.nextToken。最初の呼び出しでは指定しない。"
+        }
+      },
+      "required": ["rangeMode", "section"]
+    }
+  },
+  {
     "name": "get_gym_visits",
     "description": "ジム実施履歴をローカル日付範囲で取得する。nextTokenがなくなるまで呼び出すと全件取得できる。",
     "inputSchema": {

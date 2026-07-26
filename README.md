@@ -11,6 +11,7 @@
 - Core API: 実装済み（API Gateway + Lambda分割）
 - DynamoDB: 実装済み（モデル別テーブル）
 - AI Runtime/Gateway/Memory: 実装済み（環境変数 `ENABLE_AGENTCORE_RESOURCES=true` のブランチで有効）
+- 分析用データエクスポート: 期間指定/全期間のJSONダウンロードとMCPセクションページングに対応
 
 ## 主な機能
 

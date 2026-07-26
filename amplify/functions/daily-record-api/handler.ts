@@ -2,6 +2,7 @@ import { GetCommand, PutCommand, QueryCommand } from "@aws-sdk/lib-dynamodb";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response, toMonthRange } from "../shared/http";
+import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
@@ -125,25 +126,52 @@ async function putDailyRecord(
 }
 
 async function listDailyRecords(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
-  const from = parseYmd(event.queryStringParameters?.from);
-  const to = parseYmd(event.queryStringParameters?.to);
-  if (!from || !to) {
-    return response(400, { message: "from and to are required in YYYY-MM-DD format." });
+  const rawFrom = event.queryStringParameters?.from;
+  const rawTo = event.queryStringParameters?.to;
+  const from = parseYmd(rawFrom);
+  const to = parseYmd(rawTo);
+  if ((rawFrom && !from) || (rawTo && !to) || Boolean(from) !== Boolean(to)) {
+    return response(400, { message: "from and to must both be valid YYYY-MM-DD dates, or both be omitted." });
+  }
+  if (from && to && from > to) {
+    return response(400, { message: "from must be on or before to." });
   }
 
+  const requestedLimit = Number(event.queryStringParameters?.limit ?? "100");
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 100;
+  const tokenContext = JSON.stringify(["daily-records", from ?? null, to ?? null]);
+  const exclusiveStartKey = decodePageToken(event.queryStringParameters?.nextToken, tokenContext, userId);
+  if (exclusiveStartKey === null) {
+    return response(400, { message: "nextToken is invalid for this user or date range." });
+  }
+
+  const expressionAttributeValues: Record<string, unknown> = {
+    ":userId": userId
+  };
+  let keyConditionExpression = "userId = :userId";
+  if (from && to) {
+    keyConditionExpression += " AND recordDate BETWEEN :from AND :to";
+    expressionAttributeValues[":from"] = from;
+    expressionAttributeValues[":to"] = to;
+  }
   const result = await ddb.send(
     new QueryCommand({
       TableName: dailyRecordTableName,
-      KeyConditionExpression: "userId = :userId AND recordDate BETWEEN :from AND :to",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-        ":from": from,
-        ":to": to
-      }
+      KeyConditionExpression: keyConditionExpression,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ScanIndexForward: true,
+      Limit: limit,
+      ExclusiveStartKey: exclusiveStartKey
     })
   );
 
-  return response(200, { items: result.Items ?? [] });
+  return response(200, {
+    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => item),
+    nextToken: encodePageToken(
+      result.LastEvaluatedKey as Record<string, unknown> | undefined,
+      tokenContext
+    )
+  });
 }
 
 async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {

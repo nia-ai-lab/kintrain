@@ -10,7 +10,7 @@ type CoreEndpointOutput = {
   };
 };
 
-type TrainingMenuItemDto = {
+export type TrainingMenuItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
   bodyPart?: string;
@@ -29,7 +29,7 @@ type TrainingMenuItemDto = {
   updatedAt: string;
 };
 
-type ListTrainingMenuItemsResponse = {
+export type ListTrainingMenuItemsResponse = {
   items: TrainingMenuItemDto[];
   nextToken?: string;
 };
@@ -73,7 +73,7 @@ type CreateGymVisitInput = {
   note?: string;
 };
 
-type GymVisitDto = {
+export type GymVisitDto = {
   visitId: string;
   startedAtUtc: string;
   endedAtUtc: string;
@@ -87,6 +87,7 @@ type GymVisitDto = {
 
 type ListGymVisitsResponse = {
   items: GymVisitDto[];
+  nextToken?: string;
 };
 
 export type TrainingSessionViewItemDto = {
@@ -121,7 +122,7 @@ export type TrainingSessionViewResponse = {
   todayDoneTrainingMenuItemIds: string[];
 };
 
-type DailyRecordDto = {
+export type DailyRecordDto = {
   recordDate?: string;
   timeZoneId?: string;
   bodyWeightKg?: number;
@@ -132,11 +133,13 @@ type DailyRecordDto = {
   conditionComment?: string;
   diary?: string;
   otherActivities?: string[];
+  createdAt?: string;
   updatedAt?: string;
 };
 
 type ListDailyRecordsResponse = {
   items: DailyRecordDto[];
+  nextToken?: string;
 };
 
 type CalendarDayDto = {
@@ -264,8 +267,19 @@ export async function putProfile(profile: UserProfileUpsertInput): Promise<UserP
   };
 }
 
-export async function listTrainingMenuItems(): Promise<ListTrainingMenuItemsResponse> {
-  return coreApiFetch<ListTrainingMenuItemsResponse>('/training-menu-items', {
+export async function listTrainingMenuItems(params?: {
+  limit?: number;
+  nextToken?: string;
+}): Promise<ListTrainingMenuItemsResponse> {
+  const search = new URLSearchParams();
+  if (typeof params?.limit === 'number' && Number.isFinite(params.limit)) {
+    search.set('limit', String(Math.floor(params.limit)));
+  }
+  if (params?.nextToken) {
+    search.set('nextToken', params.nextToken);
+  }
+  const query = search.toString();
+  return coreApiFetch<ListTrainingMenuItemsResponse>(query ? `/training-menu-items?${query}` : '/training-menu-items', {
     method: 'GET'
   });
 }
@@ -392,7 +406,12 @@ export async function createGymVisit(input: CreateGymVisitInput): Promise<GymVis
   });
 }
 
-export async function listGymVisits(params?: { from?: string; to?: string; limit?: number }): Promise<ListGymVisitsResponse> {
+export async function listGymVisits(params?: {
+  from?: string;
+  to?: string;
+  limit?: number;
+  nextToken?: string;
+}): Promise<ListGymVisitsResponse> {
   const search = new URLSearchParams();
   if (params?.from) {
     search.set('from', params.from);
@@ -402,6 +421,9 @@ export async function listGymVisits(params?: { from?: string; to?: string; limit
   }
   if (typeof params?.limit === 'number' && Number.isFinite(params.limit)) {
     search.set('limit', String(Math.floor(params.limit)));
+  }
+  if (params?.nextToken) {
+    search.set('nextToken', params.nextToken);
   }
   const query = search.toString();
   const path = query ? `/gym-visits?${query}` : '/gym-visits';
@@ -442,11 +464,27 @@ export async function putDailyRecord(
   });
 }
 
-export async function listDailyRecords(params: { from: string; to: string }): Promise<ListDailyRecordsResponse> {
+export async function listDailyRecords(params?: {
+  from?: string;
+  to?: string;
+  limit?: number;
+  nextToken?: string;
+}): Promise<ListDailyRecordsResponse> {
   const search = new URLSearchParams();
-  search.set('from', params.from);
-  search.set('to', params.to);
-  return coreApiFetch<ListDailyRecordsResponse>(`/daily-records?${search.toString()}`, {
+  if (params?.from) {
+    search.set('from', params.from);
+  }
+  if (params?.to) {
+    search.set('to', params.to);
+  }
+  if (typeof params?.limit === 'number' && Number.isFinite(params.limit)) {
+    search.set('limit', String(Math.floor(params.limit)));
+  }
+  if (params?.nextToken) {
+    search.set('nextToken', params.nextToken);
+  }
+  const query = search.toString();
+  return coreApiFetch<ListDailyRecordsResponse>(query ? `/daily-records?${query}` : '/daily-records', {
     method: 'GET'
   });
 }
