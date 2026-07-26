@@ -28,6 +28,12 @@ import { useAuth } from './AuthState';
 import { initialAppData } from './data/mock-data';
 import { toLocalIsoWithOffset, toYmd } from './utils/date';
 import { loadFromStorage, saveToStorage } from './utils/storage';
+import {
+  calculateTotalWeightKg,
+  normalizeFixedWeightKg,
+  normalizeLoadMultiplier,
+  normalizeWeightInputMode
+} from './utils/weightLoad';
 import type {
   AiCharacterProfile,
   AppData,
@@ -320,16 +326,22 @@ function normalizeAppData(rawData: AppData): AppData {
       isAiGenerated?: unknown;
     }
   >;
-  const normalizedMenuItems = sourceMenuItems.map((item) => ({
-    ...item,
-    trainingName: item.trainingName ?? item.machineName ?? '未設定トレーニング',
-    bodyPart: item.bodyPart ?? '',
-    equipment: normalizeTrainingEquipment((item as TrainingMenuItem & { equipment?: unknown }).equipment),
-    isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
-    description: normalizeTrainingDescription(item.description),
-    frequency: normalizeTrainingFrequency(item.frequency),
-    ...normalizeRepsRange(item)
-  }));
+  const normalizedMenuItems = sourceMenuItems.map((item) => {
+    const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
+    return {
+      ...item,
+      trainingName: item.trainingName ?? item.machineName ?? '未設定トレーニング',
+      bodyPart: item.bodyPart ?? '',
+      equipment: normalizeTrainingEquipment((item as TrainingMenuItem & { equipment?: unknown }).equipment),
+      isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
+      description: normalizeTrainingDescription(item.description),
+      frequency: normalizeTrainingFrequency(item.frequency),
+      weightInputMode,
+      loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+      fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
+      ...normalizeRepsRange(item)
+    };
+  });
   const normalizedMenuSetState = normalizeMenuSets(normalizedMenuItems, legacy.menuSets, legacy.activeTrainingMenuSetId);
 
   const sourceGymVisits = (legacy.gymVisits ?? initialAppData.gymVisits) as Array<{
@@ -342,14 +354,30 @@ function normalizeAppData(rawData: AppData): AppData {
   }>;
   const normalizedGymVisits = sourceGymVisits.map((visit) => ({
     ...visit,
-    entries: visit.entries.map((entry) => ({
-      ...entry,
-      trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング',
-      bodyPart: entry.bodyPart ?? '',
-      equipment: typeof (entry as ExerciseEntry & { equipment?: unknown }).equipment === 'string'
-        ? ((entry as ExerciseEntry & { equipment?: string }).equipment ?? '')
-        : ''
-    }))
+    entries: visit.entries.map((entry) => {
+      const weightInputModeSnapshot = normalizeWeightInputMode(entry.weightInputModeSnapshot);
+      return {
+        ...entry,
+        trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング',
+        bodyPart: entry.bodyPart ?? '',
+        equipment: typeof (entry as ExerciseEntry & { equipment?: unknown }).equipment === 'string'
+          ? ((entry as ExerciseEntry & { equipment?: string }).equipment ?? '')
+          : '',
+        weightInputModeSnapshot,
+        loadMultiplierSnapshot:
+          weightInputModeSnapshot === 'legacyUnspecified'
+            ? undefined
+            : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot),
+        fixedWeightKgSnapshot:
+          weightInputModeSnapshot === 'legacyUnspecified'
+            ? undefined
+            : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot),
+        calculatedTotalWeightKg:
+          typeof entry.calculatedTotalWeightKg === 'number' && Number.isFinite(entry.calculatedTotalWeightKg)
+            ? entry.calculatedTotalWeightKg
+            : undefined
+      };
+    })
   }));
 
   const normalizedAiCharacterProfile: AiCharacterProfile = {
@@ -398,6 +426,9 @@ function mapRemoteMenuItem(item: {
   description?: string;
   frequency?: number | string;
   defaultWeightKg: number;
+  weightInputMode?: unknown;
+  loadMultiplier?: unknown;
+  fixedWeightKg?: unknown;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultReps?: number;
@@ -406,6 +437,7 @@ function mapRemoteMenuItem(item: {
   isActive: boolean;
 }): TrainingMenuItem {
   const repsRange = normalizeRepsRange(item);
+  const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
   return {
     id: item.trainingMenuItemId,
     trainingName: item.trainingName,
@@ -415,6 +447,9 @@ function mapRemoteMenuItem(item: {
     description: normalizeTrainingDescription(item.description),
     frequency: normalizeTrainingFrequency(item.frequency),
     defaultWeightKg: Number(item.defaultWeightKg),
+    weightInputMode,
+    loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+    fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
     defaultSets: Number(item.defaultSets),
@@ -456,6 +491,10 @@ function mapRemoteGymVisit(visit: {
     equipmentSnapshot?: string;
     note?: string;
     weightKg?: number;
+    weightInputModeSnapshot?: unknown;
+    loadMultiplierSnapshot?: unknown;
+    fixedWeightKgSnapshot?: unknown;
+    calculatedTotalWeightKg?: number;
     reps?: number;
     sets?: number;
   }>;
@@ -467,17 +506,33 @@ function mapRemoteGymVisit(visit: {
       ? visit.visitDateLocal
       : fallbackYmd;
 
-  const entries: ExerciseEntry[] = (visit.entries ?? []).map((entry, index) => ({
-    id: `${visit.visitId}-entry-${index + 1}`,
-    menuItemId: entry.trainingMenuItemId ?? '',
-    trainingName: entry.trainingNameSnapshot ?? '不明トレーニング',
-    bodyPart: entry.bodyPartSnapshot ?? '',
-    equipment: typeof entry.equipmentSnapshot === 'string' ? entry.equipmentSnapshot : '',
-    note: typeof entry.note === 'string' ? entry.note : undefined,
-    weightKg: Number(entry.weightKg ?? 0),
-    reps: Number(entry.reps ?? 0),
-    sets: Number(entry.sets ?? 0)
-  }));
+  const entries: ExerciseEntry[] = (visit.entries ?? []).map((entry, index) => {
+    const weightInputModeSnapshot = normalizeWeightInputMode(entry.weightInputModeSnapshot);
+    const loadMultiplierSnapshot =
+      weightInputModeSnapshot === 'legacyUnspecified'
+        ? undefined
+        : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot);
+    const fixedWeightKgSnapshot =
+      weightInputModeSnapshot === 'legacyUnspecified' ? undefined : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot);
+    return {
+      id: `${visit.visitId}-entry-${index + 1}`,
+      menuItemId: entry.trainingMenuItemId ?? '',
+      trainingName: entry.trainingNameSnapshot ?? '不明トレーニング',
+      bodyPart: entry.bodyPartSnapshot ?? '',
+      equipment: typeof entry.equipmentSnapshot === 'string' ? entry.equipmentSnapshot : '',
+      note: typeof entry.note === 'string' ? entry.note : undefined,
+      weightKg: Number(entry.weightKg ?? 0),
+      weightInputModeSnapshot,
+      loadMultiplierSnapshot,
+      fixedWeightKgSnapshot,
+      calculatedTotalWeightKg:
+        typeof entry.calculatedTotalWeightKg === 'number' && Number.isFinite(entry.calculatedTotalWeightKg)
+          ? entry.calculatedTotalWeightKg
+          : undefined,
+      reps: Number(entry.reps ?? 0),
+      sets: Number(entry.sets ?? 0)
+    };
+  });
 
   return {
     id: visit.visitId,
@@ -966,6 +1021,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               equipment: menuItem?.equipment ?? '',
               note: typeof entry.memo === 'string' ? entry.memo.trim() || undefined : undefined,
               weightKg: entry.weightKg ?? 0,
+              weightInputModeSnapshot: menuItem?.weightInputMode ?? 'legacyUnspecified',
+              loadMultiplierSnapshot:
+                menuItem?.weightInputMode === 'legacyUnspecified' ? undefined : menuItem?.loadMultiplier,
+              fixedWeightKgSnapshot:
+                menuItem?.weightInputMode === 'legacyUnspecified' ? undefined : menuItem?.fixedWeightKg,
+              calculatedTotalWeightKg: menuItem
+                ? calculateTotalWeightKg(
+                    entry.weightKg,
+                    menuItem.weightInputMode,
+                    menuItem.loadMultiplier,
+                    menuItem.fixedWeightKg
+                  )
+                : undefined,
               reps: entry.reps ?? 0,
               sets: entry.sets ?? 0,
               setDetails: entry.setDetails
@@ -1009,6 +1077,10 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                 frequencySnapshot: menuItem?.frequency,
                 note: entry.note?.trim() || undefined,
                 weightKg: entry.weightKg,
+                weightInputModeSnapshot: entry.weightInputModeSnapshot,
+                loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
+                fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
+                calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
                 reps: entry.reps,
                 sets: entry.sets,
                 performedAtUtc: endedAtUtc
@@ -1212,6 +1284,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           description: normalizeTrainingDescription(item.description),
           frequency: normalizeTrainingFrequency(item.frequency),
           defaultWeightKg: Math.round(item.defaultWeightKg * 100) / 100,
+          weightInputMode: item.weightInputMode,
+          loadMultiplier: item.loadMultiplier,
+          fixedWeightKg: Math.round(item.fixedWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(item.defaultRepsMin),
           defaultRepsMax: Math.floor(item.defaultRepsMax),
           defaultReps: Math.floor(item.defaultRepsMax),
@@ -1221,6 +1296,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           !payload.trainingName ||
           !Number.isFinite(payload.defaultWeightKg) ||
           payload.defaultWeightKg < 0 ||
+          !Number.isFinite(payload.fixedWeightKg) ||
+          payload.fixedWeightKg < 0 ||
           payload.defaultRepsMin <= 0 ||
           payload.defaultRepsMax <= 0 ||
           payload.defaultRepsMin > payload.defaultRepsMax ||
@@ -1266,6 +1343,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           !nextItem.trainingName.trim() ||
           !Number.isFinite(nextItem.defaultWeightKg) ||
           nextItem.defaultWeightKg < 0 ||
+          !Number.isFinite(nextItem.fixedWeightKg) ||
+          nextItem.fixedWeightKg < 0 ||
           nextItem.defaultRepsMin <= 0 ||
           nextItem.defaultRepsMax <= 0 ||
           nextItem.defaultRepsMin > nextItem.defaultRepsMax ||
@@ -1281,6 +1360,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           description: normalizeTrainingDescription(nextItem.description),
           frequency: normalizeTrainingFrequency(nextItem.frequency),
           defaultWeightKg: Math.round(nextItem.defaultWeightKg * 100) / 100,
+          weightInputMode: nextItem.weightInputMode,
+          loadMultiplier: nextItem.loadMultiplier,
+          fixedWeightKg: Math.round(nextItem.fixedWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(nextItem.defaultRepsMin),
           defaultRepsMax: Math.floor(nextItem.defaultRepsMax),
           defaultReps: Math.floor(nextItem.defaultRepsMax),

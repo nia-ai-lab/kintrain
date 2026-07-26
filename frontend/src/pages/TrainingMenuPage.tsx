@@ -1,8 +1,9 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAppState } from '../AppState';
-import type { TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
+import type { TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem, WeightInputMode } from '../types';
 import { formatTrainingLabel } from '../utils/training';
+import { calculateTotalWeightKg } from '../utils/weightLoad';
 
 const CREATE_NEW_SET_OPTION = '__create_new_set__';
 const TRAINING_EQUIPMENT_OPTIONS: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
@@ -158,6 +159,8 @@ export function TrainingMenuPage() {
     const isAiGenerated = formData.get('isAiGenerated') === 'on';
     const description = String(formData.get('description') ?? '').trim();
     const frequency = Number(formData.get('frequency') ?? 0) as TrainingFrequencyDays;
+    const weightInputMode =
+      String(formData.get('weightInputMode') ?? 'direct') === 'perSide' ? 'perSide' : 'direct';
     if (!trainingName) {
       setStatusText('トレーニング名を入力してください。');
       return false;
@@ -171,6 +174,9 @@ export function TrainingMenuPage() {
         description,
         frequency: TRAINING_FREQUENCY_OPTIONS.includes(frequency) ? frequency : 3,
         defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
+        weightInputMode,
+        loadMultiplier: weightInputMode === 'perSide' ? 2 : 1,
+        fixedWeightKg: weightInputMode === 'perSide' ? Number(formData.get('fixedWeightKg') ?? 0) : 0,
         defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
         defaultRepsMax: Number(formData.get('defaultRepsMax') ?? 0),
         defaultSets: Number(formData.get('defaultSets') ?? 0)
@@ -395,6 +401,17 @@ export function TrainingMenuPage() {
                 <input name="defaultWeightKg" type="number" step="0.01" min="0" required />
               </label>
               <label>
+                重量の入力方式
+                <select name="weightInputMode" defaultValue="direct" required>
+                  <option value="direct">入力値が総重量</option>
+                  <option value="perSide">片側重量 × 2</option>
+                </select>
+              </label>
+              <label>
+                バー等の固定分 (kg)
+                <input name="fixedWeightKg" type="number" step="0.01" min="0" defaultValue="0" required />
+              </label>
+              <label>
                 回数 最小
                 <input name="defaultRepsMin" type="number" step="1" min="1" required />
               </label>
@@ -407,6 +424,7 @@ export function TrainingMenuPage() {
                 <input name="defaultSets" type="number" step="1" min="1" required />
               </label>
             </div>
+            <p className="muted">片側重量を選ぶ場合、総重量は「入力重量 × 2 + バー等の固定分」で計算します。</p>
             <label className="menu-training-note-field">
               説明
               <textarea
@@ -590,6 +608,33 @@ function MenuItemCard({
             step={0.01}
             onCommit={(value) => onUpdate({ defaultWeightKg: value })}
           />
+          <label>
+            重量の入力方式
+            <select
+              value={item.weightInputMode}
+              onChange={(e) => {
+                const mode = e.target.value as WeightInputMode;
+                onUpdate({
+                  weightInputMode: mode,
+                  loadMultiplier: mode === 'perSide' ? 2 : 1,
+                  fixedWeightKg: mode === 'direct' ? 0 : item.fixedWeightKg
+                });
+              }}
+            >
+              {item.weightInputMode === 'legacyUnspecified' && (
+                <option value="legacyUnspecified">未設定（従来データ）</option>
+              )}
+              <option value="direct">入力値が総重量</option>
+              <option value="perSide">片側重量 × 2</option>
+            </select>
+          </label>
+          <MenuMetricInput
+            label="バー等の固定分 (kg)"
+            value={item.fixedWeightKg}
+            min={0}
+            step={0.01}
+            onCommit={(value) => onUpdate({ fixedWeightKg: item.weightInputMode === 'direct' ? 0 : value })}
+          />
           <MenuMetricInput
             label="回数 最小"
             value={item.defaultRepsMin}
@@ -612,6 +657,18 @@ function MenuItemCard({
             onCommit={(value) => onUpdate({ defaultSets: value })}
           />
         </div>
+        <p className="muted">
+          {item.weightInputMode === 'legacyUnspecified'
+            ? '重量の意味が未設定です。総重量か片側重量かを選択してください。'
+            : item.weightInputMode === 'direct'
+              ? `換算総重量: ${item.defaultWeightKg}kg`
+              : `換算総重量: ${calculateTotalWeightKg(
+                  item.defaultWeightKg,
+                  item.weightInputMode,
+                  item.loadMultiplier,
+                  item.fixedWeightKg
+                )}kg（片側 × ${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
+        </p>
         <label className="menu-training-note-field">
           説明
           <textarea

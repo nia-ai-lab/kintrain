@@ -86,6 +86,10 @@ function normalizeGymVisit(item: GymVisitDto) {
       isAiGenerated: entry.isAiGeneratedSnapshot === true,
       frequencyDays: nullableNumber(entry.frequencySnapshot),
       weightKg: entry.weightKg,
+      weightInputMode: entry.weightInputModeSnapshot ?? 'legacyUnspecified',
+      loadMultiplier: nullableNumber(entry.loadMultiplierSnapshot),
+      fixedWeightKg: nullableNumber(entry.fixedWeightKgSnapshot),
+      calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg),
       reps: entry.reps,
       sets: entry.sets,
       performedAtUtc: entry.performedAtUtc,
@@ -97,6 +101,7 @@ function normalizeGymVisit(item: GymVisitDto) {
 }
 
 function normalizeTrainingMenu(item: TrainingMenuItemDto) {
+  const weightInputMode = item.weightInputMode ?? 'legacyUnspecified';
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: item.trainingName,
@@ -106,6 +111,9 @@ function normalizeTrainingMenu(item: TrainingMenuItemDto) {
     description: nullableString(item.description),
     frequencyDays: nullableNumber(item.frequency),
     defaultWeightKg: item.defaultWeightKg,
+    weightInputMode,
+    loadMultiplier: weightInputMode === 'legacyUnspecified' ? null : nullableNumber(item.loadMultiplier),
+    fixedWeightKg: weightInputMode === 'legacyUnspecified' ? null : nullableNumber(item.fixedWeightKg),
     defaultRepsMin: item.defaultRepsMin,
     defaultRepsMax: item.defaultRepsMax,
     defaultSets: item.defaultSets,
@@ -164,7 +172,7 @@ export async function createAnalysisExport(
 
   const result = {
     schema: 'kintrain.analysis-export',
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAtUtc: new Date().toISOString(),
     selection: {
       rangeMode: range.rangeMode,

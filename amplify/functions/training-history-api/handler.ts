@@ -33,6 +33,10 @@ type ExerciseEntry = {
   isAiGeneratedSnapshot?: boolean;
   frequencySnapshot?: number;
   weightKg: number;
+  weightInputModeSnapshot?: "direct" | "perSide" | "legacyUnspecified";
+  loadMultiplierSnapshot?: 1 | 2;
+  fixedWeightKgSnapshot?: number;
+  calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
   performedAtUtc: string;
@@ -98,6 +102,33 @@ function toTrimmedString(value: unknown): string | undefined {
   return trimmed.length > 0 ? trimmed : "";
 }
 
+type WeightInputMode = "direct" | "perSide" | "legacyUnspecified";
+
+function normalizeWeightInputMode(value: unknown): WeightInputMode {
+  if (value === "direct" || value === "perSide") {
+    return value;
+  }
+  return "legacyUnspecified";
+}
+
+function normalizeLoadMultiplier(value: unknown, mode: WeightInputMode): 1 | 2 {
+  if (value === 1 || value === 2) {
+    return value;
+  }
+  return mode === "perSide" ? 2 : 1;
+}
+
+function normalizeFixedWeightKg(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.round(value * 100) / 100;
+}
+
+function calculateTotalWeightKg(weightKg: number, multiplier: number, fixedWeightKg: number): number {
+  return Math.round((weightKg * multiplier + fixedWeightKg) * 100) / 100;
+}
+
 function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
   if (!Array.isArray(entries)) {
     return false;
@@ -109,6 +140,14 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       typeof entry.trainingNameSnapshot === "string" &&
       entry.trainingNameSnapshot.trim().length > 0 &&
       isNonNegativeNumber(entry.weightKg) &&
+      (entry.weightInputModeSnapshot === undefined ||
+        entry.weightInputModeSnapshot === "direct" ||
+        entry.weightInputModeSnapshot === "perSide" ||
+        entry.weightInputModeSnapshot === "legacyUnspecified") &&
+      (entry.loadMultiplierSnapshot === undefined ||
+        entry.loadMultiplierSnapshot === 1 ||
+        entry.loadMultiplierSnapshot === 2) &&
+      (entry.fixedWeightKgSnapshot === undefined || isNonNegativeNumber(entry.fixedWeightKgSnapshot)) &&
       isPositiveNumber(entry.reps) &&
       isPositiveNumber(entry.sets) &&
       typeof entry.performedAtUtc === "string" &&
@@ -126,11 +165,30 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
   });
 }
 
-function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
+export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
   return entries.map((entry) => {
     const bodyPartSnapshot = toTrimmedString(entry.bodyPartSnapshot);
     const equipmentSnapshot = toTrimmedString(entry.equipmentSnapshot);
     const note = toTrimmedString(entry.note);
+    const weightInputModeSnapshot = normalizeWeightInputMode(entry.weightInputModeSnapshot);
+    const loadMultiplierSnapshot =
+      weightInputModeSnapshot === "legacyUnspecified"
+        ? undefined
+        : weightInputModeSnapshot === "direct"
+          ? 1
+          : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot);
+    const fixedWeightKgSnapshot =
+      weightInputModeSnapshot === "legacyUnspecified"
+        ? undefined
+        : weightInputModeSnapshot === "direct"
+          ? 0
+          : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot);
+    const calculatedTotalWeightKg =
+      weightInputModeSnapshot === "legacyUnspecified" ||
+      loadMultiplierSnapshot === undefined ||
+      fixedWeightKgSnapshot === undefined
+        ? undefined
+        : calculateTotalWeightKg(entry.weightKg, loadMultiplierSnapshot, fixedWeightKgSnapshot);
     return {
       ...entry,
       trainingMenuItemId: entry.trainingMenuItemId.trim(),
@@ -145,6 +203,10 @@ function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
         entry.frequencySnapshot <= 8
           ? entry.frequencySnapshot
           : undefined,
+      weightInputModeSnapshot,
+      loadMultiplierSnapshot,
+      fixedWeightKgSnapshot,
+      calculatedTotalWeightKg,
       note
     };
   });
@@ -165,6 +227,10 @@ type TrainingPerformanceItem = {
   isAiGeneratedSnapshot: boolean;
   frequencySnapshot?: number;
   weightKg: number;
+  weightInputModeSnapshot: WeightInputMode;
+  loadMultiplierSnapshot?: 1 | 2;
+  fixedWeightKgSnapshot?: number;
+  calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
   note: string;
@@ -204,6 +270,10 @@ function buildTrainingPerformanceItems(params: {
     isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
     frequencySnapshot: entry.frequencySnapshot,
     weightKg: entry.weightKg,
+    weightInputModeSnapshot: entry.weightInputModeSnapshot ?? "legacyUnspecified",
+    loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
+    fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
+    calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
     reps: entry.reps,
     sets: entry.sets,
     note: entry.note ?? "",
@@ -282,6 +352,10 @@ async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: 
   return {
     performedAtUtc: item.performedAtUtc,
     weightKg: item.weightKg,
+    weightInputModeSnapshot: item.weightInputModeSnapshot ?? "legacyUnspecified",
+    loadMultiplierSnapshot: item.loadMultiplierSnapshot,
+    fixedWeightKgSnapshot: item.fixedWeightKgSnapshot,
+    calculatedTotalWeightKg: item.calculatedTotalWeightKg,
     reps: item.reps,
     sets: item.sets,
     bodyPartSnapshot: item.bodyPartSnapshot ?? "",
@@ -510,6 +584,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
     activeMenuItems.map(async (menu) => {
       const trainingMenuItemId = String(menu.trainingMenuItemId);
       const repsRange = toRepsRange(menu as Record<string, unknown>);
+      const weightInputMode = normalizeWeightInputMode(menu.weightInputMode);
       const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(userId, trainingMenuItemId);
 
       return {
@@ -521,6 +596,9 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
         description: typeof menu.description === "string" ? menu.description : "",
         frequency: toFrequencyDays(menu.frequency),
         defaultWeightKg: menu.defaultWeightKg,
+        weightInputMode,
+        loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
+        fixedWeightKg: normalizeFixedWeightKg(menu.fixedWeightKg),
         defaultRepsMin: repsRange.defaultRepsMin,
         defaultRepsMax: repsRange.defaultRepsMax,
         defaultReps: repsRange.defaultRepsMax,

@@ -1,6 +1,6 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
 import amplifyOutputs from '../amplify_outputs.json';
-import type { Goal, UserProfile } from '../types';
+import type { Goal, UserProfile, WeightInputMode, WeightLoadMultiplier } from '../types';
 
 type CoreEndpointOutput = {
   custom?: {
@@ -19,6 +19,9 @@ export type TrainingMenuItemDto = {
   description?: string;
   frequency?: number | string;
   defaultWeightKg: number;
+  weightInputMode?: WeightInputMode;
+  loadMultiplier?: WeightLoadMultiplier;
+  fixedWeightKg?: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultReps?: number;
@@ -59,6 +62,10 @@ type GymVisitEntryInput = {
   frequencySnapshot?: number;
   note?: string;
   weightKg: number;
+  weightInputModeSnapshot: WeightInputMode;
+  loadMultiplierSnapshot?: WeightLoadMultiplier;
+  fixedWeightKgSnapshot?: number;
+  calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
   performedAtUtc: string;
@@ -99,6 +106,9 @@ export type TrainingSessionViewItemDto = {
   description?: string;
   frequency?: number | string;
   defaultWeightKg: number;
+  weightInputMode?: WeightInputMode;
+  loadMultiplier?: WeightLoadMultiplier;
+  fixedWeightKg?: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultReps?: number;
@@ -108,6 +118,10 @@ export type TrainingSessionViewItemDto = {
   lastPerformanceSnapshot?: {
     performedAtUtc: string;
     weightKg: number;
+    weightInputModeSnapshot?: WeightInputMode;
+    loadMultiplierSnapshot?: WeightLoadMultiplier;
+    fixedWeightKgSnapshot?: number;
+    calculatedTotalWeightKg?: number;
     reps: number;
     sets: number;
     bodyPartSnapshot?: string;
@@ -292,6 +306,9 @@ export async function createTrainingMenuItem(input: {
   description?: string;
   frequency?: number;
   defaultWeightKg: number;
+  weightInputMode: WeightInputMode;
+  loadMultiplier: WeightLoadMultiplier;
+  fixedWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultReps?: number;
@@ -313,6 +330,9 @@ export async function updateTrainingMenuItem(
     description: string;
     frequency: number;
     defaultWeightKg: number;
+    weightInputMode: WeightInputMode;
+    loadMultiplier: WeightLoadMultiplier;
+    fixedWeightKg: number;
     defaultRepsMin: number;
     defaultRepsMax: number;
     defaultReps: number;

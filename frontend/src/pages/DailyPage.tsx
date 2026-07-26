@@ -4,6 +4,7 @@ import { useAppState, useTodayYmd } from '../AppState';
 import { DailyRatingSlider } from '../components/DailyRatingSlider';
 import { ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel } from '../utils/training';
+import { formatWeightLoad } from '../utils/weightLoad';
 
 export function DailyPage() {
   const { date } = useParams<{ date: string }>();
@@ -194,7 +195,7 @@ export function DailyPage() {
           <ol className="simple-list numbered-list">
             {visitEntries.map((entry) => (
               <li key={entry.id}>
-                {formatTrainingLabel(entry.trainingName, entry.bodyPart, entry.equipment)} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
+                {formatTrainingLabel(entry.trainingName, entry.bodyPart, entry.equipment)} {formatWeightLoad(entry)} x {entry.reps}回 x {entry.sets}set
               </li>
             ))}
           </ol>

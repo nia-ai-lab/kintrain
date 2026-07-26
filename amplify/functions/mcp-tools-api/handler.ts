@@ -476,6 +476,12 @@ function normalizeAnalysisGymVisit(item: Record<string, unknown>): Record<string
         isAiGenerated: entry.isAiGeneratedSnapshot === true,
         frequencyDays: nullableNumber(entry.frequencySnapshot),
         weightKg: nullableNumber(entry.weightKg),
+        weightInputMode: typeof entry.weightInputModeSnapshot === "string"
+          ? entry.weightInputModeSnapshot
+          : "legacyUnspecified",
+        loadMultiplier: nullableNumber(entry.loadMultiplierSnapshot),
+        fixedWeightKg: nullableNumber(entry.fixedWeightKgSnapshot),
+        calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg),
         reps: nullableNumber(entry.reps),
         sets: nullableNumber(entry.sets),
         performedAtUtc: nullableString(entry.performedAtUtc),
@@ -487,8 +493,35 @@ function normalizeAnalysisGymVisit(item: Record<string, unknown>): Record<string
   };
 }
 
+function normalizeGymVisitWeightSnapshots(item: Record<string, unknown>): Record<string, unknown> {
+  const entries = Array.isArray(item.entries) ? item.entries : [];
+  return {
+    ...item,
+    entries: entries.map((rawEntry) => {
+      const entry =
+        rawEntry && typeof rawEntry === "object" && !Array.isArray(rawEntry)
+          ? (rawEntry as Record<string, unknown>)
+          : {};
+      return {
+        ...entry,
+        weightInputModeSnapshot:
+          typeof entry.weightInputModeSnapshot === "string"
+            ? entry.weightInputModeSnapshot
+            : "legacyUnspecified",
+        loadMultiplierSnapshot: nullableNumber(entry.loadMultiplierSnapshot),
+        fixedWeightKgSnapshot: nullableNumber(entry.fixedWeightKgSnapshot),
+        calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg)
+      };
+    })
+  };
+}
+
 function normalizeAnalysisTrainingMenu(item: Record<string, unknown>): Record<string, unknown> {
   const legacyReps = nullableNumber(item.defaultReps);
+  const weightInputMode =
+    item.weightInputMode === "direct" || item.weightInputMode === "perSide"
+      ? item.weightInputMode
+      : "legacyUnspecified";
   return {
     trainingMenuItemId: nullableString(item.trainingMenuItemId),
     trainingName: nullableString(item.trainingName),
@@ -498,6 +531,9 @@ function normalizeAnalysisTrainingMenu(item: Record<string, unknown>): Record<st
     description: nullableString(item.description),
     frequencyDays: nullableNumber(item.frequency),
     defaultWeightKg: nullableNumber(item.defaultWeightKg),
+    weightInputMode,
+    loadMultiplier: weightInputMode === "legacyUnspecified" ? null : nullableNumber(item.loadMultiplier),
+    fixedWeightKg: weightInputMode === "legacyUnspecified" ? null : nullableNumber(item.fixedWeightKg),
     defaultRepsMin: nullableNumber(item.defaultRepsMin) ?? legacyReps,
     defaultRepsMax: nullableNumber(item.defaultRepsMax) ?? legacyReps,
     defaultSets: nullableNumber(item.defaultSets),
@@ -561,7 +597,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   return jsonResponse(200, {
     tool: "get_analysis_export_manifest",
     schema: "kintrain.analysis-export",
-    schemaVersion: 1,
+    schemaVersion: 2,
     generatedAtUtc: new Date().toISOString(),
     selection: analysisExportSelectionResponse(selection),
     currentContext: {
@@ -627,7 +663,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<La
 
   const tokenContext = JSON.stringify([
     "analysis-export",
-    1,
+    2,
     userId,
     typedSection,
     selection.rangeMode,
@@ -758,7 +794,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<La
   return jsonResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
-    schemaVersion: 1,
+    schemaVersion: 2,
     selection: analysisExportSelectionResponse(selection),
     section: typedSection,
     items,
@@ -968,7 +1004,7 @@ async function getGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeR
 
   return jsonResponse(200, {
     tool: "get_gym_visits",
-    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => item),
+    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => normalizeGymVisitWeightSnapshots(item)),
     range: listRange(options),
     limit: options.limit,
     nextToken:
@@ -1025,6 +1061,11 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<Lambd
     frequencySnapshot: item.frequencySnapshot,
     note: typeof item.note === "string" ? item.note : "",
     weightKg: item.weightKg,
+    weightInputModeSnapshot:
+      typeof item.weightInputModeSnapshot === "string" ? item.weightInputModeSnapshot : "legacyUnspecified",
+    loadMultiplierSnapshot: item.loadMultiplierSnapshot ?? null,
+    fixedWeightKgSnapshot: item.fixedWeightKgSnapshot ?? null,
+    calculatedTotalWeightKg: item.calculatedTotalWeightKg ?? null,
     reps: item.reps,
     sets: item.sets,
     performedAtUtc: item.performedAtUtc,
@@ -2021,6 +2062,9 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
               description: item.description,
               frequency: item.frequency,
               defaultWeightKg: item.defaultWeightKg,
+              weightInputMode: "direct",
+              loadMultiplier: 1,
+              fixedWeightKg: 0,
               defaultRepsMin: item.defaultRepsMin,
               defaultRepsMax: item.defaultRepsMax,
               defaultReps: item.defaultRepsMax,

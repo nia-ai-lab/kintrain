@@ -307,6 +307,9 @@ async function attachCoreApiMock(page) {
         trainingName: String(input.trainingName ?? '').trim(),
         description: String(input.description ?? '').trim(),
         defaultWeightKg: Number(input.defaultWeightKg ?? 0),
+        weightInputMode: input.weightInputMode ?? 'direct',
+        loadMultiplier: Number(input.loadMultiplier ?? 1),
+        fixedWeightKg: Number(input.fixedWeightKg ?? 0),
         defaultRepsMin: repsMin,
         defaultRepsMax: repsMax,
         defaultSets: Number(input.defaultSets ?? 0),
@@ -748,6 +751,8 @@ test('トレーニングメニューで追加・編集・削除ができる', as
 
   await addSection.getByLabel('トレーニング名').fill(uniqueName);
   await addSection.getByLabel('重量 (kg)').fill('22.5');
+  await addSection.getByLabel('重量の入力方式').selectOption('perSide');
+  await addSection.getByLabel('バー等の固定分 (kg)').fill('20');
   await addSection.getByLabel('回数 最小').fill('8');
   await addSection.getByLabel('回数 最大').fill('11');
   await addSection.getByLabel('セット').fill('3');
@@ -757,6 +762,7 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   const addedCard = page.locator('article.card').filter({ has: page.locator(`input[value="${uniqueName}"]`) }).first();
   await expect(addedCard).toBeVisible();
   await expect(addedCard.getByLabel('説明')).toHaveValue('胸を張ってゆっくり動かす。');
+  await expect(addedCard.getByText('換算総重量: 65kg')).toBeVisible();
 
   const weightInput = addedCard.getByLabel('重量 (kg)');
   await weightInput.fill('');
@@ -882,12 +888,14 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 1);
+  assert.equal(exported.schemaVersion, 2);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);
   assert.equal(exported.history.dailyRecords[0].bodyWeightKg, 69.8);
   assert.equal(exported.history.gymVisits[0].entries[0].trainingName, 'チェストプレス');
+  assert.equal(exported.history.gymVisits[0].entries[0].weightInputMode, 'legacyUnspecified');
+  assert.equal(exported.history.gymVisits[0].entries[0].calculatedTotalWeightKg, null);
   assert.equal(JSON.stringify(exported).includes('setDetails'), false);
   await expect(page.getByText(/ダウンロードしました。デイリー記録 1件、ジム記録 1件/)).toBeVisible();
 });

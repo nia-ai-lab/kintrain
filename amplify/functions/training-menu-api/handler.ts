@@ -35,6 +35,9 @@ type TrainingMenuItemInput = RepsRangeInput & {
   description?: string;
   frequency?: number;
   defaultWeightKg: number;
+  weightInputMode?: "direct" | "perSide" | "legacyUnspecified";
+  loadMultiplier?: 1 | 2;
+  fixedWeightKg?: number;
   defaultSets: number;
 };
 
@@ -77,6 +80,29 @@ const legacyEquipmentAliasMap: Record<string, string> = {
 const defaultEquipment = "マシン";
 const allowedFrequencies = new Set([1, 2, 3, 4, 5, 6, 7, 8]);
 const defaultFrequency = 3;
+
+type WeightInputMode = "direct" | "perSide" | "legacyUnspecified";
+
+function normalizeWeightInputMode(value: unknown): WeightInputMode {
+  if (value === "direct" || value === "perSide") {
+    return value;
+  }
+  return "legacyUnspecified";
+}
+
+function normalizeLoadMultiplier(value: unknown, mode: WeightInputMode): 1 | 2 {
+  if (value === 1 || value === 2) {
+    return value;
+  }
+  return mode === "perSide" ? 2 : 1;
+}
+
+function normalizeFixedWeightKg(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.round(value * 100) / 100;
+}
 
 function normalizeEquipment(value: unknown): string | undefined {
   if (value === undefined) {
@@ -184,6 +210,7 @@ function resolveRepsRange(input: RepsRangeInput, current?: Record<string, unknow
 
 function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, unknown> {
   const repsRange = toRepsRangeFromItem(item);
+  const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: item.trainingName,
@@ -193,6 +220,9 @@ function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, u
     description: toDescription(item.description),
     frequency: normalizeFrequency(item.frequency) ?? defaultFrequency,
     defaultWeightKg: item.defaultWeightKg,
+    weightInputMode,
+    loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+    fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
     defaultReps: repsRange.defaultRepsMax,
@@ -454,6 +484,19 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
       message: "defaultWeightKg must be 0 or greater and defaultSets must be greater than 0."
     });
   }
+  const weightInputMode = body.weightInputMode ?? "direct";
+  if (weightInputMode !== "direct" && weightInputMode !== "perSide") {
+    return response(400, { message: "weightInputMode must be direct or perSide." });
+  }
+  const loadMultiplier = weightInputMode === "direct" ? 1 : normalizeLoadMultiplier(body.loadMultiplier, weightInputMode);
+  const fixedWeightKg = weightInputMode === "direct" ? 0 : normalizeFixedWeightKg(body.fixedWeightKg);
+  if (
+    (body.loadMultiplier !== undefined && body.loadMultiplier !== 1 && body.loadMultiplier !== 2) ||
+    (body.fixedWeightKg !== undefined &&
+      (typeof body.fixedWeightKg !== "number" || !Number.isFinite(body.fixedWeightKg) || body.fixedWeightKg < 0))
+  ) {
+    return response(400, { message: "loadMultiplier must be 1 or 2 and fixedWeightKg must be 0 or greater." });
+  }
 
   const normalizedTrainingName = normalizeTrainingName(trainingName);
   const dup = await existsByTrainingName(userId, normalizedTrainingName);
@@ -481,6 +524,9 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
         frequency,
         normalizedTrainingName,
         defaultWeightKg,
+        weightInputMode,
+        loadMultiplier,
+        fixedWeightKg,
         defaultRepsMin: repsRange.defaultRepsMin,
         defaultRepsMax: repsRange.defaultRepsMax,
         defaultReps: repsRange.defaultRepsMax,
@@ -503,6 +549,9 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
     description,
     frequency,
     defaultWeightKg,
+    weightInputMode,
+    loadMultiplier,
+    fixedWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
     defaultReps: repsRange.defaultRepsMax,
@@ -545,6 +594,7 @@ async function updateTrainingMenuItem(
   const currentIsAiGenerated = current.isAiGenerated === true;
   const currentDescription = toDescription(current.description);
   const currentFrequency = normalizeFrequency(current.frequency) ?? defaultFrequency;
+  const currentWeightInputMode = normalizeWeightInputMode(current.weightInputMode);
   const nextName = toNonEmptyString(body.trainingName) ?? currentName;
   const nextBodyPartInput = toTrimmedString(body.bodyPart);
   const nextBodyPart = body.bodyPart !== undefined ? nextBodyPartInput ?? "" : currentBodyPart;
@@ -565,6 +615,31 @@ async function updateTrainingMenuItem(
     return response(400, { message: "frequency must be one of 1..8 (8 means 8日+)." });
   }
   const nextFrequency = body.frequency !== undefined ? nextFrequencyNormalized ?? currentFrequency : currentFrequency;
+  if (
+    body.weightInputMode !== undefined &&
+    body.weightInputMode !== "direct" &&
+    body.weightInputMode !== "perSide" &&
+    body.weightInputMode !== "legacyUnspecified"
+  ) {
+    return response(400, { message: "weightInputMode must be direct, perSide, or legacyUnspecified." });
+  }
+  const nextWeightInputMode =
+    body.weightInputMode !== undefined ? normalizeWeightInputMode(body.weightInputMode) : currentWeightInputMode;
+  if (
+    (body.loadMultiplier !== undefined && body.loadMultiplier !== 1 && body.loadMultiplier !== 2) ||
+    (body.fixedWeightKg !== undefined &&
+      (typeof body.fixedWeightKg !== "number" || !Number.isFinite(body.fixedWeightKg) || body.fixedWeightKg < 0))
+  ) {
+    return response(400, { message: "loadMultiplier must be 1 or 2 and fixedWeightKg must be 0 or greater." });
+  }
+  const nextLoadMultiplier =
+    nextWeightInputMode === "direct"
+      ? 1
+      : normalizeLoadMultiplier(body.loadMultiplier ?? current.loadMultiplier, nextWeightInputMode);
+  const nextFixedWeightKg =
+    nextWeightInputMode === "direct"
+      ? 0
+      : normalizeFixedWeightKg(body.fixedWeightKg ?? current.fixedWeightKg);
   const nextNormalizedName = normalizeTrainingName(nextName);
   const repsRange = resolveRepsRange(body, current);
 
@@ -604,6 +679,9 @@ async function updateTrainingMenuItem(
       body.defaultWeightKg !== undefined
         ? Math.round(body.defaultWeightKg * 100) / 100
         : Number(current.defaultWeightKg),
+    weightInputMode: nextWeightInputMode,
+    loadMultiplier: nextLoadMultiplier,
+    fixedWeightKg: nextFixedWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
     defaultRepsMax: repsRange.defaultRepsMax,
     defaultReps: repsRange.defaultRepsMax,
@@ -620,7 +698,7 @@ async function updateTrainingMenuItem(
         trainingMenuItemId
       },
       UpdateExpression:
-        "SET trainingName = :trainingName, bodyPart = :bodyPart, equipment = :equipment, isAiGenerated = :isAiGenerated, #description = :description, frequency = :frequency, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
+        "SET trainingName = :trainingName, bodyPart = :bodyPart, equipment = :equipment, isAiGenerated = :isAiGenerated, #description = :description, frequency = :frequency, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, weightInputMode = :weightInputMode, loadMultiplier = :loadMultiplier, fixedWeightKg = :fixedWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
       ExpressionAttributeNames: {
         "#description": "description"
       },
@@ -633,6 +711,9 @@ async function updateTrainingMenuItem(
         ":frequency": updated.frequency,
         ":normalizedTrainingName": updated.normalizedTrainingName,
         ":defaultWeightKg": updated.defaultWeightKg,
+        ":weightInputMode": updated.weightInputMode,
+        ":loadMultiplier": updated.loadMultiplier,
+        ":fixedWeightKg": updated.fixedWeightKg,
         ":defaultRepsMin": updated.defaultRepsMin,
         ":defaultRepsMax": updated.defaultRepsMax,
         ":defaultReps": updated.defaultReps,

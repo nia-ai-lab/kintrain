@@ -32,7 +32,7 @@ Goalは現在値を上書き保存するモデルであるため、過去の目�
 
 - MIME type: `application/json;charset=utf-8`
 - schema: `kintrain.analysis-export`
-- schemaVersion: `1`
+- schemaVersion: `2`
 - ファイル名:
   - 期間指定: `kintrain-analysis_{from}_{to}_{timestamp}.json`
   - 全期間: `kintrain-analysis_all_{timestamp}.json`
@@ -44,7 +44,7 @@ Goalは現在値を上書き保存するモデルであるため、過去の目�
 ```json
 {
   "schema": "kintrain.analysis-export",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "generatedAtUtc": "2026-07-26T00:00:00.000Z",
   "selection": {
     "rangeMode": "dateRange",
@@ -109,7 +109,7 @@ Core APIの`nextToken`はユーザー、対象API、期間に関連付ける。�
 ```json
 {
   "schema": "kintrain.analysis-export",
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "selection": {},
   "section": "dailyRecords",
   "items": [],
@@ -124,6 +124,18 @@ Core APIの`nextToken`はユーザー、対象API、期間に関連付ける。�
 
 呼び出し側は必要な各セクションについて`page.nextToken`が`null`になるまで同一条件で呼び出す。トークンはユーザー、スキーマバージョン、セクション、期間、タイムゾーンに関連付ける。
 
-## 6. 整合性
+## 6. 重量の意味
+
+schemaVersion 2では、メニューと実施履歴に重量換算情報を含める。
+
+- `weightKg`: ユーザーが入力した値
+- `weightInputMode`: `direct` / `perSide` / `legacyUnspecified`
+- `loadMultiplier`: 入力値に掛ける倍率。現在は1または2
+- `fixedWeightKg`: バーなど、倍率適用後に加える固定重量
+- `calculatedTotalWeightKg`: `weightKg * loadMultiplier + fixedWeightKg` の計算結果
+
+GymVisit内では、後からメニュー設定が変わっても履歴の意味が変わらないよう、入力方式を実施時点のスナップショットとして保存する。旧履歴は推測せず`legacyUnspecified`とし、換算できない値は`null`にする。
+
+## 7. 整合性
 
 エクスポート中の更新をロックしないため、監査用の時点スナップショットではない。通常の分析用途を対象とし、取得途中でAPIエラーが発生した場合、ブラウザーは不完全なファイルを生成しない。

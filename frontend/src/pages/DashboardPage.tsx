@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel } from '../utils/training';
+import { formatWeightLoad } from '../utils/weightLoad';
 
 export function DashboardPage() {
   const { data, saveGoal, refreshDailyRecord } = useAppState();
@@ -115,7 +116,7 @@ export function DashboardPage() {
               <ol className="simple-list numbered-list">
                 {latestVisit.entries.slice(0, 4).map((entry) => (
                   <li key={entry.id}>
-                    {formatTrainingLabel(entry.trainingName, entry.bodyPart, entry.equipment)} {entry.weightKg}kg x {entry.reps}回 x {entry.sets}set
+                    {formatTrainingLabel(entry.trainingName, entry.bodyPart, entry.equipment)} {formatWeightLoad(entry)} x {entry.reps}回 x {entry.sets}set
                   </li>
                 ))}
               </ol>
