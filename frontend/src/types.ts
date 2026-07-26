@@ -16,6 +16,9 @@ export interface TrainingMenuItem {
   description: string;
   frequency: TrainingFrequencyDays;
   defaultWeightKg: number;
+  weightInputMode: WeightInputMode;
+  loadMultiplier: WeightLoadMultiplier;
+  fixedWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultSets: number;
@@ -25,6 +28,8 @@ export interface TrainingMenuItem {
 
 export type TrainingEquipment = 'マシン' | 'フリー' | '自重' | 'その他';
 export type TrainingFrequencyDays = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+export type WeightInputMode = 'direct' | 'perSide' | 'legacyUnspecified';
+export type WeightLoadMultiplier = 1 | 2;
 
 export interface TrainingMenuSet {
   id: string;
@@ -44,6 +49,10 @@ export interface ExerciseEntry {
   equipment: string;
   note?: string;
   weightKg: number;
+  weightInputModeSnapshot: WeightInputMode;
+  loadMultiplierSnapshot?: WeightLoadMultiplier;
+  fixedWeightKgSnapshot?: number;
+  calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
   setDetails?: SetDetail[];

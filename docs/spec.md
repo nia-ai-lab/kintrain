@@ -138,6 +138,9 @@
 - `trainingName`
 - `bodyPart`（任意、鍛える部位）
 - `defaultWeightKg`
+- `weightInputMode`（`direct` / `perSide` / `legacyUnspecified`）
+- `loadMultiplier`（1または2）
+- `fixedWeightKg`（0以上）
 - `defaultRepsMin`
 - `defaultRepsMax`
 - `defaultSets`
@@ -162,6 +165,10 @@
 - `isAiGeneratedSnapshot`（任意、保存時点のAI生成フラグ）
 - `frequencySnapshot`（任意、保存時点の頻度スナップショット）
 - `weightKg`
+- `weightInputModeSnapshot`
+- `loadMultiplierSnapshot`
+- `fixedWeightKgSnapshot`
+- `calculatedTotalWeightKg`（`weightKg * loadMultiplierSnapshot + fixedWeightKgSnapshot`）
 - `reps`
 - `sets`
 - `performedAtUtc`（RFC3339 UTC、秒精度）
@@ -294,6 +301,9 @@
 - `bodyPart: string`（任意。未設定時は空文字）
 - `description: string`（任意。トレーニングメニュー自体の説明）
 - `defaultWeightKg: number`（0以上、小数2桁まで。自重種目などの追加重量なしは0）
+- `weightInputMode: direct | perSide | legacyUnspecified`
+- `loadMultiplier: 1 | 2`
+- `fixedWeightKg: number`（0以上）
 - `defaultRepsMin: number`
 - `defaultRepsMax: number`
 - `defaultReps: number`（後方互換のため任意で返却される場合あり）
@@ -307,6 +317,9 @@
 - `bodyPart`（任意）
 - `description`（任意、500文字以内）
 - `defaultWeightKg`
+- `weightInputMode`（任意。新規作成時の既定は`direct`）
+- `loadMultiplier`（任意、1または2）
+- `fixedWeightKg`（任意、0以上）
 - `defaultRepsMin`
 - `defaultRepsMax`
 - `defaultReps`（任意、後方互換）
@@ -316,6 +329,9 @@
 - `bodyPart`（任意）
 - `description`（任意、500文字以内）
 - `defaultWeightKg`
+- `weightInputMode`（任意）
+- `loadMultiplier`（任意、1または2）
+- `fixedWeightKg`（任意、0以上）
 - `defaultRepsMin`
 - `defaultRepsMax`
 - `defaultReps`（任意、後方互換）
@@ -324,12 +340,16 @@
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, bodyPart, description, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, bodyPart, description, defaultWeightKg, weightInputMode, loadMultiplier, fixedWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`
 - `bodyPartSnapshot: string`（任意）
 - `weightKg: number`
+- `weightInputModeSnapshot: direct | perSide | legacyUnspecified`
+- `loadMultiplierSnapshot: 1 | 2`（任意）
+- `fixedWeightKgSnapshot: number`（任意）
+- `calculatedTotalWeightKg: number`（任意）
 - `reps: number`
 - `sets: number`
 - `visitDateLocal: YYYY-MM-DD`

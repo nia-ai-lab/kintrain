@@ -181,6 +181,16 @@ test("analysis export schemas expose manifest and section paging without set det
     "gymVisits"
   ]);
   assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
+  const handlerSource = await readFile("amplify/functions/mcp-tools-api/handler.ts", "utf8");
+  assert.match(handlerSource, /schemaVersion: 2/);
+  for (const field of [
+    "weightInputMode",
+    "loadMultiplier",
+    "fixedWeightKg",
+    "calculatedTotalWeightKg"
+  ]) {
+    assert.match(handlerSource, new RegExp(field), `${field} is missing from MCP output`);
+  }
 });
 
 test("analysis export selection requires a complete range or explicit all-available mode", () => {

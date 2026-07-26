@@ -5,6 +5,13 @@ import { getTrainingSessionView } from '../api/coreApi';
 import type { DraftEntry, SetDetail, TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
+import {
+  calculateTotalWeightKg,
+  formatWeightLoad,
+  normalizeFixedWeightKg,
+  normalizeLoadMultiplier,
+  normalizeWeightInputMode
+} from '../utils/weightLoad';
 
 const maxTrainingSessionEntryCount = 12;
 const maxTrainingSessionEntryMessage =
@@ -13,6 +20,10 @@ const maxTrainingSessionEntryMessage =
 type TrainingSessionLastPerformanceSnapshot = {
   performedAtUtc: string;
   weightKg: number;
+  weightInputModeSnapshot?: 'direct' | 'perSide' | 'legacyUnspecified';
+  loadMultiplierSnapshot?: 1 | 2;
+  fixedWeightKgSnapshot?: number;
+  calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
   note?: string;
@@ -142,7 +153,9 @@ export function TrainingSessionPage() {
         }
         const items = (remote.items ?? [])
           .filter((item) => item.isActive !== false)
-          .map((item) => ({
+          .map((item) => {
+            const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
+            return {
             id: item.trainingMenuItemId,
             trainingName: item.trainingName,
             bodyPart: item.bodyPart ?? '',
@@ -151,6 +164,9 @@ export function TrainingSessionPage() {
             description: typeof item.description === 'string' ? item.description : '',
             frequency: normalizeTrainingFrequency(item.frequency),
             defaultWeightKg: Number(item.defaultWeightKg),
+            weightInputMode,
+            loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+            fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
             defaultRepsMin: Number(item.defaultRepsMin),
             defaultRepsMax: Number(item.defaultRepsMax),
             defaultSets: Number(item.defaultSets),
@@ -160,13 +176,20 @@ export function TrainingSessionPage() {
               ? {
                   performedAtUtc: item.lastPerformanceSnapshot.performedAtUtc,
                   weightKg: Number(item.lastPerformanceSnapshot.weightKg),
+                  weightInputModeSnapshot: normalizeWeightInputMode(
+                    item.lastPerformanceSnapshot.weightInputModeSnapshot
+                  ),
+                  loadMultiplierSnapshot: item.lastPerformanceSnapshot.loadMultiplierSnapshot,
+                  fixedWeightKgSnapshot: item.lastPerformanceSnapshot.fixedWeightKgSnapshot,
+                  calculatedTotalWeightKg: item.lastPerformanceSnapshot.calculatedTotalWeightKg,
                   reps: Number(item.lastPerformanceSnapshot.reps),
                   sets: Number(item.lastPerformanceSnapshot.sets),
                   note: typeof item.lastPerformanceSnapshot.note === 'string' ? item.lastPerformanceSnapshot.note : undefined,
                   visitDateLocal: item.lastPerformanceSnapshot.visitDateLocal
                 }
               : undefined
-          }));
+            };
+          });
         setSessionItems(items);
       } catch (error) {
         if (!isActive) {
@@ -229,6 +252,9 @@ export function TrainingSessionPage() {
             description: '',
             frequency: 3,
             defaultWeightKg: 0,
+            weightInputMode: 'legacyUnspecified',
+            loadMultiplier: 1,
+            fixedWeightKg: 0,
             defaultRepsMin: 1,
             defaultRepsMax: 1,
             defaultSets: 1,
@@ -385,8 +411,25 @@ export function TrainingSessionPage() {
                   <p className="muted">
                     直近:{' '}
                     {last
-                      ? `${isoToDisplayDateTime(last.performedAtUtc)} ${last.weightKg}kg x ${last.reps}回 x ${last.sets}set`
-                      : `未実施（メニュー: ${item.defaultWeightKg}kg x ${formatRepsTarget(item.defaultRepsMin, item.defaultRepsMax)} x ${item.defaultSets}set）`}
+                      ? `${isoToDisplayDateTime(last.performedAtUtc)} ${formatWeightLoad({
+                          weightKg: last.weightKg,
+                          weightInputModeSnapshot: last.weightInputModeSnapshot,
+                          loadMultiplierSnapshot: last.loadMultiplierSnapshot,
+                          fixedWeightKgSnapshot: last.fixedWeightKgSnapshot,
+                          calculatedTotalWeightKg: last.calculatedTotalWeightKg
+                        })} x ${last.reps}回 x ${last.sets}set`
+                      : `未実施（メニュー: ${formatWeightLoad({
+                          weightKg: item.defaultWeightKg,
+                          weightInputModeSnapshot: item.weightInputMode,
+                          loadMultiplierSnapshot: item.loadMultiplier,
+                          fixedWeightKgSnapshot: item.fixedWeightKg,
+                          calculatedTotalWeightKg: calculateTotalWeightKg(
+                            item.defaultWeightKg,
+                            item.weightInputMode,
+                            item.loadMultiplier,
+                            item.fixedWeightKg
+                          )
+                        })} x ${formatRepsTarget(item.defaultRepsMin, item.defaultRepsMax)} x ${item.defaultSets}set）`}
                   </p>
                 </div>
                 <div className="session-actions">
@@ -442,7 +485,7 @@ export function TrainingSessionPage() {
 
               <div className="input-grid training-metrics-grid">
                 <label>
-                  重量
+                  {item.weightInputMode === 'perSide' ? '片側重量 (kg)' : '重量 (kg)'}
                   <input
                     type="number"
                     min={0}
@@ -465,6 +508,20 @@ export function TrainingSessionPage() {
                       });
                     }}
                   />
+                  <span className="muted">
+                    {item.weightInputMode === 'legacyUnspecified'
+                      ? '重量の意味が未設定です。メニュー設定で指定してください。'
+                      : item.weightInputMode === 'direct'
+                        ? `総重量 ${weightValue ?? '-'}kg`
+                        : `換算総重量 ${
+                            calculateTotalWeightKg(
+                              weightValue,
+                              item.weightInputMode,
+                              item.loadMultiplier,
+                              item.fixedWeightKg
+                            ) ?? '-'
+                          }kg（×${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
+                  </span>
                 </label>
                 <label>
                   {formatRepsInputLabel(item.defaultRepsMin, item.defaultRepsMax)}
@@ -620,7 +677,18 @@ export function TrainingSessionPage() {
                     <li key={item.id}>
                       <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
                       <span>
-                        {draft?.weightKg}kg x {draft?.reps}回 x {draft?.sets}set
+                        {formatWeightLoad({
+                          weightKg: draft?.weightKg ?? 0,
+                          weightInputModeSnapshot: item.weightInputMode,
+                          loadMultiplierSnapshot: item.loadMultiplier,
+                          fixedWeightKgSnapshot: item.fixedWeightKg,
+                          calculatedTotalWeightKg: calculateTotalWeightKg(
+                            draft?.weightKg,
+                            item.weightInputMode,
+                            item.loadMultiplier,
+                            item.fixedWeightKg
+                          )
+                        })} x {draft?.reps}回 x {draft?.sets}set
                       </span>
                       {draft?.memo?.trim() && <span className="muted">メモ: {draft.memo.trim()}</span>}
                     </li>
