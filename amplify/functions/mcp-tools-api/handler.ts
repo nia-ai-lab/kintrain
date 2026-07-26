@@ -11,6 +11,7 @@ const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
 const goalTableName = process.env.GOAL_TABLE_NAME ?? "";
 const aiSettingTableName = process.env.AI_SETTING_TABLE_NAME ?? "";
 const aiAdviceLogTableName = process.env.AI_ADVICE_LOG_TABLE_NAME ?? "";
+const userProfileTableName = process.env.USER_PROFILE_TABLE_NAME ?? "";
 
 type LambdaLikeResponse = {
   statusCode: number;
@@ -97,9 +98,12 @@ const defaultEquipment = "マシン";
 const defaultFrequency = 3;
 const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
 const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
+const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
 const trainingNameIndex = "UserTrainingNameIndex";
 const defaultSetMarker = "DEFAULT";
 const trainingPerformanceByMenuItemIndex = "UserTrainingMenuItemPerformedAtIndex";
+const trainingMenuByOrderIndex = "UserDisplayOrderIndex";
+const trainingHistoryByStartedAtIndex = "UserStartedAtIndex";
 const bodyMetricsBatchLimit = 100;
 const bodyMetricsWriteConcurrency = 10;
 const bodyMetricRecordFields = new Set([
@@ -348,6 +352,425 @@ function listRange(arguments_: ListArguments): Record<string, string | null> {
   };
 }
 
+type AnalysisExportRangeMode = "dateRange" | "allAvailable";
+type AnalysisExportSection = "trainingMenus" | "trainingMenuSets" | "dailyRecords" | "gymVisits";
+type AnalysisExportSelection = {
+  rangeMode: AnalysisExportRangeMode;
+  from?: string;
+  to?: string;
+  timeZoneId: string;
+};
+
+type AnalysisExportSelectionResult =
+  | { value: AnalysisExportSelection }
+  | { response: LambdaLikeResponse };
+
+export function parseAnalysisExportSelection(args: ToolArgs): AnalysisExportSelectionResult {
+  const rangeMode = args.rangeMode;
+  if (rangeMode !== "dateRange" && rangeMode !== "allAvailable") {
+    return {
+      response: jsonResponse(400, {
+        code: "INVALID_RANGE_MODE",
+        message: "rangeMode must be dateRange or allAvailable."
+      })
+    };
+  }
+
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!timeZoneId) {
+    return {
+      response: jsonResponse(400, {
+        code: "INVALID_TIME_ZONE",
+        message: "timeZoneId must be a valid IANA time zone ID."
+      })
+    };
+  }
+
+  if (rangeMode === "allAvailable") {
+    if (args.from !== undefined || args.to !== undefined) {
+      return {
+        response: jsonResponse(400, {
+          code: "UNEXPECTED_DATE_RANGE",
+          message: "from and to must be omitted when rangeMode is allAvailable."
+        })
+      };
+    }
+    return { value: { rangeMode, timeZoneId } };
+  }
+
+  const from = parseYmd(args.from);
+  const to = parseYmd(args.to);
+  if (!from || !to) {
+    return {
+      response: jsonResponse(400, {
+        code: "INVALID_DATE_RANGE",
+        message: "from and to are required as valid YYYY-MM-DD dates when rangeMode is dateRange."
+      })
+    };
+  }
+  if (from > to) {
+    return {
+      response: jsonResponse(400, {
+        code: "INVALID_DATE_RANGE",
+        message: "from must be on or before to."
+      })
+    };
+  }
+  return { value: { rangeMode, from, to, timeZoneId } };
+}
+
+function analysisExportSelectionResponse(selection: AnalysisExportSelection): Record<string, unknown> {
+  return {
+    rangeMode: selection.rangeMode,
+    fromLocalDate: selection.from ?? null,
+    toLocalDate: selection.to ?? null,
+    inclusive: true,
+    timeZoneId: selection.timeZoneId
+  };
+}
+
+function nullableString(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function nullableNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function normalizeAnalysisDailyRecord(item: Record<string, unknown>): Record<string, unknown> {
+  return {
+    date: nullableString(item.recordDate),
+    timeZoneId: nullableString(item.timeZoneId),
+    bodyWeightKg: nullableNumber(item.bodyWeightKg),
+    bodyFatPercent: nullableNumber(item.bodyFatPercent),
+    bodyMetricMeasuredTimeLocal: nullableString(item.bodyMetricMeasuredTimeLocal),
+    conditionRating: nullableNumber(item.conditionRating),
+    moodRating: nullableNumber(item.moodRating),
+    conditionComment: nullableString(item.conditionComment),
+    diary: nullableString(item.diary),
+    otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
+    createdAtUtc: nullableString(item.createdAt),
+    updatedAtUtc: nullableString(item.updatedAt)
+  };
+}
+
+function normalizeAnalysisGymVisit(item: Record<string, unknown>): Record<string, unknown> {
+  const entries = Array.isArray(item.entries) ? item.entries : [];
+  return {
+    visitId: nullableString(item.visitId),
+    date: nullableString(item.visitDateLocal),
+    startedAtUtc: nullableString(item.startedAtUtc),
+    endedAtUtc: nullableString(item.endedAtUtc),
+    timeZoneId: nullableString(item.timeZoneId),
+    note: nullableString(item.note),
+    entries: entries.map((rawEntry) => {
+      const entry =
+        rawEntry && typeof rawEntry === "object" && !Array.isArray(rawEntry)
+          ? (rawEntry as Record<string, unknown>)
+          : {};
+      return {
+        trainingMenuItemId: nullableString(entry.trainingMenuItemId),
+        trainingName: nullableString(entry.trainingNameSnapshot),
+        bodyPart: nullableString(entry.bodyPartSnapshot),
+        equipment: nullableString(entry.equipmentSnapshot),
+        isAiGenerated: entry.isAiGeneratedSnapshot === true,
+        frequencyDays: nullableNumber(entry.frequencySnapshot),
+        weightKg: nullableNumber(entry.weightKg),
+        reps: nullableNumber(entry.reps),
+        sets: nullableNumber(entry.sets),
+        performedAtUtc: nullableString(entry.performedAtUtc),
+        note: nullableString(entry.note)
+      };
+    }),
+    createdAtUtc: nullableString(item.createdAt),
+    updatedAtUtc: nullableString(item.updatedAt)
+  };
+}
+
+function normalizeAnalysisTrainingMenu(item: Record<string, unknown>): Record<string, unknown> {
+  const legacyReps = nullableNumber(item.defaultReps);
+  return {
+    trainingMenuItemId: nullableString(item.trainingMenuItemId),
+    trainingName: nullableString(item.trainingName),
+    bodyPart: nullableString(item.bodyPart),
+    equipment: nullableString(item.equipment),
+    isAiGenerated: item.isAiGenerated === true,
+    description: nullableString(item.description),
+    frequencyDays: nullableNumber(item.frequency),
+    defaultWeightKg: nullableNumber(item.defaultWeightKg),
+    defaultRepsMin: nullableNumber(item.defaultRepsMin) ?? legacyReps,
+    defaultRepsMax: nullableNumber(item.defaultRepsMax) ?? legacyReps,
+    defaultSets: nullableNumber(item.defaultSets),
+    displayOrder: nullableNumber(item.displayOrder),
+    isActive: item.isActive !== false,
+    createdAtUtc: nullableString(item.createdAt),
+    updatedAtUtc: nullableString(item.updatedAt)
+  };
+}
+
+async function listAnalysisMenuSetItemIds(userId: string, trainingMenuSetId: string): Promise<string[]> {
+  const itemIds: string[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetItemTableName,
+        IndexName: setItemsBySetOrderIndex,
+        KeyConditionExpression: "userId = :userId AND begins_with(menuSetOrderKey, :prefix)",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":prefix": `${trainingMenuSetId}#`
+        },
+        ScanIndexForward: true,
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    for (const item of result.Items ?? []) {
+      if (typeof item.trainingMenuItemId === "string") {
+        itemIds.push(item.trainingMenuItemId);
+      }
+    }
+    exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+  return itemIds;
+}
+
+async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+  const parsed = parseAnalysisExportSelection(args);
+  if ("response" in parsed) {
+    return parsed.response;
+  }
+  const selection = parsed.value;
+  const [profileResult, goalResult] = await Promise.all([
+    ddb.send(
+      new GetCommand({
+        TableName: userProfileTableName,
+        Key: { userId }
+      })
+    ),
+    ddb.send(
+      new GetCommand({
+        TableName: goalTableName,
+        Key: { userId }
+      })
+    )
+  ]);
+  const profile = profileResult.Item ?? {};
+  const goal = goalResult.Item;
+
+  return jsonResponse(200, {
+    tool: "get_analysis_export_manifest",
+    schema: "kintrain.analysis-export",
+    schemaVersion: 1,
+    generatedAtUtc: new Date().toISOString(),
+    selection: analysisExportSelectionResponse(selection),
+    currentContext: {
+      userProfile: {
+        userName: typeof profile.userName === "string" ? profile.userName : "",
+        sex: typeof profile.sex === "string" ? profile.sex : "no-answer",
+        birthDate: nullableString(profile.birthDate),
+        heightCm: nullableNumber(profile.heightCm),
+        timeZoneId: typeof profile.timeZoneId === "string" ? profile.timeZoneId : selection.timeZoneId
+      },
+      goal: goal
+        ? {
+            targetWeightKg: nullableNumber(goal.targetWeightKg),
+            targetBodyFatPercent: nullableNumber(goal.targetBodyFatPercent),
+            deadlineDate: nullableString(goal.deadlineDate),
+            comment: nullableString(goal.comment),
+            updatedAtUtc: nullableString(goal.updatedAt)
+          }
+        : null
+    },
+    sections: ["trainingMenus", "trainingMenuSets", "dailyRecords", "gymVisits"],
+    paging: {
+      tool: "get_analysis_export_page",
+      maxLimit: 50,
+      instruction:
+        "Call each required section with the same selection. Repeat with the returned nextToken until nextToken is null."
+    }
+  });
+}
+
+async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+  const parsed = parseAnalysisExportSelection(args);
+  if ("response" in parsed) {
+    return parsed.response;
+  }
+  const selection = parsed.value;
+  const section = args.section;
+  const allowedSections = new Set<AnalysisExportSection>([
+    "trainingMenus",
+    "trainingMenuSets",
+    "dailyRecords",
+    "gymVisits"
+  ]);
+  if (typeof section !== "string" || !allowedSections.has(section as AnalysisExportSection)) {
+    return jsonResponse(400, {
+      code: "INVALID_SECTION",
+      message: "section must be trainingMenus, trainingMenuSets, dailyRecords, or gymVisits."
+    });
+  }
+  const typedSection = section as AnalysisExportSection;
+  const requestedLimit = args.limit === undefined ? 50 : args.limit;
+  if (
+    typeof requestedLimit !== "number" ||
+    !Number.isInteger(requestedLimit) ||
+    requestedLimit < 1 ||
+    requestedLimit > 50
+  ) {
+    return jsonResponse(400, {
+      code: "INVALID_LIMIT",
+      message: "limit must be an integer between 1 and 50."
+    });
+  }
+
+  const tokenContext = JSON.stringify([
+    "analysis-export",
+    1,
+    userId,
+    typedSection,
+    selection.rangeMode,
+    selection.from ?? null,
+    selection.to ?? null,
+    selection.timeZoneId
+  ]);
+  const exclusiveStartKey = decodeNextToken(args.nextToken, tokenContext);
+  if (
+    exclusiveStartKey === null ||
+    (exclusiveStartKey !== undefined && exclusiveStartKey.userId !== userId)
+  ) {
+    return jsonResponse(400, {
+      code: "INVALID_NEXT_TOKEN",
+      message: "nextToken is invalid for this user, section, or selection."
+    });
+  }
+
+  let result: {
+    Items?: Record<string, unknown>[];
+    LastEvaluatedKey?: Record<string, unknown>;
+  };
+  if (typedSection === "dailyRecords") {
+    const expressionAttributeValues: Record<string, unknown> = { ":userId": userId };
+    let keyConditionExpression = "userId = :userId";
+    if (selection.rangeMode === "dateRange") {
+      keyConditionExpression += " AND recordDate BETWEEN :from AND :to";
+      expressionAttributeValues[":from"] = selection.from;
+      expressionAttributeValues[":to"] = selection.to;
+    }
+    result = await ddb.send(
+      new QueryCommand({
+        TableName: dailyRecordTableName,
+        KeyConditionExpression: keyConditionExpression,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ScanIndexForward: true,
+        Limit: requestedLimit,
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+  } else if (typedSection === "gymVisits") {
+    const expressionAttributeValues: Record<string, unknown> = { ":userId": userId };
+    let keyConditionExpression = "userId = :userId";
+    if (selection.rangeMode === "dateRange") {
+      keyConditionExpression += " AND startedAtUtc BETWEEN :fromUtc AND :toUtc";
+      expressionAttributeValues[":fromUtc"] = `${addYmdDays(selection.from!, -1)}T00:00:00Z`;
+      expressionAttributeValues[":toUtc"] = `${addYmdDays(selection.to!, 1)}T23:59:59Z`;
+    }
+    result = await ddb.send(
+      new QueryCommand({
+        TableName: trainingHistoryTableName,
+        IndexName: trainingHistoryByStartedAtIndex,
+        KeyConditionExpression: keyConditionExpression,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ScanIndexForward: true,
+        Limit: requestedLimit,
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    if (selection.rangeMode === "dateRange") {
+      result.Items = (result.Items ?? []).filter((item) => {
+        const visitDateLocal = typeof item.visitDateLocal === "string" ? item.visitDateLocal : "";
+        return visitDateLocal >= selection.from! && visitDateLocal <= selection.to!;
+      });
+    }
+  } else if (typedSection === "trainingMenus") {
+    result = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuTableName,
+        IndexName: trainingMenuByOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: {
+          ":userId": userId
+        },
+        ScanIndexForward: true,
+        Limit: requestedLimit,
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    result.Items = (result.Items ?? []).filter((item) => item.isActive !== false);
+  } else {
+    result = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetTableName,
+        IndexName: menuSetByOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: {
+          ":userId": userId
+        },
+        ScanIndexForward: true,
+        Limit: requestedLimit,
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    result.Items = (result.Items ?? []).filter((item) => item.isActive !== false);
+  }
+
+  let items: Record<string, unknown>[];
+  if (typedSection === "dailyRecords") {
+    items = (result.Items ?? []).map(normalizeAnalysisDailyRecord);
+  } else if (typedSection === "gymVisits") {
+    items = (result.Items ?? []).map(normalizeAnalysisGymVisit);
+  } else if (typedSection === "trainingMenus") {
+    items = (result.Items ?? []).map(normalizeAnalysisTrainingMenu);
+  } else {
+    items = await Promise.all(
+      (result.Items ?? []).map(async (item) => {
+        const trainingMenuSetId = typeof item.trainingMenuSetId === "string" ? item.trainingMenuSetId : "";
+        return {
+          trainingMenuSetId: nullableString(item.trainingMenuSetId),
+          setName: nullableString(item.setName),
+          displayOrder: nullableNumber(item.menuSetOrder),
+          isDefault: item.isDefault === true,
+          isAiGenerated: item.isAiGenerated === true,
+          isActive: item.isActive !== false,
+          trainingMenuItemIds: trainingMenuSetId
+            ? await listAnalysisMenuSetItemIds(userId, trainingMenuSetId)
+            : [],
+          createdAtUtc: nullableString(item.createdAt),
+          updatedAtUtc: nullableString(item.updatedAt)
+        };
+      })
+    );
+  }
+
+  const nextToken =
+    encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, tokenContext) ?? null;
+  return jsonResponse(200, {
+    tool: "get_analysis_export_page",
+    schema: "kintrain.analysis-export",
+    schemaVersion: 1,
+    selection: analysisExportSelectionResponse(selection),
+    section: typedSection,
+    items,
+    page: {
+      limit: requestedLimit,
+      returned: items.length,
+      nextToken,
+      hasMore: nextToken !== null
+    }
+  });
+}
+
 function resolveDiarySaveMode(value: unknown): DiarySaveMode | undefined {
   if (typeof value !== "string") {
     return undefined;
@@ -433,6 +856,7 @@ function requireConfiguredTables(): string | null {
     !trainingHistoryTableName ||
     !dailyRecordTableName ||
     !goalTableName ||
+    !userProfileTableName ||
     !aiSettingTableName ||
     !aiAdviceLogTableName
   ) {
@@ -1676,6 +2100,12 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "get_daily_record") {
       return getDailyRecord(event, userId);
+    }
+    if (toolName === "get_analysis_export_manifest") {
+      return getAnalysisExportManifest(event, userId);
+    }
+    if (toolName === "get_analysis_export_page") {
+      return getAnalysisExportPage(event, userId);
     }
     if (toolName === "save_daily_diary") {
       return saveDailyDiary(event, userId);

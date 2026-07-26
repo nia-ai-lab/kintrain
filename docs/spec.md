@@ -599,14 +599,16 @@
 - `scan` は禁止（全API/全Lambda）。
 - 現行実装:
 - `GET /training-menu-items` は `limit <= 200`（既定100）を適用し、`nextToken` でページングする。
-- `GET /gym-visits` は `limit <= 200`（既定100）を適用する（`nextToken` 未実装）。
-- `GET /daily-records?from&to` は範囲Queryを実行する（`limit/nextToken` 未実装）。
+- `GET /gym-visits` は `limit <= 200`（既定100）と`nextToken`を適用する。`from/to`省略時は全期間を取得する。
+- `GET /daily-records?from&to` は範囲Query、`limit <= 200`（既定100）、`nextToken`を適用する。`from/to`省略時は全期間を取得する。
 - `GET /calendar?month=YYYY-MM` は対象月のみ（最大31日）を取得する。
 - `GET /training-session-view?date=YYYY-MM-DD` は対象日の実施済み種目判定に `TrainingHistory` を使い、直近実績は `TrainingPerformance` を使って取得する。
 - MCPの履歴一覧3ツールは `from/to/timeZoneId/limit/nextToken` を共通採用し、`limit <= 100`（既定100）でページングする。
+- 分析用エクスポート:
+- ブラウザーはCore APIを全ページ取得し、`kintrain.analysis-export` schema version 1のJSONを生成する。
+- MCPは`get_analysis_export_manifest`と`get_analysis_export_page`を提供し、セクションごとに`limit <= 50`でページングする。
+- 詳細は`docs/analysis-export-spec.md`を正本とする。
 - 次フェーズの目標:
-- `GET /gym-visits` の `nextToken` ページング対応
-- `GET /daily-records` の `limit/nextToken` 対応
 - `from/to` の最大日数バリデーション（31日上限など）
 - 目標とする1リクエスト最大件数（将来）:
 - `trainingMenuItems`: 100件

@@ -10,6 +10,7 @@ import {
   localDateInclusiveUpperKey,
   localDateStartUtc,
   normalizeNonNegativeDecimal,
+  parseAnalysisExportSelection,
   parseLocalTime,
   parseYmd,
   resolveRecordDate,
@@ -154,6 +155,73 @@ test("history list schemas share the paging and local-date interface", async () 
   }
   const gymVisits = schemas.find((candidate) => candidate.name === "get_gym_visits");
   assert.equal(Object.hasOwn(gymVisits!.inputSchema.properties, "days"), false);
+});
+
+test("analysis export schemas expose manifest and section paging without set details", async () => {
+  const schemas = JSON.parse(
+    await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
+  ) as Array<{
+    name: string;
+    inputSchema: {
+      properties: Record<string, { maximum?: number; enum?: string[] }>;
+      required?: string[];
+    };
+  }>;
+  const manifest = schemas.find((candidate) => candidate.name === "get_analysis_export_manifest");
+  const page = schemas.find((candidate) => candidate.name === "get_analysis_export_page");
+  assert.ok(manifest);
+  assert.ok(page);
+  assert.deepEqual(manifest.inputSchema.required, ["rangeMode"]);
+  assert.deepEqual(page.inputSchema.required, ["rangeMode", "section"]);
+  assert.equal(page.inputSchema.properties.limit.maximum, 50);
+  assert.deepEqual(page.inputSchema.properties.section.enum, [
+    "trainingMenus",
+    "trainingMenuSets",
+    "dailyRecords",
+    "gymVisits"
+  ]);
+  assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
+});
+
+test("analysis export selection requires a complete range or explicit all-available mode", () => {
+  const selected = parseAnalysisExportSelection({
+    rangeMode: "dateRange",
+    from: "2026-01-01",
+    to: "2026-07-26",
+    timeZoneId: "Asia/Tokyo"
+  });
+  assert.ok("value" in selected);
+  if ("value" in selected) {
+    assert.deepEqual(selected.value, {
+      rangeMode: "dateRange",
+      from: "2026-01-01",
+      to: "2026-07-26",
+      timeZoneId: "Asia/Tokyo"
+    });
+  }
+
+  const allAvailable = parseAnalysisExportSelection({
+    rangeMode: "allAvailable",
+    timeZoneId: "Asia/Tokyo"
+  });
+  assert.ok("value" in allAvailable);
+
+  const incomplete = parseAnalysisExportSelection({
+    rangeMode: "dateRange",
+    from: "2026-01-01"
+  });
+  assert.ok("response" in incomplete);
+  if ("response" in incomplete) {
+    assert.equal(incomplete.response.statusCode, 400);
+    assert.equal(parseResponse(incomplete.response).code, "INVALID_DATE_RANGE");
+  }
+
+  const reversed = parseAnalysisExportSelection({
+    rangeMode: "dateRange",
+    from: "2026-07-26",
+    to: "2026-01-01"
+  });
+  assert.ok("response" in reversed);
 });
 
 test("body metrics schema requires the four Core API measurement fields", async () => {

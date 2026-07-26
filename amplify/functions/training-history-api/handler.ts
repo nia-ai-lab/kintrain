@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response } from "../shared/http";
+import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
 const trainingPerformanceTableName = process.env.TRAINING_PERFORMANCE_TABLE_NAME ?? "";
@@ -17,6 +18,12 @@ const userStartedAtIndex = "UserStartedAtIndex";
 const userTrainingMenuItemPerformedAtIndex = "UserTrainingMenuItemPerformedAtIndex";
 const userVisitIndex = "UserVisitIndex";
 const maxVisitEntryCount = 12;
+
+function addYmdDays(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
 
 type ExerciseEntry = {
   trainingMenuItemId: string;
@@ -532,9 +539,23 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
 }
 
 async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
-  const from = parseYmd(event.queryStringParameters?.from);
-  const to = parseYmd(event.queryStringParameters?.to);
-  const limit = Math.max(1, Math.min(200, Number(event.queryStringParameters?.limit ?? "100")));
+  const rawFrom = event.queryStringParameters?.from;
+  const rawTo = event.queryStringParameters?.to;
+  const from = parseYmd(rawFrom);
+  const to = parseYmd(rawTo);
+  if ((rawFrom && !from) || (rawTo && !to) || Boolean(from) !== Boolean(to)) {
+    return response(400, { message: "from and to must both be valid YYYY-MM-DD dates, or both be omitted." });
+  }
+  if (from && to && from > to) {
+    return response(400, { message: "from must be on or before to." });
+  }
+  const requestedLimit = Number(event.queryStringParameters?.limit ?? "100");
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 100;
+  const tokenContext = JSON.stringify(["gym-visits", from ?? null, to ?? null]);
+  const exclusiveStartKey = decodePageToken(event.queryStringParameters?.nextToken, tokenContext, userId);
+  if (exclusiveStartKey === null) {
+    return response(400, { message: "nextToken is invalid for this user or date range." });
+  }
 
   let keyConditionExpression = "userId = :userId";
   const expressionAttributeValues: Record<string, unknown> = {
@@ -543,8 +564,8 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
 
   if (from && to) {
     keyConditionExpression += " AND startedAtUtc BETWEEN :fromUtc AND :toUtc";
-    expressionAttributeValues[":fromUtc"] = `${from}T00:00:00Z`;
-    expressionAttributeValues[":toUtc"] = `${to}T23:59:59Z`;
+    expressionAttributeValues[":fromUtc"] = `${addYmdDays(from, -1)}T00:00:00Z`;
+    expressionAttributeValues[":toUtc"] = `${addYmdDays(to, 1)}T23:59:59Z`;
   }
 
   const result = await ddb.send(
@@ -553,13 +574,26 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
       IndexName: userStartedAtIndex,
       KeyConditionExpression: keyConditionExpression,
       ExpressionAttributeValues: expressionAttributeValues,
-      ScanIndexForward: false,
-      Limit: limit
+      ScanIndexForward: true,
+      Limit: limit,
+      ExclusiveStartKey: exclusiveStartKey
     })
   );
 
   return response(200, {
-    items: result.Items ?? []
+    items: (result.Items ?? [])
+      .filter((item) => {
+        if (!from || !to) {
+          return true;
+        }
+        const visitDateLocal = typeof item.visitDateLocal === "string" ? item.visitDateLocal : "";
+        return visitDateLocal >= from && visitDateLocal <= to;
+      })
+      .map(({ userId: _userId, ...item }) => item),
+    nextToken: encodePageToken(
+      result.LastEvaluatedKey as Record<string, unknown> | undefined,
+      tokenContext
+    )
   });
 }
 

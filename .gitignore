@@ -19,6 +19,8 @@ pnpm-debug.log*
 dist/
 build/
 coverage/
+test-results/
+playwright-report/
 *.tsbuildinfo
 
 # AWS CDK (TypeScript)

@@ -115,6 +115,46 @@ function buildCoreMockData() {
         updatedAt: now
       }
     ],
+    dailyRecords: [
+      {
+        recordDate: state.todayYmd,
+        timeZoneId: 'Asia/Tokyo',
+        bodyWeightKg: 69.8,
+        bodyFatPercent: 17.5,
+        bodyMetricMeasuredTimeLocal: '07:30',
+        conditionRating: 7,
+        moodRating: 8,
+        conditionComment: '体調はまずまず',
+        diary: 'UIテストの日記',
+        otherActivities: [],
+        createdAt: now,
+        updatedAt: now
+      }
+    ],
+    gymVisits: [
+      {
+        visitId: 'visit-export-1',
+        startedAtUtc: `${state.todayYmd}T09:00:00Z`,
+        endedAtUtc: `${state.todayYmd}T10:00:00Z`,
+        timeZoneId: 'Asia/Tokyo',
+        visitDateLocal: state.todayYmd,
+        entries: [
+          {
+            trainingMenuItemId: 'm-1',
+            trainingNameSnapshot: 'チェストプレス',
+            bodyPartSnapshot: '胸',
+            equipmentSnapshot: 'マシン',
+            weightKg: 25,
+            reps: 12,
+            sets: 3,
+            performedAtUtc: `${state.todayYmd}T10:00:00Z`
+          }
+        ],
+        note: 'エクスポート確認',
+        createdAt: now,
+        updatedAt: now
+      }
+    ],
     sequence: 100
   };
 }
@@ -151,7 +191,49 @@ async function attachCoreApiMock(page) {
       return json(mock.profile);
     }
     if (path === '/gym-visits' && method === 'GET') {
-      return json({ items: [] });
+      return json({ items: mock.gymVisits, nextToken: null });
+    }
+    if (path === '/daily-records' && method === 'GET') {
+      return json({ items: mock.dailyRecords, nextToken: null });
+    }
+    if (path === '/calendar' && method === 'GET') {
+      return json({
+        month: url.searchParams.get('month'),
+        days: mock.dailyRecords.map((item) => ({
+          date: item.recordDate,
+          trained: mock.gymVisits.some((visit) => visit.visitDateLocal === item.recordDate),
+          conditionRating: item.conditionRating ?? null,
+          moodRating: item.moodRating ?? null
+        }))
+      });
+    }
+    if (path.startsWith('/daily-records/') && method === 'GET') {
+      const date = path.split('/').pop();
+      return json(
+        mock.dailyRecords.find((item) => item.recordDate === date) ?? {
+          recordDate: date,
+          timeZoneId: 'Asia/Tokyo',
+          otherActivities: []
+        }
+      );
+    }
+    if (path.startsWith('/daily-records/') && method === 'PUT') {
+      const date = path.split('/').pop();
+      const next = JSON.parse(req.postData() ?? '{}');
+      const existingIndex = mock.dailyRecords.findIndex((item) => item.recordDate === date);
+      const record = {
+        ...(existingIndex >= 0 ? mock.dailyRecords[existingIndex] : {}),
+        ...next,
+        recordDate: date,
+        createdAt: existingIndex >= 0 ? mock.dailyRecords[existingIndex].createdAt : now,
+        updatedAt: now
+      };
+      if (existingIndex >= 0) {
+        mock.dailyRecords[existingIndex] = record;
+      } else {
+        mock.dailyRecords.push(record);
+      }
+      return json(record);
     }
     if (path === '/ai-character-profile' && method === 'GET') {
       return json({
@@ -162,12 +244,21 @@ async function attachCoreApiMock(page) {
         speechEnding: ''
       });
     }
+    if (path === '/ai-character-profile' && method === 'PUT') {
+      const next = JSON.parse(req.postData() ?? '{}');
+      return json({
+        characterId: 'default',
+        avatarImageUrl: '/assets/characters/default.png',
+        ...next,
+        updatedAt: now
+      });
+    }
     if (path === '/goals' && method === 'GET') {
       return json({});
     }
     if (path === '/training-menu-items' && method === 'GET') {
       const sorted = [...mock.menuItems].sort((a, b) => a.displayOrder - b.displayOrder);
-      return json({ items: sorted });
+      return json({ items: sorted, nextToken: null });
     }
     if (path === '/training-menu-sets' && method === 'GET') {
       return json({ items: mock.menuSets });
@@ -708,7 +799,8 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
   await page.getByLabel('体重 (kg)').fill('69.8');
   await page.getByLabel('体脂肪率 (%)').fill('17.5');
   await page.getByLabel('測定時刻').fill('07:30');
-  await page.getByRole('button', { name: /良い/ }).click();
+  await page.getByRole('slider', { name: '体調' }).fill('7');
+  await page.getByRole('slider', { name: '気分' }).fill('8');
   await page.getByLabel('コメント').fill('体調はまずまず');
   await page.getByPlaceholder('今日の記録や気づき').fill('UIテストでDaily更新を確認');
 
@@ -721,11 +813,26 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
     .locator('button.calendar-cell')
     .filter({ has: page.locator('.day-number', { hasText: String(dayNumber) }) })
     .first();
-  await expect(todayCellAfter.locator('.condition-icon')).toHaveText('🙂');
+  await expect(todayCellAfter.locator('.calendar-rating-stripe').first()).toHaveAttribute('title', '体調 7/10');
 });
 
 test('AIチャットで送信とモック応答の表示ができる', async ({ page }) => {
   await attachCoreApiMock(page);
+  await page.route('**/invocations**', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: [
+        'event: chunk',
+        `data: ${JSON.stringify({ chunk: '今日の混雑前提なら、優先1〜3を先に押さえましょう。' })}`,
+        '',
+        'event: done',
+        `data: ${JSON.stringify({ runtimeSessionId: 'runtime-session-ui-test-000000000000' })}`,
+        '',
+        ''
+      ].join('\n')
+    });
+  });
   await login(page);
   await page.goto('/ai-chat');
 
@@ -751,11 +858,36 @@ test('設定保存とログアウトができる', async ({ page }) => {
 
   await page.getByLabel('キャラクター名').fill('ニャル子');
   await page.getByRole('button', { name: 'AI設定を反映' }).click();
-  await expect(page.getByText('AIコーチキャラクター設定を反映しました。')).toBeVisible();
+  await expect(page.getByText('AIコーチキャラクター設定を保存しました。')).toBeVisible();
 
   await page.getByRole('button', { name: 'ログアウト' }).click();
   await expect(page).toHaveURL(/\/login$/);
 
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test('設定画面から全期間の分析用JSONをダウンロードできる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/settings');
+
+  await page.getByLabel('保存されている全期間').check();
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByRole('button', { name: '分析用JSONをダウンロード' }).click();
+  const download = await downloadPromise;
+  assert.match(download.suggestedFilename(), /^kintrain-analysis_all_.*\.json$/);
+
+  const downloadPath = await download.path();
+  assert.ok(downloadPath);
+  const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
+  assert.equal(exported.schema, 'kintrain.analysis-export');
+  assert.equal(exported.schemaVersion, 1);
+  assert.equal(exported.selection.rangeMode, 'allAvailable');
+  assert.equal(exported.coverage.dailyRecordCount, 1);
+  assert.equal(exported.coverage.gymVisitCount, 1);
+  assert.equal(exported.history.dailyRecords[0].bodyWeightKg, 69.8);
+  assert.equal(exported.history.gymVisits[0].entries[0].trainingName, 'チェストプレス');
+  assert.equal(JSON.stringify(exported).includes('setDetails'), false);
+  await expect(page.getByText(/ダウンロードしました。デイリー記録 1件、ジム記録 1件/)).toBeVisible();
 });

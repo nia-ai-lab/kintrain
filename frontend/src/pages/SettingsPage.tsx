@@ -5,6 +5,13 @@ import { uploadAvatarImage } from '../api/coreApi';
 import { useAppState } from '../AppState';
 import { useAuth } from '../AuthState';
 import type { TonePreset } from '../types';
+import {
+  analysisExportFileName,
+  createAnalysisExport,
+  isValidAnalysisDate,
+  type AnalysisExportProgress
+} from '../utils/analysisExport';
+import { toYmd } from '../utils/date';
 
 const timeZoneCandidates = [
   'Asia/Tokyo',
@@ -21,6 +28,28 @@ const maxAvatarUploadBytes = 2 * 1024 * 1024;
 const avatarOutputSize = 512;
 const avatarCompressionQualities = [0.92, 0.84, 0.76, 0.68, 0.6, 0.52];
 const allowedAvatarMimeTypes = new Set(['image/png', 'image/jpeg', 'image/webp']);
+
+function defaultExportFromDate(): string {
+  const date = new Date();
+  date.setFullYear(date.getFullYear() - 1);
+  return toYmd(date);
+}
+
+function exportProgressLabel(progress: AnalysisExportProgress): string {
+  if (progress.section === 'profile') {
+    return 'プロフィールと目標を取得しています...';
+  }
+  if (progress.section === 'trainingMenus') {
+    return `トレーニングメニューを取得しています... ${progress.fetched}件`;
+  }
+  if (progress.section === 'dailyRecords') {
+    return `デイリー記録を取得しています... ${progress.fetched}件`;
+  }
+  if (progress.section === 'gymVisits') {
+    return `ジム記録を取得しています... ${progress.fetched}件`;
+  }
+  return 'ダウンロードファイルを作成しています...';
+}
 
 function validateAvatarFile(file: File): string | null {
   if (!allowedAvatarMimeTypes.has(file.type)) {
@@ -179,6 +208,11 @@ export function SettingsPage() {
   const [cropZoom, setCropZoom] = useState(1);
   const [cropPixels, setCropPixels] = useState<Area | null>(null);
   const [isApplyingCrop, setIsApplyingCrop] = useState(false);
+  const [exportRangeMode, setExportRangeMode] = useState<'dateRange' | 'allAvailable'>('dateRange');
+  const [exportFrom, setExportFrom] = useState(defaultExportFromDate);
+  const [exportTo, setExportTo] = useState(() => toYmd(new Date()));
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportStatus, setExportStatus] = useState('');
 
   const profile = data.userProfile;
   const ageHint = useMemo(() => {
@@ -524,6 +558,133 @@ export function SettingsPage() {
             {isSavingAi ? '保存中...' : 'AI設定を反映'}
           </button>
           {aiStatus && <p className="status-text">{aiStatus}</p>}
+        </div>
+      </section>
+
+      <section className="card settings-section-card settings-export-card">
+        <h2>分析用データの出力</h2>
+        <p className="muted">
+          保存済みのデイリー記録、ジム記録、現在の目標、プロフィール、トレーニングメニューをAI分析用のJSON形式で出力します。
+        </p>
+        <div className="settings-export-mode" role="radiogroup" aria-label="出力期間">
+          <label>
+            <input
+              type="radio"
+              name="analysis-export-range"
+              value="dateRange"
+              checked={exportRangeMode === 'dateRange'}
+              disabled={isExporting}
+              onChange={() => {
+                setExportRangeMode('dateRange');
+                setExportStatus('');
+              }}
+            />
+            期間を指定
+          </label>
+          <label>
+            <input
+              type="radio"
+              name="analysis-export-range"
+              value="allAvailable"
+              checked={exportRangeMode === 'allAvailable'}
+              disabled={isExporting}
+              onChange={() => {
+                setExportRangeMode('allAvailable');
+                setExportStatus('');
+              }}
+            />
+            保存されている全期間
+          </label>
+        </div>
+        {exportRangeMode === 'dateRange' && (
+          <div className="input-grid settings-export-range">
+            <label>
+              開始日
+              <input
+                type="date"
+                value={exportFrom}
+                max={exportTo || undefined}
+                disabled={isExporting}
+                onChange={(event) => {
+                  setExportFrom(event.currentTarget.value);
+                  setExportStatus('');
+                }}
+              />
+            </label>
+            <label>
+              終了日
+              <input
+                type="date"
+                value={exportTo}
+                min={exportFrom || undefined}
+                disabled={isExporting}
+                onChange={(event) => {
+                  setExportTo(event.currentTarget.value);
+                  setExportStatus('');
+                }}
+              />
+            </label>
+          </div>
+        )}
+        <p className="settings-export-warning">
+          出力ファイルには、生年月日、身体情報、日記などの個人情報が含まれます。共有先を確認してから利用してください。
+        </p>
+        <div className="row-wrap">
+          <button
+            type="button"
+            className="btn primary"
+            disabled={isExporting || isCoreDataLoading}
+            onClick={async () => {
+              if (
+                exportRangeMode === 'dateRange' &&
+                (!isValidAnalysisDate(exportFrom) || !isValidAnalysisDate(exportTo) || exportFrom > exportTo)
+              ) {
+                setExportStatus('開始日と終了日を正しく指定してください。');
+                return;
+              }
+              setIsExporting(true);
+              setExportStatus('データを準備しています...');
+              try {
+                const exportData = await createAnalysisExport(
+                  exportRangeMode === 'dateRange'
+                    ? {
+                        rangeMode: 'dateRange',
+                        from: exportFrom,
+                        to: exportTo
+                      }
+                    : {
+                        rangeMode: 'allAvailable'
+                      },
+                  (progress) => setExportStatus(exportProgressLabel(progress))
+                );
+                const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+                  type: 'application/json;charset=utf-8'
+                });
+                const downloadUrl = URL.createObjectURL(blob);
+                const anchor = document.createElement('a');
+                anchor.href = downloadUrl;
+                anchor.download = analysisExportFileName(exportData);
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                URL.revokeObjectURL(downloadUrl);
+                setExportStatus(
+                  `ダウンロードしました。デイリー記録 ${exportData.coverage.dailyRecordCount}件、ジム記録 ${exportData.coverage.gymVisitCount}件`
+                );
+              } catch (error) {
+                setExportStatus(error instanceof Error ? error.message : '分析用データの出力に失敗しました。');
+              } finally {
+                setIsExporting(false);
+              }
+            }}
+          >
+            {isExporting ? 'データを取得中...' : '分析用JSONをダウンロード'}
+          </button>
+          {exportStatus && (
+            <p className="status-text" role="status">
+              {exportStatus}
+            </p>
+          )}
         </div>
       </section>
 
