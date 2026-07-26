@@ -13,11 +13,7 @@ const aiSettingTableName = process.env.AI_SETTING_TABLE_NAME ?? "";
 const aiAdviceLogTableName = process.env.AI_ADVICE_LOG_TABLE_NAME ?? "";
 const userProfileTableName = process.env.USER_PROFILE_TABLE_NAME ?? "";
 
-type LambdaLikeResponse = {
-  statusCode: number;
-  headers?: Record<string, string>;
-  body: string;
-};
+export type McpToolResponse = Record<string, unknown>;
 
 type LambdaToolContext = {
   clientContext?: {
@@ -140,13 +136,44 @@ function nowIsoSeconds(): string {
   return new Date().toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
-function jsonResponse(statusCode: number, body: unknown): LambdaLikeResponse {
+function defaultErrorCode(statusCode: number): string {
+  if (statusCode === 400) {
+    return "INVALID_REQUEST";
+  }
+  if (statusCode === 403) {
+    return "FORBIDDEN";
+  }
+  if (statusCode === 404) {
+    return "NOT_FOUND";
+  }
+  if (statusCode === 409) {
+    return "CONFLICT";
+  }
+  return "INTERNAL_ERROR";
+}
+
+export function mcpToolResponse(statusCode: number, body: unknown): McpToolResponse {
+  const payload =
+    body && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : { message: String(body) };
+  if (statusCode >= 200 && statusCode < 300) {
+    return payload;
+  }
+
+  const {
+    code,
+    message,
+    requestId,
+    ...details
+  } = payload;
   return {
-    statusCode,
-    headers: {
-      "Content-Type": "application/json; charset=utf-8"
-    },
-    body: JSON.stringify(body)
+    error: {
+      code: typeof code === "string" ? code : defaultErrorCode(statusCode),
+      message: typeof message === "string" ? message : "The tool request failed.",
+      ...(typeof requestId === "string" ? { requestId } : {}),
+      ...(Object.keys(details).length > 0 ? { details } : {})
+    }
   };
 }
 
@@ -289,7 +316,7 @@ type ListArguments = {
   nextTokenContext: string;
 };
 
-type ListArgumentResult = { value: ListArguments } | { response: LambdaLikeResponse };
+type ListArgumentResult = { value: ListArguments } | { response: McpToolResponse };
 
 function encodeNextToken(lastEvaluatedKey: Record<string, unknown> | undefined, context: string): string | undefined {
   if (!lastEvaluatedKey) {
@@ -320,26 +347,26 @@ function parseListArguments(args: ToolArgs, scope: string): ListArgumentResult {
   const from = args.from === undefined ? undefined : parseYmd(args.from);
   const to = args.to === undefined ? undefined : parseYmd(args.to);
   if (args.from !== undefined && !from) {
-    return { response: jsonResponse(400, { message: "from must be a valid date in YYYY-MM-DD format." }) };
+    return { response: mcpToolResponse(400, { message: "from must be a valid date in YYYY-MM-DD format." }) };
   }
   if (args.to !== undefined && !to) {
-    return { response: jsonResponse(400, { message: "to must be a valid date in YYYY-MM-DD format." }) };
+    return { response: mcpToolResponse(400, { message: "to must be a valid date in YYYY-MM-DD format." }) };
   }
   if (from && to && from > to) {
-    return { response: jsonResponse(400, { message: "from must be on or before to." }) };
+    return { response: mcpToolResponse(400, { message: "from must be on or before to." }) };
   }
   const timeZoneId = resolveTimeZoneId(args);
   if (!timeZoneId) {
-    return { response: jsonResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." }) };
+    return { response: mcpToolResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." }) };
   }
   const limit = args.limit === undefined ? 100 : args.limit;
   if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100) {
-    return { response: jsonResponse(400, { message: "limit must be an integer between 1 and 100." }) };
+    return { response: mcpToolResponse(400, { message: "limit must be an integer between 1 and 100." }) };
   }
   const nextTokenContext = JSON.stringify([scope, from ?? null, to ?? null, timeZoneId]);
   const exclusiveStartKey = decodeNextToken(args.nextToken, nextTokenContext);
   if (exclusiveStartKey === null) {
-    return { response: jsonResponse(400, { message: "nextToken is invalid." }) };
+    return { response: mcpToolResponse(400, { message: "nextToken is invalid." }) };
   }
   return { value: { from, to, timeZoneId, limit, exclusiveStartKey, nextTokenContext } };
 }
@@ -363,13 +390,13 @@ type AnalysisExportSelection = {
 
 type AnalysisExportSelectionResult =
   | { value: AnalysisExportSelection }
-  | { response: LambdaLikeResponse };
+  | { response: McpToolResponse };
 
 export function parseAnalysisExportSelection(args: ToolArgs): AnalysisExportSelectionResult {
   const rangeMode = args.rangeMode;
   if (rangeMode !== "dateRange" && rangeMode !== "allAvailable") {
     return {
-      response: jsonResponse(400, {
+      response: mcpToolResponse(400, {
         code: "INVALID_RANGE_MODE",
         message: "rangeMode must be dateRange or allAvailable."
       })
@@ -379,7 +406,7 @@ export function parseAnalysisExportSelection(args: ToolArgs): AnalysisExportSele
   const timeZoneId = resolveTimeZoneId(args);
   if (!timeZoneId) {
     return {
-      response: jsonResponse(400, {
+      response: mcpToolResponse(400, {
         code: "INVALID_TIME_ZONE",
         message: "timeZoneId must be a valid IANA time zone ID."
       })
@@ -389,7 +416,7 @@ export function parseAnalysisExportSelection(args: ToolArgs): AnalysisExportSele
   if (rangeMode === "allAvailable") {
     if (args.from !== undefined || args.to !== undefined) {
       return {
-        response: jsonResponse(400, {
+        response: mcpToolResponse(400, {
           code: "UNEXPECTED_DATE_RANGE",
           message: "from and to must be omitted when rangeMode is allAvailable."
         })
@@ -402,7 +429,7 @@ export function parseAnalysisExportSelection(args: ToolArgs): AnalysisExportSele
   const to = parseYmd(args.to);
   if (!from || !to) {
     return {
-      response: jsonResponse(400, {
+      response: mcpToolResponse(400, {
         code: "INVALID_DATE_RANGE",
         message: "from and to are required as valid YYYY-MM-DD dates when rangeMode is dateRange."
       })
@@ -410,7 +437,7 @@ export function parseAnalysisExportSelection(args: ToolArgs): AnalysisExportSele
   }
   if (from > to) {
     return {
-      response: jsonResponse(400, {
+      response: mcpToolResponse(400, {
         code: "INVALID_DATE_RANGE",
         message: "from must be on or before to."
       })
@@ -493,26 +520,43 @@ function normalizeAnalysisGymVisit(item: Record<string, unknown>): Record<string
   };
 }
 
-function normalizeGymVisitWeightSnapshots(item: Record<string, unknown>): Record<string, unknown> {
+export function normalizeGymVisitWeightSnapshots(item: Record<string, unknown>): Record<string, unknown> {
   const entries = Array.isArray(item.entries) ? item.entries : [];
   return {
-    ...item,
+    visitId: nullableString(item.visitId),
+    visitDateLocal: nullableString(item.visitDateLocal),
+    startedAtUtc: nullableString(item.startedAtUtc),
+    endedAtUtc: nullableString(item.endedAtUtc),
+    timeZoneId: nullableString(item.timeZoneId),
+    note: nullableString(item.note),
     entries: entries.map((rawEntry) => {
       const entry =
         rawEntry && typeof rawEntry === "object" && !Array.isArray(rawEntry)
           ? (rawEntry as Record<string, unknown>)
           : {};
       return {
-        ...entry,
+        trainingMenuItemId: nullableString(entry.trainingMenuItemId),
+        trainingNameSnapshot: nullableString(entry.trainingNameSnapshot),
+        bodyPartSnapshot: nullableString(entry.bodyPartSnapshot),
+        equipmentSnapshot: nullableString(entry.equipmentSnapshot),
+        isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
+        frequencySnapshot: nullableNumber(entry.frequencySnapshot),
+        weightKg: nullableNumber(entry.weightKg),
         weightInputModeSnapshot:
           typeof entry.weightInputModeSnapshot === "string"
             ? entry.weightInputModeSnapshot
             : "legacyUnspecified",
         loadMultiplierSnapshot: nullableNumber(entry.loadMultiplierSnapshot),
         fixedWeightKgSnapshot: nullableNumber(entry.fixedWeightKgSnapshot),
-        calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg)
+        calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg),
+        reps: nullableNumber(entry.reps),
+        sets: nullableNumber(entry.sets),
+        performedAtUtc: nullableString(entry.performedAtUtc),
+        note: nullableString(entry.note)
       };
-    })
+    }),
+    createdAt: nullableString(item.createdAt),
+    updatedAt: nullableString(item.updatedAt)
   };
 }
 
@@ -544,6 +588,46 @@ function normalizeAnalysisTrainingMenu(item: Record<string, unknown>): Record<st
   };
 }
 
+export function normalizeDailyRecordForMcp(item: Record<string, unknown>): Record<string, unknown> {
+  return {
+    recordDate: nullableString(item.recordDate),
+    timeZoneId: nullableString(item.timeZoneId),
+    bodyWeightKg: nullableNumber(item.bodyWeightKg),
+    bodyFatPercent: nullableNumber(item.bodyFatPercent),
+    bodyMetricMeasuredTimeLocal: nullableString(item.bodyMetricMeasuredTimeLocal),
+    conditionRating: nullableNumber(item.conditionRating),
+    moodRating: nullableNumber(item.moodRating),
+    conditionComment: nullableString(item.conditionComment),
+    diary: nullableString(item.diary),
+    otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
+    createdAt: nullableString(item.createdAt),
+    updatedAt: nullableString(item.updatedAt)
+  };
+}
+
+export function normalizeGoalForMcp(item: Record<string, unknown>): Record<string, unknown> {
+  return {
+    targetWeightKg: nullableNumber(item.targetWeightKg),
+    targetBodyFatPercent: nullableNumber(item.targetBodyFatPercent),
+    deadlineDate: nullableString(item.deadlineDate),
+    comment: nullableString(item.comment),
+    createdAt: nullableString(item.createdAt),
+    updatedAt: nullableString(item.updatedAt)
+  };
+}
+
+export function normalizeAiCharacterProfileForMcp(item: Record<string, unknown>): Record<string, unknown> {
+  return {
+    characterId: nullableString(item.characterId),
+    characterName: nullableString(item.characterName),
+    tonePreset: nullableString(item.tonePreset),
+    characterDescription: nullableString(item.characterDescription),
+    speechEnding: nullableString(item.speechEnding),
+    createdAt: nullableString(item.createdAt),
+    updatedAt: nullableString(item.updatedAt)
+  };
+}
+
 async function listAnalysisMenuSetItemIds(userId: string, trainingMenuSetId: string): Promise<string[]> {
   const itemIds: string[] = [];
   let exclusiveStartKey: Record<string, unknown> | undefined;
@@ -571,7 +655,7 @@ async function listAnalysisMenuSetItemIds(userId: string, trainingMenuSetId: str
   return itemIds;
 }
 
-async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const parsed = parseAnalysisExportSelection(args);
   if ("response" in parsed) {
     return parsed.response;
@@ -594,7 +678,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   const profile = profileResult.Item ?? {};
   const goal = goalResult.Item;
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_analysis_export_manifest",
     schema: "kintrain.analysis-export",
     schemaVersion: 2,
@@ -628,7 +712,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   });
 }
 
-async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const parsed = parseAnalysisExportSelection(args);
   if ("response" in parsed) {
     return parsed.response;
@@ -642,7 +726,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<La
     "gymVisits"
   ]);
   if (typeof section !== "string" || !allowedSections.has(section as AnalysisExportSection)) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       code: "INVALID_SECTION",
       message: "section must be trainingMenus, trainingMenuSets, dailyRecords, or gymVisits."
     });
@@ -655,7 +739,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<La
     requestedLimit < 1 ||
     requestedLimit > 50
   ) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       code: "INVALID_LIMIT",
       message: "limit must be an integer between 1 and 50."
     });
@@ -676,7 +760,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<La
     exclusiveStartKey === null ||
     (exclusiveStartKey !== undefined && exclusiveStartKey.userId !== userId)
   ) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       code: "INVALID_NEXT_TOKEN",
       message: "nextToken is invalid for this user, section, or selection."
     });
@@ -791,7 +875,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<La
 
   const nextToken =
     encodeNextToken(result.LastEvaluatedKey as Record<string, unknown> | undefined, tokenContext) ?? null;
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
     schemaVersion: 2,
@@ -972,7 +1056,7 @@ function requireUserId(args: ToolArgs): string | null {
   return toNonEmptyString(args.__principalUserId) ?? null;
 }
 
-async function getGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function getGymVisits(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const parsed = parseListArguments(args, "get_gym_visits");
   if ("response" in parsed) {
     return parsed.response;
@@ -1002,9 +1086,9 @@ async function getGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeR
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_gym_visits",
-    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => normalizeGymVisitWeightSnapshots(item)),
+    items: (result.Items ?? []).map((item) => normalizeGymVisitWeightSnapshots(item)),
     range: listRange(options),
     limit: options.limit,
     nextToken:
@@ -1012,14 +1096,119 @@ async function getGymVisits(args: ToolArgs, userId: string): Promise<LambdaLikeR
   });
 }
 
-async function getTrainingHistory(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
-  const trainingMenuItemId = toNonEmptyString(args.trainingMenuItemId);
-  if (!trainingMenuItemId) {
-    return jsonResponse(400, { message: "trainingMenuItemId is required." });
+type ResolvedTrainingMenu = {
+  trainingMenuItemId: string;
+  trainingMenuName: string | null;
+};
+
+type TrainingMenuResolution =
+  | { value: ResolvedTrainingMenu }
+  | { response: McpToolResponse };
+
+export type TrainingMenuLookupSender = (
+  command: GetCommand | QueryCommand
+) => Promise<{
+  Item?: Record<string, unknown>;
+  Items?: Record<string, unknown>[];
+}>;
+
+async function defaultTrainingMenuLookupSender(
+  command: GetCommand | QueryCommand
+): Promise<{
+  Item?: Record<string, unknown>;
+  Items?: Record<string, unknown>[];
+}> {
+  if (command instanceof GetCommand) {
+    const result = await ddb.send(command);
+    return {
+      Item: result.Item as Record<string, unknown> | undefined
+    };
   }
+  const result = await ddb.send(command);
+  return {
+    Items: result.Items as Record<string, unknown>[] | undefined
+  };
+}
+
+export async function resolveTrainingMenuForHistory(
+  args: ToolArgs,
+  userId: string,
+  send: TrainingMenuLookupSender = defaultTrainingMenuLookupSender
+): Promise<TrainingMenuResolution> {
+  const requestedId = toNonEmptyString(args.trainingMenuItemId);
+  const requestedName = toNonEmptyString(args.trainingMenuName);
+  if (!requestedId && !requestedName) {
+    return {
+      response: mcpToolResponse(400, {
+        code: "TRAINING_MENU_REFERENCE_REQUIRED",
+        message: "trainingMenuItemId or trainingMenuName is required."
+      })
+    };
+  }
+
+  let item: Record<string, unknown> | undefined;
+  if (requestedName) {
+    const result = await send(
+      new QueryCommand({
+        TableName: trainingMenuTableName,
+        IndexName: trainingNameIndex,
+        KeyConditionExpression: "userId = :userId AND normalizedTrainingName = :normalizedTrainingName",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":normalizedTrainingName": normalizeTrainingName(requestedName)
+        },
+        Limit: 1
+      })
+    );
+    item = result.Items?.[0] as Record<string, unknown> | undefined;
+  } else if (requestedId) {
+    const result = await send(
+      new GetCommand({
+        TableName: trainingMenuTableName,
+        Key: {
+          userId,
+          trainingMenuItemId: requestedId
+        }
+      })
+    );
+    item = result.Item as Record<string, unknown> | undefined;
+  }
+
+  const resolvedId = toNonEmptyString(item?.trainingMenuItemId);
+  if (!item || !resolvedId) {
+    return {
+      response: mcpToolResponse(404, {
+        code: "TRAINING_MENU_NOT_FOUND",
+        message: "The requested training menu was not found."
+      })
+    };
+  }
+  if (requestedId && requestedId !== resolvedId) {
+    return {
+      response: mcpToolResponse(400, {
+        code: "TRAINING_MENU_REFERENCE_MISMATCH",
+        message: "trainingMenuItemId and trainingMenuName refer to different training menus."
+      })
+    };
+  }
+
+  return {
+    value: {
+      trainingMenuItemId: resolvedId,
+      trainingMenuName: nullableString(item.trainingName)
+    }
+  };
+}
+
+async function getTrainingHistory(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   if (!trainingPerformanceTableName) {
-    return jsonResponse(500, { message: "Training performance table is not configured." });
+    return mcpToolResponse(500, { message: "Training performance table is not configured." });
   }
+  const resolvedMenu = await resolveTrainingMenuForHistory(args, userId);
+  if ("response" in resolvedMenu) {
+    return resolvedMenu.response;
+  }
+  const { trainingMenuItemId, trainingMenuName } = resolvedMenu.value;
   const parsed = parseListArguments(args, `get_training_history:${trainingMenuItemId}`);
   if ("response" in parsed) {
     return parsed.response;
@@ -1073,9 +1262,10 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<Lambd
     visitDateLocal: item.visitDateLocal
   }));
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_training_history",
     trainingMenuItemId,
+    trainingMenuName,
     items,
     range: listRange(options),
     limit: options.limit,
@@ -1086,7 +1276,7 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<Lambd
   });
 }
 
-async function getDailyRecords(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function getDailyRecords(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const parsed = parseListArguments(args, "get_daily_records");
   if ("response" in parsed) {
     return parsed.response;
@@ -1111,9 +1301,9 @@ async function getDailyRecords(args: ToolArgs, userId: string): Promise<LambdaLi
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_daily_records",
-    items: (result.Items ?? []).map(({ userId: _userId, ...item }) => item),
+    items: (result.Items ?? []).map((item) => normalizeDailyRecordForMcp(item)),
     range: listRange(options),
     limit: options.limit,
     nextToken:
@@ -1121,10 +1311,10 @@ async function getDailyRecords(args: ToolArgs, userId: string): Promise<LambdaLi
   });
 }
 
-async function getDailyRecord(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function getDailyRecord(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const date = parseYmd(args.date);
   if (!date) {
-    return jsonResponse(400, { message: "date is required in YYYY-MM-DD format." });
+    return mcpToolResponse(400, { message: "date is required in YYYY-MM-DD format." });
   }
 
   const result = await ddb.send(
@@ -1137,29 +1327,29 @@ async function getDailyRecord(args: ToolArgs, userId: string): Promise<LambdaLik
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_daily_record",
-    item: result.Item ?? null
+    item: result.Item ? normalizeDailyRecordForMcp(result.Item) : null
   });
 }
 
-async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function saveDailyDiary(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const diary = toNonEmptyString(args.diary);
   if (!diary) {
-    return jsonResponse(400, { message: "diary is required." });
+    return mcpToolResponse(400, { message: "diary is required." });
   }
   const mode = resolveDiarySaveMode(args.mode);
   if (args.mode !== undefined && !mode) {
-    return jsonResponse(400, { message: "mode must be append or overwrite." });
+    return mcpToolResponse(400, { message: "mode must be append or overwrite." });
   }
 
   const timeZoneId = resolveTimeZoneId(args);
   if (!timeZoneId) {
-    return jsonResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
+    return mcpToolResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
   }
   const date = resolveRecordDate(args.date, timeZoneId);
   if (!date) {
-    return jsonResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
+    return mcpToolResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
   }
 
   const current = await ddb.send(
@@ -1175,7 +1365,7 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLik
   const currentItem = (current.Item as Record<string, unknown> | undefined) ?? {};
   const existingDiary = toNonEmptyString(currentItem.diary);
   if (existingDiary && !mode) {
-    return jsonResponse(409, {
+    return mcpToolResponse(409, {
       message: "Diary already exists. Specify mode=append or mode=overwrite.",
       existingDiary,
       recordDate: date,
@@ -1207,7 +1397,7 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLik
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "save_daily_diary",
     recordDate: date,
     timeZoneId,
@@ -1217,30 +1407,30 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<LambdaLik
   });
 }
 
-async function saveBodyMetrics(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function saveBodyMetrics(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const date = parseYmd(args.date);
   if (!date) {
-    return jsonResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
+    return mcpToolResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
   }
   const measuredTimeLocal = parseLocalTime(args.bodyMetricMeasuredTimeLocal);
   if (!measuredTimeLocal) {
-    return jsonResponse(400, { message: "bodyMetricMeasuredTimeLocal must be HH:mm in 24-hour format." });
+    return mcpToolResponse(400, { message: "bodyMetricMeasuredTimeLocal must be HH:mm in 24-hour format." });
   }
   const bodyWeightKg = args.bodyWeightKg;
   if (!isValidBodyWeightKg(bodyWeightKg)) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       message: "bodyWeightKg must be a number greater than 0 and at most 500 with no more than 2 decimal places."
     });
   }
   const bodyFatPercent = args.bodyFatPercent;
   if (!isValidBodyFatPercent(bodyFatPercent)) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       message: "bodyFatPercent must be a number between 0 and 100 with no more than 2 decimal places."
     });
   }
   const timeZoneId = resolveTimeZoneId(args);
   if (!timeZoneId) {
-    return jsonResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
+    return mcpToolResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
   }
 
   const current = await ddb.send(
@@ -1274,7 +1464,7 @@ async function saveBodyMetrics(args: ToolArgs, userId: string): Promise<LambdaLi
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "save_body_metrics",
     recordDate: date,
     bodyWeightKg,
@@ -1704,7 +1894,7 @@ export async function saveBodyMetricsBatch(
   args: ToolArgs,
   userId: string,
   options: SaveBodyMetricsBatchOptions = {}
-): Promise<LambdaLikeResponse> {
+): Promise<McpToolResponse> {
   const startedAtMs = Date.now();
   const requestId = randomUUID();
   const logger =
@@ -1712,7 +1902,7 @@ export async function saveBodyMetricsBatch(
     ((entry: Record<string, unknown>) => {
       console.info(JSON.stringify(entry));
     });
-  const requestError = (code: string, message: string): LambdaLikeResponse => {
+  const requestError = (code: string, message: string): McpToolResponse => {
     logger({
       event: "mcp_body_metrics_batch_rejected",
       tool: "save_body_metrics_batch",
@@ -1722,7 +1912,7 @@ export async function saveBodyMetricsBatch(
       received: Array.isArray(args.records) ? args.records.length : null,
       durationMs: Date.now() - startedAtMs
     });
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       code,
       message,
       requestId
@@ -1833,7 +2023,7 @@ export async function saveBodyMetricsBatch(
     durationMs: Date.now() - startedAtMs
   });
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "save_body_metrics_batch",
     requestId,
     dryRun: args.dryRun,
@@ -1844,7 +2034,7 @@ export async function saveBodyMetricsBatch(
   });
 }
 
-async function getGoal(userId: string): Promise<LambdaLikeResponse> {
+async function getGoal(userId: string): Promise<McpToolResponse> {
   const result = await ddb.send(
     new GetCommand({
       TableName: goalTableName,
@@ -1854,13 +2044,13 @@ async function getGoal(userId: string): Promise<LambdaLikeResponse> {
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_goal",
-    item: result.Item ?? null
+    item: result.Item ? normalizeGoalForMcp(result.Item) : null
   });
 }
 
-async function getAiCharacterProfile(userId: string): Promise<LambdaLikeResponse> {
+async function getAiCharacterProfile(userId: string): Promise<McpToolResponse> {
   const result = await ddb.send(
     new GetCommand({
       TableName: aiSettingTableName,
@@ -1870,17 +2060,17 @@ async function getAiCharacterProfile(userId: string): Promise<LambdaLikeResponse
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "get_ai_character_profile",
-    item: result.Item ?? null
+    item: result.Item ? normalizeAiCharacterProfileForMcp(result.Item) : null
   });
 }
 
-async function saveAdviceLog(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function saveAdviceLog(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const advice = toNonEmptyString(args.advice);
   const requestId = toNonEmptyString(args.requestId);
   if (!advice) {
-    return jsonResponse(400, { message: "advice is required." });
+    return mcpToolResponse(400, { message: "advice is required." });
   }
 
   const adviceLogId = randomUUID();
@@ -1898,25 +2088,25 @@ async function saveAdviceLog(args: ToolArgs, userId: string): Promise<LambdaLike
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "save_advice_log",
     adviceLogId,
     createdAt: ts
   });
 }
 
-async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<LambdaLikeResponse> {
+async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const setName = toNonEmptyString(args.setName);
   if (!setName) {
-    return jsonResponse(400, { message: "setName is required." });
+    return mcpToolResponse(400, { message: "setName is required." });
   }
 
   const rawItems = Array.isArray(args.items) ? (args.items as AiMenuItemInput[]) : null;
   if (!rawItems || rawItems.length === 0) {
-    return jsonResponse(400, { message: "items is required." });
+    return mcpToolResponse(400, { message: "items is required." });
   }
   if (rawItems.length > 20) {
-    return jsonResponse(400, { message: "items cannot exceed 20." });
+    return mcpToolResponse(400, { message: "items cannot exceed 20." });
   }
 
   let normalizedItems: Array<{
@@ -1976,7 +2166,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
       };
     });
   } catch (error) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       message: error instanceof Error ? error.message : "invalid items."
     });
   }
@@ -1989,7 +2179,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
     )
   );
   if (duplicateNamesInRequest.length > 0) {
-    return jsonResponse(409, {
+    return mcpToolResponse(409, {
       message: "duplicate training names exist in items.",
       duplicateTrainingNames: duplicateNamesInRequest
     });
@@ -2003,7 +2193,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
   );
   const duplicateTrainingNames = duplicateChecks.filter((item) => item.exists).map((item) => item.trainingName);
   if (duplicateTrainingNames.length > 0) {
-    return jsonResponse(409, {
+    return mcpToolResponse(409, {
       message: "trainingName already exists.",
       duplicateTrainingNames
     });
@@ -2011,7 +2201,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
 
   const currentDefaultSetId = await getCurrentDefaultSetId(userId);
   if (args.makeDefault === true && currentDefaultSetId) {
-    return jsonResponse(400, {
+    return mcpToolResponse(400, {
       message: "makeDefault cannot be true because a default set already exists."
     });
   }
@@ -2104,7 +2294,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
     })
   );
 
-  return jsonResponse(200, {
+  return mcpToolResponse(200, {
     tool: "create_training_menu_set_from_ai",
     trainingMenuSetId,
     setName,
@@ -2114,23 +2304,23 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
   });
 }
 
-export const handler = async (event: ToolArgs = {}, context: LambdaToolContext = {}): Promise<LambdaLikeResponse> => {
+export const handler = async (event: ToolArgs = {}, context: LambdaToolContext = {}): Promise<McpToolResponse> => {
   try {
     const envError = requireConfiguredTables();
     if (envError) {
-      return jsonResponse(500, { message: envError });
+      return mcpToolResponse(500, { message: envError });
     }
 
     const toolName = extractToolName(context);
     if (!toolName) {
-      return jsonResponse(400, {
+      return mcpToolResponse(400, {
         message: "Tool name is missing in context.clientContext.custom.bedrockAgentCoreToolName."
       });
     }
 
     const userId = requireUserId(event);
     if (!userId) {
-      return jsonResponse(403, { message: "Trusted user identity is required." });
+      return mcpToolResponse(403, { message: "Trusted user identity is required." });
     }
 
     if (toolName === "get_gym_visits") {
@@ -2173,9 +2363,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
       return createTrainingMenuSetFromAi(event, userId);
     }
 
-    return jsonResponse(404, { message: `Method not found: ${toolName}` });
+    return mcpToolResponse(404, { message: `Method not found: ${toolName}` });
   } catch {
-    return jsonResponse(500, {
+    return mcpToolResponse(500, {
       message: "Internal error.",
       requestId: randomUUID()
     });

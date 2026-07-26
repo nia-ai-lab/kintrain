@@ -191,7 +191,7 @@
 ### 6.1 公開ツール
 
 - `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
-- `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)`
+- `get_training_history(trainingMenuItemId?, trainingMenuName?, from, to, timeZoneId, limit, nextToken)`（IDまたは登録名のどちらかを指定）
 - `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
@@ -216,6 +216,8 @@
 - RuntimeはCognitoアクセストークンをGatewayへ中継する。
 - Gateway REQUEST Interceptorがアクセストークンを再検証し、JWT `sub` を内部専用 `__principalUserId` として付与する。
 - MCP Lambdaは `__principalUserId` だけをユーザー識別子として採用する。
+- MCP Lambdaは`statusCode` / `headers` / JSON文字列`body`を持つAPI Gatewayプロキシ形式ではなく、ツール結果をJSONオブジェクトとして直接返す。
+- 失敗は共通の`error`オブジェクトで返し、DynamoDB取得行は許可フィールドへ正規化して内部`userId`を含めない。
 
 ### 6.2 ツール実体
 
