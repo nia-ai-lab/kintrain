@@ -222,6 +222,7 @@ async function run() {
   const state = {
     menuItemA: null,
     menuItemB: null,
+    menuSetId: null,
     visitId: null,
     date: todayYmdUtc(),
     month: monthYmUtc()
@@ -340,6 +341,34 @@ async function run() {
       assert.equal(res.json.equipment, "自重");
       assert.equal(res.json.defaultWeightKg, 0);
       state.menuItemB = res.json.trainingMenuItemId;
+    });
+
+    await testCase("TrainingMenuSet: creates a default set for the session view", async () => {
+      assert.ok(state.menuItemA && state.menuItemB);
+      const setRes = await apiRequest({
+        coreApiEndpoint: authContext.coreApiEndpoint,
+        accessToken: authContext.accessToken,
+        method: "POST",
+        pathWithQuery: "/training-menu-sets",
+        body: {
+          setName: "APIテストメニュー",
+          isDefault: true
+        }
+      });
+      assert.equal(setRes.status, 201);
+      assert.ok(setRes.json.trainingMenuSetId);
+      state.menuSetId = setRes.json.trainingMenuSetId;
+
+      for (const trainingMenuItemId of [state.menuItemA, state.menuItemB]) {
+        const addRes = await apiRequest({
+          coreApiEndpoint: authContext.coreApiEndpoint,
+          accessToken: authContext.accessToken,
+          method: "POST",
+          pathWithQuery: `/training-menu-sets/${state.menuSetId}/items`,
+          body: { trainingMenuItemId }
+        });
+        assert.equal(addRes.status, 201);
+      }
     });
 
     await testCase("TrainingMenu: POST /training-menu-items rejects negative weight", async () => {
