@@ -183,7 +183,7 @@ test("AI menu schema declares zero as the minimum weight", async () => {
       properties: {
         items?: {
           items?: {
-            properties?: Record<string, { minimum?: number }>;
+            properties?: Record<string, { minimum?: number; type?: string }>;
           };
         };
       };
@@ -192,6 +192,8 @@ test("AI menu schema declares zero as the minimum weight", async () => {
   const schema = schemas.find((candidate) => candidate.name === "create_training_menu_set_from_ai");
   assert.ok(schema, "create_training_menu_set_from_ai schema is missing");
   assert.equal(schema.inputSchema.properties.items?.items?.properties?.defaultWeightKg?.minimum, 0);
+  assert.equal(schema.inputSchema.properties.items?.items?.properties?.description?.type, "string");
+  assert.equal(Object.hasOwn(schema.inputSchema.properties.items?.items?.properties ?? {}, "memo"), false);
 });
 
 test("batch body metrics schema exposes partial-success inputs without public identity fields", async () => {

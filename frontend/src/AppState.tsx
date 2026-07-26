@@ -122,7 +122,7 @@ function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
   return defaultTrainingEquipment;
 }
 
-function normalizeTrainingMemo(value: unknown): string {
+function normalizeTrainingDescription(value: unknown): string {
   if (typeof value !== 'string') {
     return '';
   }
@@ -312,7 +312,13 @@ function normalizeAppData(rawData: AppData): AppData {
   );
 
   const sourceMenuItems = (legacy.menuItems ?? initialAppData.menuItems) as Array<
-    TrainingMenuItem & { machineName?: string; defaultReps?: number; frequency?: unknown; memo?: unknown; isAiGenerated?: unknown }
+    TrainingMenuItem & {
+      machineName?: string;
+      defaultReps?: number;
+      frequency?: unknown;
+      description?: unknown;
+      isAiGenerated?: unknown;
+    }
   >;
   const normalizedMenuItems = sourceMenuItems.map((item) => ({
     ...item,
@@ -320,7 +326,7 @@ function normalizeAppData(rawData: AppData): AppData {
     bodyPart: item.bodyPart ?? '',
     equipment: normalizeTrainingEquipment((item as TrainingMenuItem & { equipment?: unknown }).equipment),
     isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
-    memo: normalizeTrainingMemo(item.memo),
+    description: normalizeTrainingDescription(item.description),
     frequency: normalizeTrainingFrequency(item.frequency),
     ...normalizeRepsRange(item)
   }));
@@ -389,7 +395,7 @@ function mapRemoteMenuItem(item: {
   bodyPart?: string;
   equipment?: string;
   isAiGenerated?: boolean;
-  memo?: string;
+  description?: string;
   frequency?: number | string;
   defaultWeightKg: number;
   defaultRepsMin: number;
@@ -406,7 +412,7 @@ function mapRemoteMenuItem(item: {
     bodyPart: item.bodyPart ?? '',
     equipment: normalizeTrainingEquipment(item.equipment),
     isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
-    memo: normalizeTrainingMemo(item.memo),
+    description: normalizeTrainingDescription(item.description),
     frequency: normalizeTrainingFrequency(item.frequency),
     defaultWeightKg: Number(item.defaultWeightKg),
     defaultRepsMin: repsRange.defaultRepsMin,
@@ -1203,7 +1209,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           bodyPart: item.bodyPart.trim(),
           equipment: normalizeTrainingEquipment(item.equipment),
           isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
-          memo: normalizeTrainingMemo(item.memo),
+          description: normalizeTrainingDescription(item.description),
           frequency: normalizeTrainingFrequency(item.frequency),
           defaultWeightKg: Math.round(item.defaultWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(item.defaultRepsMin),
@@ -1272,7 +1278,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           bodyPart: nextItem.bodyPart.trim(),
           equipment: normalizeTrainingEquipment(nextItem.equipment),
           isAiGenerated: normalizeAiGeneratedFlag(nextItem.isAiGenerated),
-          memo: normalizeTrainingMemo(nextItem.memo),
+          description: normalizeTrainingDescription(nextItem.description),
           frequency: normalizeTrainingFrequency(nextItem.frequency),
           defaultWeightKg: Math.round(nextItem.defaultWeightKg * 100) / 100,
           defaultRepsMin: Math.floor(nextItem.defaultRepsMin),

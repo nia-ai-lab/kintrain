@@ -1795,6 +1795,34 @@ a {
   margin-top: 4px;
 }
 
+.training-description {
+  margin-top: 10px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 12px;
+  background: rgba(15, 118, 110, 0.05);
+}
+
+.training-description summary {
+  padding: 9px 12px;
+  color: var(--primary-strong);
+  cursor: pointer;
+  font-size: 0.86rem;
+  font-weight: 700;
+  user-select: none;
+}
+
+.training-description p {
+  max-height: min(32vh, 240px);
+  margin: 0;
+  padding: 0 12px 12px;
+  overflow-y: auto;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .session-actions .btn,
 .row-wrap .btn.subtle {
   min-height: 40px;

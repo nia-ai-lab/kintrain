@@ -13,7 +13,7 @@ export interface TrainingMenuItem {
   bodyPart: string;
   equipment: TrainingEquipment;
   isAiGenerated: boolean;
-  memo: string;
+  description: string;
   frequency: TrainingFrequencyDays;
   defaultWeightKg: number;
   defaultRepsMin: number;

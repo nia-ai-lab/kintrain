@@ -292,6 +292,7 @@
 - `trainingMenuItemId: string`
 - `trainingName: string`
 - `bodyPart: string`（任意。未設定時は空文字）
+- `description: string`（任意。トレーニングメニュー自体の説明）
 - `defaultWeightKg: number`（0以上、小数2桁まで。自重種目などの追加重量なしは0）
 - `defaultRepsMin: number`
 - `defaultRepsMax: number`
@@ -304,6 +305,7 @@
 - `POST /training-menu-items` リクエスト:
 - `trainingName`
 - `bodyPart`（任意）
+- `description`（任意、500文字以内）
 - `defaultWeightKg`
 - `defaultRepsMin`
 - `defaultRepsMax`
@@ -312,6 +314,7 @@
 - `PUT /training-menu-items/{trainingMenuItemId}` リクエスト:
 - `trainingName`
 - `bodyPart`（任意）
+- `description`（任意、500文字以内）
 - `defaultWeightKg`
 - `defaultRepsMin`
 - `defaultRepsMax`
@@ -321,7 +324,7 @@
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, bodyPart, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, bodyPart, description, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`

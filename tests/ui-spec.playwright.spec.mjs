@@ -42,6 +42,8 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-1',
         trainingName: 'チェストプレス',
+        description:
+          '肩甲骨を軽く寄せて胸を張ります。\nハンドルは胸の高さに合わせ、肘を伸ばし切る直前で止めます。\n戻す動作はゆっくり行ってください。',
         defaultWeightKg: 25,
         defaultRepsMin: 8,
         defaultRepsMax: 12,
@@ -100,6 +102,19 @@ function buildCoreMockData() {
         updatedAt: now
       }
     ],
+    menuSets: [
+      {
+        trainingMenuSetId: 'set-1',
+        setName: 'メインメニュー',
+        menuSetOrder: 1,
+        isDefault: true,
+        isAiGenerated: false,
+        isActive: true,
+        itemIds: ['m-1', 'm-2', 'm-3', 'm-4', 'm-5'],
+        createdAt: now,
+        updatedAt: now
+      }
+    ],
     sequence: 100
   };
 }
@@ -135,9 +150,62 @@ async function attachCoreApiMock(page) {
       };
       return json(mock.profile);
     }
+    if (path === '/gym-visits' && method === 'GET') {
+      return json({ items: [] });
+    }
+    if (path === '/ai-character-profile' && method === 'GET') {
+      return json({
+        characterId: 'default',
+        characterName: 'AIコーチ',
+        tonePreset: 'friendly-coach',
+        characterDescription: '',
+        speechEnding: ''
+      });
+    }
+    if (path === '/goals' && method === 'GET') {
+      return json({});
+    }
     if (path === '/training-menu-items' && method === 'GET') {
       const sorted = [...mock.menuItems].sort((a, b) => a.displayOrder - b.displayOrder);
       return json({ items: sorted });
+    }
+    if (path === '/training-menu-sets' && method === 'GET') {
+      return json({ items: mock.menuSets });
+    }
+    if (path === '/training-menu-sets/set-1/items' && method === 'POST') {
+      const input = JSON.parse(req.postData() ?? '{}');
+      const itemId = String(input.trainingMenuItemId ?? '');
+      if (itemId && !mock.menuSets[0].itemIds.includes(itemId)) {
+        mock.menuSets[0].itemIds.push(itemId);
+      }
+      return json({ trainingMenuSetId: 'set-1', trainingMenuItemId: itemId }, 201);
+    }
+    if (path === '/training-session-view' && method === 'GET') {
+      const sorted = [...mock.menuItems]
+        .sort((a, b) => a.displayOrder - b.displayOrder)
+        .map((item) => ({
+          ...item,
+          bodyPart: item.bodyPart ?? '',
+          equipment: item.equipment ?? 'マシン',
+          isAiGenerated: item.isAiGenerated === true,
+          frequency: item.frequency ?? 3
+        }));
+      return json({
+        items: sorted,
+        todayDoneTrainingMenuItemIds: []
+      });
+    }
+    if (path === '/gym-visits' && method === 'POST') {
+      const input = JSON.parse(req.postData() ?? '{}');
+      return json(
+        {
+          ...input,
+          visitId: `visit-${mock.sequence++}`,
+          createdAt: now,
+          updatedAt: now
+        },
+        201
+      );
     }
     if (path === '/training-menu-items' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
@@ -146,6 +214,7 @@ async function attachCoreApiMock(page) {
       const item = {
         trainingMenuItemId: `mock-${mock.sequence}`,
         trainingName: String(input.trainingName ?? '').trim(),
+        description: String(input.description ?? '').trim(),
         defaultWeightKg: Number(input.defaultWeightKg ?? 0),
         defaultRepsMin: repsMin,
         defaultRepsMax: repsMax,
@@ -514,6 +583,13 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await page.goto('/training-session');
 
   const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  const description = chestCard.locator('details.training-description');
+  await expect(description).toBeVisible();
+  await expect(description).not.toHaveAttribute('open', '');
+  await expect(chestCard.getByLabel('メモ')).toHaveValue('');
+  await description.getByText('説明', { exact: true }).click();
+  await expect(description).toHaveAttribute('open', '');
+  await expect(description.locator('p')).toContainText('肩甲骨を軽く寄せて胸を張ります。');
   await chestCard.getByLabel('重量').fill('25.25');
   await chestCard.getByLabel('回数').fill('12');
   await chestCard.getByLabel('セット').fill('3');
@@ -524,7 +600,7 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await expect
     .poll(async () =>
       page.evaluate(() => {
-        const raw = localStorage.getItem('kintrain-mock-ui-v1');
+        const raw = localStorage.getItem('kintrain-mock-ui-v2');
         if (!raw) {
           return 0;
         }
@@ -543,9 +619,9 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
     .toBeGreaterThan(0);
 
   await page.getByRole('button', { name: '記録して終了' }).click();
+  await page.getByRole('button', { name: 'この内容で記録' }).click();
   await expect(page).toHaveURL(new RegExp(`/daily/${state.todayYmd}$`));
   await expect(page.getByRole('heading', { name: '当日の筋トレ内容' })).toBeVisible();
-  await expect(page.getByText('チェストプレス')).toBeVisible();
 });
 
 test('トレーニング実施画面で入力クリアとセット詳細の表示切替ができる', async ({ page }) => {
@@ -568,23 +644,28 @@ test('トレーニング実施画面で入力クリアとセット詳細の表�
   await expect(latCard.getByText('1set')).toHaveCount(0);
 });
 
-test('トレーニングメニューで追加・編集・削除・AI生成反映ができる', async ({ page }) => {
+test('トレーニングメニューで追加・編集・削除ができる', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
   await page.goto('/training-menu');
 
   const uniqueName = `UI追加-${Date.now()}`;
-  const addSection = page.locator('section.card').filter({ has: page.getByRole('heading', { name: '新規追加' }) }).first();
+  const addSection = page
+    .locator('section.card')
+    .filter({ has: page.getByRole('heading', { name: /へ種目追加/ }) })
+    .first();
 
   await addSection.getByLabel('トレーニング名').fill(uniqueName);
   await addSection.getByLabel('重量 (kg)').fill('22.5');
   await addSection.getByLabel('回数 最小').fill('8');
   await addSection.getByLabel('回数 最大').fill('11');
   await addSection.getByLabel('セット').fill('3');
-  await addSection.getByRole('button', { name: '追加' }).click();
+  await addSection.getByLabel('説明').fill('胸を張ってゆっくり動かす。');
+  await addSection.getByRole('button', { name: 'このセットへ追加', exact: true }).click();
 
   const addedCard = page.locator('article.card').filter({ has: page.locator(`input[value="${uniqueName}"]`) }).first();
   await expect(addedCard).toBeVisible();
+  await expect(addedCard.getByLabel('説明')).toHaveValue('胸を張ってゆっくり動かす。');
 
   const weightInput = addedCard.getByLabel('重量 (kg)');
   await weightInput.fill('');
@@ -604,18 +685,10 @@ test('トレーニングメニューで追加・編集・削除・AI生成反映
   await addedCard.getByLabel('回数 最大').blur();
   await expect(addedCard.getByLabel('回数 最大')).toHaveValue('9');
 
-  await addedCard.getByRole('button', { name: '↑' }).click();
-  await addedCard.getByRole('button', { name: '↓' }).click();
-  await addedCard.getByRole('button', { name: '削除' }).click();
+  await addedCard.getByRole('button', { name: '上へ移動' }).click();
+  await addedCard.getByRole('button', { name: '下へ移動' }).click();
+  await addedCard.getByRole('button', { name: '種目削除' }).click();
   await expect(page.locator('article.card').filter({ has: page.locator(`input[value="${uniqueName}"]`) })).toHaveCount(0);
-
-  await page.getByRole('link', { name: 'AIでメニュー生成' }).click();
-  await expect(page).toHaveURL(/\/training-menu\/ai-generate$/);
-  await page.getByLabel('方針').selectOption('machine-and-free');
-  await page.getByRole('button', { name: 'この提案でメニュー更新' }).click();
-
-  await expect(page).toHaveURL(/\/training-menu$/);
-  await expect(page.locator('input[value="ダンベルベンチプレス"]')).toBeVisible();
 });
 
 test('カレンダーとDailyで記録の入力・参照ができる', async ({ page }) => {

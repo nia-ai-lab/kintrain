@@ -148,7 +148,7 @@ export function TrainingSessionPage() {
             bodyPart: item.bodyPart ?? '',
             equipment: normalizeTrainingEquipment(item.equipment),
             isAiGenerated: item.isAiGenerated === true,
-            memo: typeof item.memo === 'string' ? item.memo : '',
+            description: typeof item.description === 'string' ? item.description : '',
             frequency: normalizeTrainingFrequency(item.frequency),
             defaultWeightKg: Number(item.defaultWeightKg),
             defaultRepsMin: Number(item.defaultRepsMin),
@@ -226,7 +226,7 @@ export function TrainingSessionPage() {
             bodyPart: '',
             equipment: 'その他',
             isAiGenerated: false,
-            memo: '',
+            description: '',
             frequency: 3,
             defaultWeightKg: 0,
             defaultRepsMin: 1,
@@ -364,7 +364,7 @@ export function TrainingSessionPage() {
           const seedWeightKg = last?.weightKg ?? item.defaultWeightKg;
           const seedReps = last?.reps ?? item.defaultRepsMax;
           const seedSets = last?.sets ?? item.defaultSets;
-          const seedMemo = (last?.note?.trim() || item.memo || '').trim();
+          const seedMemo = last?.note?.trim() ?? '';
           const weightValue = draft?.weightKg;
           const repsValue = draft?.reps;
           const setsValue = draft?.sets;
@@ -432,6 +432,13 @@ export function TrainingSessionPage() {
                   </button>
                 </div>
               </div>
+
+              {item.description.trim() && (
+                <details className="training-description">
+                  <summary>説明</summary>
+                  <p>{item.description.trim()}</p>
+                </details>
+              )}
 
               <div className="input-grid training-metrics-grid">
                 <label>
