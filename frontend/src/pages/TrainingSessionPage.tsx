@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { getTrainingSessionView } from '../api/coreApi';
-import type { DraftEntry, SetDetail, TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
+import type { DraftEntry, TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
 import {
@@ -101,10 +101,9 @@ function hasValidWeight(entry: Partial<DraftEntry> | undefined): boolean {
 }
 
 export function TrainingSessionPage() {
-  const { data, setDraftEntry, setDraftSetDetails, clearDraftEntry, clearDraft, finalizeTrainingSession } = useAppState();
+  const { data, setDraftEntry, clearDraftEntry, clearDraft, finalizeTrainingSession } = useAppState();
   const today = useTodayYmd();
   const navigate = useNavigate();
-  const [openSetDetailIds, setOpenSetDetailIds] = useState<Record<string, boolean>>({});
   const [statusText, setStatusText] = useState('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -228,15 +227,6 @@ export function TrainingSessionPage() {
     }
     return map;
   }, [data.menuItems, sessionItems]);
-
-  function initSetDetails(menuItemId: string, sets: number, weightKg: number, reps: number) {
-    const details: SetDetail[] = Array.from({ length: Math.max(1, sets) }).map((_, idx) => ({
-      setIndex: idx + 1,
-      weightKg,
-      reps
-    }));
-    setDraftSetDetails(menuItemId, details);
-  }
 
   const enteredItems = useMemo(() => {
     return Object.values(draftEntries)
@@ -396,7 +386,6 @@ export function TrainingSessionPage() {
           const setsValue = draft?.sets;
           const memoValue =
             draft && Object.prototype.hasOwnProperty.call(draft, 'memo') ? (draft.memo ?? '') : seedMemo;
-          const isDetailOpen = !!openSetDetailIds[item.id];
           const hasStarted =
             draft?.weightKg !== undefined ||
             (draft?.reps ?? 0) > 0 ||
@@ -467,7 +456,6 @@ export function TrainingSessionPage() {
                     className="btn danger copy-last-button"
                     onClick={() => {
                       clearDraftEntry(item.id);
-                      setOpenSetDetailIds((prev) => ({ ...prev, [item.id]: false }));
                       setStatusText(`${item.trainingName} を今回の記録対象から外しました。`);
                     }}
                   >
@@ -510,20 +498,6 @@ export function TrainingSessionPage() {
                       });
                     }}
                   />
-                  <span className="muted training-metric-total">
-                    {item.weightInputMode === 'legacyUnspecified'
-                      ? '重量の意味が未設定です。メニュー設定で指定してください。'
-                      : item.weightInputMode === 'direct'
-                        ? `総重量 ${weightValue ?? '-'}kg`
-                        : `換算総重量 ${
-                            calculateTotalWeightKg(
-                              weightValue,
-                              item.weightInputMode,
-                              item.loadMultiplier,
-                              item.fixedWeightKg
-                            ) ?? '-'
-                          }kg（×${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
-                  </span>
                 </label>
                 <label>
                   <span className="training-metric-title">
@@ -577,6 +551,24 @@ export function TrainingSessionPage() {
                     }}
                   />
                 </label>
+                <span
+                  className={`muted training-metric-total${
+                    item.weightInputMode === 'legacyUnspecified' ? '' : ' is-calculated'
+                  }`}
+                >
+                  {item.weightInputMode === 'legacyUnspecified'
+                    ? '重量の意味が未設定です。メニュー設定で指定してください。'
+                    : item.weightInputMode === 'direct'
+                      ? `総重量 ${weightValue ?? '-'}kg`
+                      : `換算総重量 ${
+                          calculateTotalWeightKg(
+                            weightValue,
+                            item.weightInputMode,
+                            item.loadMultiplier,
+                            item.fixedWeightKg
+                          ) ?? '-'
+                        }kg（×${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
+                </span>
               </div>
               <label>
                 メモ
@@ -593,63 +585,6 @@ export function TrainingSessionPage() {
                   }
                 />
               </label>
-
-              <div className="row-wrap">
-                <button
-                  type="button"
-                  className="btn subtle"
-                  onClick={() => {
-                    const nowOpen = !isDetailOpen;
-                    setOpenSetDetailIds((prev) => ({ ...prev, [item.id]: nowOpen }));
-                    if (nowOpen && (!draft?.setDetails || draft.setDetails.length === 0)) {
-                      const detailSets = Math.max(1, setsValue ?? seedSets);
-                      const detailWeight = weightValue ?? seedWeightKg;
-                      const detailReps = repsValue ?? seedReps;
-                      initSetDetails(item.id, detailSets, detailWeight, detailReps);
-                    }
-                  }}
-                >
-                  {isDetailOpen ? 'セット詳細を閉じる' : 'セット詳細を入力'}
-                </button>
-              </div>
-
-              {isDetailOpen && (
-                <div className="set-detail-list">
-                  {(draft?.setDetails ?? []).map((detail, detailIndex) => (
-                    <div className="set-detail-row" key={detail.setIndex}>
-                      <span>{detail.setIndex}set</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.01}
-                        value={detail.weightKg}
-                        onChange={(e) => {
-                          const next = [...(draft?.setDetails ?? [])];
-                          next[detailIndex] = {
-                            ...detail,
-                            weightKg: toWeightNumber(e.target.value) ?? 0
-                          };
-                          setDraftSetDetails(item.id, next);
-                        }}
-                      />
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={detail.reps}
-                        onChange={(e) => {
-                          const next = [...(draft?.setDetails ?? [])];
-                          next[detailIndex] = {
-                            ...detail,
-                            reps: Number(e.target.value)
-                          };
-                          setDraftSetDetails(item.id, next);
-                        }}
-                      />
-                    </div>
-                  ))}
-                </div>
-              )}
             </article>
           );
         })}

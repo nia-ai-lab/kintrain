@@ -718,7 +718,7 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await expect(page.getByRole('heading', { name: '当日の筋トレ内容' })).toBeVisible();
 });
 
-test('トレーニング実施画面で入力クリアとセット詳細の表示切替ができる', async ({ page }) => {
+test('トレーニング実施画面で入力クリアができ、セット詳細入力を表示しない', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
   await page.goto('/training-session');
@@ -731,11 +731,8 @@ test('トレーニング実施画面で入力クリアとセット詳細の表�
   await chestCard.getByRole('button', { name: '入力クリア' }).click();
   await expect(chestCard.getByLabel('重量')).toHaveValue('');
 
-  const latCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'ラットプルダウン' }) }).first();
-  await latCard.getByRole('button', { name: 'セット詳細を入力' }).click();
-  await expect(latCard.getByText('1set')).toBeVisible();
-  await latCard.getByRole('button', { name: 'セット詳細を閉じる' }).click();
-  await expect(latCard.getByText('1set')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'セット詳細を入力' })).toHaveCount(0);
+  await expect(page.locator('.set-detail-list')).toHaveCount(0);
 });
 
 test('トレーニングメニューで追加・編集・削除ができる', async ({ page }) => {

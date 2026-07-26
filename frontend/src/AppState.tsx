@@ -44,7 +44,6 @@ import type {
   ExerciseEntry,
   Goal,
   MoodRating,
-  SetDetail,
   TrainingEquipment,
   TrainingFrequencyDays,
   TrainingMenuSet,
@@ -66,7 +65,6 @@ interface AppStateContextValue {
   refreshCoreData: () => Promise<void>;
   refreshDailyRecord: (date: string) => Promise<void>;
   setDraftEntry: (menuItemId: string, patch: Partial<DraftEntry>) => void;
-  setDraftSetDetails: (menuItemId: string, setDetails: SetDetail[]) => void;
   clearDraftEntry: (menuItemId: string) => void;
   clearDraft: () => void;
   finalizeTrainingSession: (date: string) => Promise<{ savedCount: number; ok: boolean; message?: string }>;
@@ -904,14 +902,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             ...(currentDraft?.entriesByItemId[menuItemId] ?? { menuItemId }),
             ...patch
           };
+          delete nextEntry.setDetails;
 
           const hasMemoField = Object.prototype.hasOwnProperty.call(nextEntry, 'memo');
           const hasAnyMetric =
             nextEntry.weightKg !== undefined ||
             nextEntry.reps !== undefined ||
             nextEntry.sets !== undefined ||
-            hasMemoField ||
-            (Array.isArray(nextEntry.setDetails) && nextEntry.setDetails.length > 0);
+            hasMemoField;
           const nextEntries = { ...(currentDraft?.entriesByItemId ?? {}) };
 
           if (!hasAnyMetric) {
@@ -933,32 +931,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               startedAtLocal: currentDraft?.startedAtLocal ?? now,
               updatedAtLocal: now,
               entriesByItemId: nextEntries
-            }
-          };
-        });
-      },
-      setDraftSetDetails: (menuItemId, setDetails) => {
-        setData((prev) => {
-          const now = toLocalIsoWithOffset(new Date());
-          const currentDraft =
-            prev.trainingDraft ?? {
-              startedAtLocal: now,
-              updatedAtLocal: now,
-              entriesByItemId: {}
-            };
-          const nextEntry = {
-            ...(currentDraft.entriesByItemId[menuItemId] ?? { menuItemId }),
-            setDetails
-          };
-          return {
-            ...prev,
-            trainingDraft: {
-              ...currentDraft,
-              updatedAtLocal: now,
-              entriesByItemId: {
-                ...currentDraft.entriesByItemId,
-                [menuItemId]: nextEntry
-              }
             }
           };
         });
@@ -1035,8 +1007,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                   )
                 : undefined,
               reps: entry.reps ?? 0,
-              sets: entry.sets ?? 0,
-              setDetails: entry.setDetails
+              sets: entry.sets ?? 0
             };
           });
 
