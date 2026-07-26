@@ -586,7 +586,22 @@ test('トレーニングメニューで追加・編集・削除・AI生成反映
   const addedCard = page.locator('article.card').filter({ has: page.locator(`input[value="${uniqueName}"]`) }).first();
   await expect(addedCard).toBeVisible();
 
+  const weightInput = addedCard.getByLabel('重量 (kg)');
+  await weightInput.fill('');
+  await expect(weightInput).toHaveValue('');
+  await weightInput.fill('0');
+  await weightInput.blur();
+  await expect(weightInput).toHaveValue('0');
+
+  const repsMinInput = addedCard.getByLabel('回数 最小');
+  await repsMinInput.fill('');
+  await expect(repsMinInput).toHaveValue('');
+  await repsMinInput.fill('7');
+  await repsMinInput.blur();
+  await expect(repsMinInput).toHaveValue('7');
+
   await addedCard.getByLabel('回数 最大').fill('9');
+  await addedCard.getByLabel('回数 最大').blur();
   await expect(addedCard.getByLabel('回数 最大')).toHaveValue('9');
 
   await addedCard.getByRole('button', { name: '↑' }).click();

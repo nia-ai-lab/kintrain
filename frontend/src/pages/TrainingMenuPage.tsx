@@ -18,6 +18,63 @@ function frequencyLabel(days: TrainingFrequencyDays): string {
   return `${days}日`;
 }
 
+function MenuMetricInput({
+  label,
+  value,
+  min,
+  step,
+  onCommit
+}: {
+  label: string;
+  value: number;
+  min: number;
+  step: number;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState(String(value));
+
+  useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  function commitDraft(isValid: boolean) {
+    const trimmed = draft.trim();
+    const nextValue = Number(trimmed);
+    if (!trimmed || !isValid || !Number.isFinite(nextValue) || nextValue < min) {
+      setDraft(String(value));
+      return;
+    }
+    if (nextValue === value) {
+      setDraft(String(value));
+      return;
+    }
+    onCommit(nextValue);
+  }
+
+  return (
+    <label>
+      {label}
+      <input
+        type="number"
+        min={min}
+        step={step}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={(e) => commitDraft(e.currentTarget.validity.valid)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.currentTarget.blur();
+          }
+          if (e.key === 'Escape') {
+            setDraft(String(value));
+          }
+        }}
+      />
+    </label>
+  );
+}
+
 export function TrainingMenuPage() {
   const {
     data,
@@ -521,46 +578,34 @@ function MenuItemCard({
           </label>
         </div>
         <div className="menu-metrics-row">
-          <label>
-            重量 (kg)
-            <input
-              type="number"
-              min={0}
-              step={0.01}
-              value={item.defaultWeightKg}
-              onChange={(e) => onUpdate({ defaultWeightKg: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            回数 最小
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={item.defaultRepsMin}
-              onChange={(e) => onUpdate({ defaultRepsMin: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            回数 最大
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={item.defaultRepsMax}
-              onChange={(e) => onUpdate({ defaultRepsMax: Number(e.target.value) })}
-            />
-          </label>
-          <label>
-            セット
-            <input
-              type="number"
-              min={1}
-              step={1}
-              value={item.defaultSets}
-              onChange={(e) => onUpdate({ defaultSets: Number(e.target.value) })}
-            />
-          </label>
+          <MenuMetricInput
+            label="重量 (kg)"
+            value={item.defaultWeightKg}
+            min={0}
+            step={0.01}
+            onCommit={(value) => onUpdate({ defaultWeightKg: value })}
+          />
+          <MenuMetricInput
+            label="回数 最小"
+            value={item.defaultRepsMin}
+            min={1}
+            step={1}
+            onCommit={(value) => onUpdate({ defaultRepsMin: value })}
+          />
+          <MenuMetricInput
+            label="回数 最大"
+            value={item.defaultRepsMax}
+            min={1}
+            step={1}
+            onCommit={(value) => onUpdate({ defaultRepsMax: value })}
+          />
+          <MenuMetricInput
+            label="セット"
+            value={item.defaultSets}
+            min={1}
+            step={1}
+            onCommit={(value) => onUpdate({ defaultSets: value })}
+          />
         </div>
         <label className="menu-training-note-field">
           メモ
