@@ -16,7 +16,7 @@ type TrainingMenuItemDto = {
   bodyPart?: string;
   equipment?: string;
   isAiGenerated?: boolean;
-  memo?: string;
+  description?: string;
   frequency?: number | string;
   defaultWeightKg: number;
   defaultRepsMin: number;
@@ -95,7 +95,7 @@ export type TrainingSessionViewItemDto = {
   bodyPart?: string;
   equipment?: string;
   isAiGenerated?: boolean;
-  memo?: string;
+  description?: string;
   frequency?: number | string;
   defaultWeightKg: number;
   defaultRepsMin: number;
@@ -275,7 +275,7 @@ export async function createTrainingMenuItem(input: {
   bodyPart?: string;
   equipment?: string;
   isAiGenerated?: boolean;
-  memo?: string;
+  description?: string;
   frequency?: number;
   defaultWeightKg: number;
   defaultRepsMin: number;
@@ -296,7 +296,7 @@ export async function updateTrainingMenuItem(
     bodyPart: string;
     equipment: string;
     isAiGenerated: boolean;
-    memo: string;
+    description: string;
     frequency: number;
     defaultWeightKg: number;
     defaultRepsMin: number;

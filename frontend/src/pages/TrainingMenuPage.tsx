@@ -156,7 +156,7 @@ export function TrainingMenuPage() {
     const bodyPart = String(formData.get('bodyPart') ?? '').trim();
     const equipment = String(formData.get('equipment') ?? '').trim() as TrainingEquipment;
     const isAiGenerated = formData.get('isAiGenerated') === 'on';
-    const memo = String(formData.get('memo') ?? '').trim();
+    const description = String(formData.get('description') ?? '').trim();
     const frequency = Number(formData.get('frequency') ?? 0) as TrainingFrequencyDays;
     if (!trainingName) {
       setStatusText('トレーニング名を入力してください。');
@@ -168,7 +168,7 @@ export function TrainingMenuPage() {
         bodyPart,
         equipment: TRAINING_EQUIPMENT_OPTIONS.includes(equipment) ? equipment : 'マシン',
         isAiGenerated,
-        memo,
+        description,
         frequency: TRAINING_FREQUENCY_OPTIONS.includes(frequency) ? frequency : 3,
         defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
         defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
@@ -408,8 +408,13 @@ export function TrainingMenuPage() {
               </label>
             </div>
             <label className="menu-training-note-field">
-              メモ
-              <textarea name="memo" rows={1} maxLength={500} placeholder="任意でメモを入力" />
+              説明
+              <textarea
+                name="description"
+                rows={2}
+                maxLength={500}
+                placeholder="フォームや注意点など、種目の説明を入力"
+              />
             </label>
             <button className="btn primary menu-add-button" type="submit" disabled={isCoreDataLoading}>
               {isCoreDataLoading ? '同期中...' : 'このセットへ追加'}
@@ -608,13 +613,13 @@ function MenuItemCard({
           />
         </div>
         <label className="menu-training-note-field">
-          メモ
+          説明
           <textarea
-            rows={1}
+            rows={2}
             maxLength={500}
-            value={item.memo}
-            onChange={(e) => onUpdate({ memo: e.target.value })}
-            placeholder="任意でメモを入力"
+            value={item.description}
+            onChange={(e) => onUpdate({ description: e.target.value })}
+            placeholder="フォームや注意点など、種目の説明を入力"
           />
         </label>
       </div>

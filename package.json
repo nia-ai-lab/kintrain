@@ -14,6 +14,7 @@
     "backend:typecheck": "tsc -p tsconfig.backend.json --noEmit",
     "sync:branch-outputs": "./scripts/sync-branch-outputs.sh",
     "migrate:menu-sets": "node scripts/migrate-training-menu-sets.mjs",
+    "migrate:menu-description": "node scripts/migrate-training-menu-description.mjs",
     "test:api-ui-spec": "node tests/api-ui-spec.e2e.mjs",
     "build": "npm run frontend:build",
     "amplify:sandbox": "npx ampx sandbox",

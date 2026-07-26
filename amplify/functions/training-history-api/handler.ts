@@ -511,7 +511,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
         bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
         equipment: typeof menu.equipment === "string" ? menu.equipment : "",
         isAiGenerated: menu.isAiGenerated === true,
-        memo: typeof menu.memo === "string" ? menu.memo : "",
+        description: typeof menu.description === "string" ? menu.description : "",
         frequency: toFrequencyDays(menu.frequency),
         defaultWeightKg: menu.defaultWeightKg,
         defaultRepsMin: repsRange.defaultRepsMin,

@@ -89,7 +89,7 @@ type AiMenuItemInput = {
   defaultRepsMin?: unknown;
   defaultRepsMax?: unknown;
   defaultSets?: unknown;
-  memo?: unknown;
+  description?: unknown;
 };
 
 const allowedEquipments = new Set(["マシン", "フリー", "自重", "その他"]);
@@ -397,7 +397,7 @@ export function normalizeNonNegativeDecimal(value: unknown): number | undefined 
   return Math.round(value * 100) / 100;
 }
 
-function normalizeMemo(value: unknown): string | undefined {
+function normalizeDescription(value: unknown): string | undefined {
   if (value === undefined || value === null) {
     return "";
   }
@@ -1464,7 +1464,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
     defaultRepsMin: number;
     defaultRepsMax: number;
     defaultSets: number;
-    memo: string;
+    description: string;
   }>;
   try {
     normalizedItems = rawItems.map((item, index) => {
@@ -1475,7 +1475,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
       const defaultRepsMin = normalizePositiveInteger(item.defaultRepsMin);
       const defaultRepsMax = normalizePositiveInteger(item.defaultRepsMax);
       const defaultSets = normalizePositiveInteger(item.defaultSets);
-      const memo = normalizeMemo(item.memo);
+      const description = normalizeDescription(item.description);
       const bodyPart = toNonEmptyString(item.bodyPart) ?? "";
 
       if (!trainingName) {
@@ -1493,8 +1493,8 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
       if (defaultRepsMin > defaultRepsMax) {
         throw new Error(`items[${index}].defaultRepsMin must be <= defaultRepsMax.`);
       }
-      if (memo === undefined) {
-        throw new Error(`items[${index}].memo must be a string up to 500 characters.`);
+      if (description === undefined) {
+        throw new Error(`items[${index}].description must be a string up to 500 characters.`);
       }
 
       return {
@@ -1507,7 +1507,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
         defaultRepsMin,
         defaultRepsMax,
         defaultSets,
-        memo
+        description
       };
     });
   } catch (error) {
@@ -1594,7 +1594,7 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
               bodyPart: item.bodyPart,
               equipment: item.equipment,
               isAiGenerated: true,
-              memo: item.memo,
+              description: item.description,
               frequency: item.frequency,
               defaultWeightKg: item.defaultWeightKg,
               defaultRepsMin: item.defaultRepsMin,

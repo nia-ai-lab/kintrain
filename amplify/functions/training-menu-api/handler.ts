@@ -32,7 +32,7 @@ type TrainingMenuItemInput = RepsRangeInput & {
   bodyPart?: string;
   equipment?: string;
   isAiGenerated?: boolean;
-  memo?: string;
+  description?: string;
   frequency?: number;
   defaultWeightKg: number;
   defaultSets: number;
@@ -93,7 +93,7 @@ function normalizeEquipment(value: unknown): string | undefined {
   return normalized;
 }
 
-function parseMemo(value: unknown): { ok: boolean; value?: string } {
+function parseDescription(value: unknown): { ok: boolean; value?: string } {
   if (value === undefined) {
     return { ok: true, value: undefined };
   }
@@ -107,7 +107,7 @@ function parseMemo(value: unknown): { ok: boolean; value?: string } {
   return { ok: true, value: trimmed };
 }
 
-function toMemo(value: unknown): string {
+function toDescription(value: unknown): string {
   if (typeof value !== "string") {
     return "";
   }
@@ -190,7 +190,7 @@ function toTrainingMenuResponse(item: Record<string, unknown>): Record<string, u
     bodyPart: typeof item.bodyPart === "string" ? item.bodyPart : "",
     equipment: normalizeEquipment(item.equipment) ?? defaultEquipment,
     isAiGenerated: item.isAiGenerated === true,
-    memo: toMemo(item.memo),
+    description: toDescription(item.description),
     frequency: normalizeFrequency(item.frequency) ?? defaultFrequency,
     defaultWeightKg: item.defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
@@ -428,11 +428,11 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
   }
   const bodyPart = toTrimmedString(body.bodyPart) ?? "";
   const isAiGenerated = body.isAiGenerated === true;
-  const memoParsed = parseMemo(body.memo);
-  if (!memoParsed.ok) {
-    return response(400, { message: "memo must be a string up to 500 characters." });
+  const descriptionParsed = parseDescription(body.description);
+  if (!descriptionParsed.ok) {
+    return response(400, { message: "description must be a string up to 500 characters." });
   }
-  const memo = memoParsed.value ?? "";
+  const description = descriptionParsed.value ?? "";
   const equipment = normalizeEquipment(body.equipment) ?? defaultEquipment;
   if (body.equipment !== undefined && !normalizeEquipment(body.equipment)) {
     return response(400, { message: "equipment must be one of マシン/フリー/自重/その他." });
@@ -477,7 +477,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
         bodyPart,
         equipment,
         isAiGenerated,
-        memo,
+        description,
         frequency,
         normalizedTrainingName,
         defaultWeightKg,
@@ -500,7 +500,7 @@ async function createTrainingMenuItem(event: APIGatewayProxyEvent, userId: strin
     bodyPart,
     equipment,
     isAiGenerated,
-    memo,
+    description,
     frequency,
     defaultWeightKg,
     defaultRepsMin: repsRange.defaultRepsMin,
@@ -543,16 +543,17 @@ async function updateTrainingMenuItem(
   const currentBodyPart = typeof current.bodyPart === "string" ? current.bodyPart : "";
   const currentEquipment = normalizeEquipment(current.equipment) ?? defaultEquipment;
   const currentIsAiGenerated = current.isAiGenerated === true;
-  const currentMemo = toMemo(current.memo);
+  const currentDescription = toDescription(current.description);
   const currentFrequency = normalizeFrequency(current.frequency) ?? defaultFrequency;
   const nextName = toNonEmptyString(body.trainingName) ?? currentName;
   const nextBodyPartInput = toTrimmedString(body.bodyPart);
   const nextBodyPart = body.bodyPart !== undefined ? nextBodyPartInput ?? "" : currentBodyPart;
-  const nextMemoParsed = parseMemo(body.memo);
-  if (!nextMemoParsed.ok) {
-    return response(400, { message: "memo must be a string up to 500 characters." });
+  const nextDescriptionParsed = parseDescription(body.description);
+  if (!nextDescriptionParsed.ok) {
+    return response(400, { message: "description must be a string up to 500 characters." });
   }
-  const nextMemo = body.memo !== undefined ? nextMemoParsed.value ?? "" : currentMemo;
+  const nextDescription =
+    body.description !== undefined ? nextDescriptionParsed.value ?? "" : currentDescription;
   const nextEquipmentNormalized = normalizeEquipment(body.equipment);
   if (body.equipment !== undefined && !nextEquipmentNormalized) {
     return response(400, { message: "equipment must be one of マシン/フリー/自重/その他." });
@@ -596,7 +597,7 @@ async function updateTrainingMenuItem(
     bodyPart: nextBodyPart,
     equipment: nextEquipment,
     isAiGenerated: nextIsAiGenerated,
-    memo: nextMemo,
+    description: nextDescription,
     frequency: nextFrequency,
     normalizedTrainingName: nextNormalizedName,
     defaultWeightKg:
@@ -619,13 +620,16 @@ async function updateTrainingMenuItem(
         trainingMenuItemId
       },
       UpdateExpression:
-        "SET trainingName = :trainingName, bodyPart = :bodyPart, equipment = :equipment, isAiGenerated = :isAiGenerated, memo = :memo, frequency = :frequency, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
+        "SET trainingName = :trainingName, bodyPart = :bodyPart, equipment = :equipment, isAiGenerated = :isAiGenerated, #description = :description, frequency = :frequency, normalizedTrainingName = :normalizedTrainingName, defaultWeightKg = :defaultWeightKg, defaultRepsMin = :defaultRepsMin, defaultRepsMax = :defaultRepsMax, defaultReps = :defaultReps, defaultSets = :defaultSets, isActive = :isActive, updatedAt = :updatedAt",
+      ExpressionAttributeNames: {
+        "#description": "description"
+      },
       ExpressionAttributeValues: {
         ":trainingName": updated.trainingName,
         ":bodyPart": updated.bodyPart,
         ":equipment": updated.equipment,
         ":isAiGenerated": updated.isAiGenerated,
-        ":memo": updated.memo,
+        ":description": updated.description,
         ":frequency": updated.frequency,
         ":normalizedTrainingName": updated.normalizedTrainingName,
         ":defaultWeightKg": updated.defaultWeightKg,

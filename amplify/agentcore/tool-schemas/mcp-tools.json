@@ -317,8 +317,9 @@
               "defaultSets": {
                 "type": "integer"
               },
-              "memo": {
-                "type": "string"
+              "description": {
+                "type": "string",
+                "maxLength": 500
               }
             },
             "required": [

@@ -305,6 +305,7 @@ async function run() {
         body: {
           trainingName: "チェストプレス",
           bodyPart: "胸",
+          description: "肩をすくめず、胸を張って押す。",
           defaultWeightKg: 25.25,
           defaultRepsMin: 8,
           defaultRepsMax: 12,
@@ -314,6 +315,7 @@ async function run() {
       assert.equal(res.status, 201);
       assert.ok(res.json.trainingMenuItemId);
       assert.equal(res.json.bodyPart, "胸");
+      assert.equal(res.json.description, "肩をすくめず、胸を張って押す。");
       state.menuItemA = res.json.trainingMenuItemId;
     });
 
@@ -380,6 +382,7 @@ async function run() {
         body: {
           trainingName: "チェストプレス改",
           bodyPart: "胸",
+          description: "肩甲骨を寄せたまま、ゆっくり戻す。",
           defaultWeightKg: 26.5,
           defaultRepsMin: 8,
           defaultRepsMax: 11,
@@ -389,6 +392,7 @@ async function run() {
       assert.equal(res.status, 200);
       assert.equal(res.json.trainingName, "チェストプレス改");
       assert.equal(res.json.bodyPart, "胸");
+      assert.equal(res.json.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
     });
 
     await testCase("TrainingMenu: PUT /training-menu-items/{id} keeps zero weight", async () => {
@@ -437,6 +441,9 @@ async function run() {
       assert.equal(res.status, 200);
       assert.ok(Array.isArray(res.json.items));
       assert.ok(Array.isArray(res.json.todayDoneTrainingMenuItemIds));
+      const chestPress = res.json.items.find((item) => item.trainingMenuItemId === state.menuItemA);
+      assert.equal(chestPress?.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
+      assert.equal(Object.prototype.hasOwnProperty.call(chestPress ?? {}, "memo"), false);
     });
 
     // /gym-visits

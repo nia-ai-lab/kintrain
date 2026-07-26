@@ -80,7 +80,7 @@
 - `defaultRepsMin`
 - `defaultRepsMax`
 - `defaultSets`
-- `memo`
+- `description`
 - `isAiGenerated = true`
 
 ### 4.2 出力方針
@@ -106,7 +106,7 @@
   defaultRepsMin: number,
   defaultRepsMax: number,
   defaultSets: number,
-  memo?: string,
+  description?: string,
   isAiGenerated: true
 }>`
 - `makeDefault?: boolean`（現行Lambdaは既定セットが存在するとtrueを拒否し、既定セットがない場合だけ自動で既定化）
