@@ -273,16 +273,18 @@ dry-runでは、書き込み予定の正常レコードに `would_create` また
 
 ```json
 {
-  "message": "records must contain between 1 and 100 items.",
-  "code": "INVALID_BATCH_SIZE",
-  "requestId": "3e8dfb9f-9f4f-4fa8-b9ab-08499f8b6f75"
+  "error": {
+    "message": "records must contain between 1 and 100 items.",
+    "code": "INVALID_BATCH_SIZE",
+    "requestId": "3e8dfb9f-9f4f-4fa8-b9ab-08499f8b6f75"
+  }
 }
 ```
 
 要件:
 
 - 応答から内部 `userId` を除外する。
-- 応答はログと照合できる追跡用 `requestId` を持つ。
+- 受理済み応答はトップレベル、リクエスト全体の失敗応答は`error`内に、ログと照合できる追跡用 `requestId` を持つ。
 - トップレベルの `outcome` は `succeeded`、`partially_succeeded`、`failed` のいずれかとする。
 - リクエスト全体を受理した場合、`results` は入力レコードと同じ件数を入力順で返す。
 - 各結果の `status` は `success` または `failed` とする。

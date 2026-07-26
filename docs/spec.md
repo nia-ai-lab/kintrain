@@ -668,7 +668,7 @@
 
 - 以下ツールをMCPとして公開すること。
 - `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
-- `get_training_history(trainingMenuItemId, from, to, timeZoneId, limit, nextToken)`
+- `get_training_history(trainingMenuItemId?, trainingMenuName?, from, to, timeZoneId, limit, nextToken)`（IDまたは登録名のどちらかを必須指定）
 - `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `get_goal()`
@@ -679,6 +679,8 @@
 - `save_advice_log(advice)`
 - `create_training_menu_set_from_ai(setName, items, makeDefault)`
 - `userId` はツール公開引数に含めず、Gateway REQUEST Interceptorが検証済みJWT `sub` から内部注入する。MCP Lambdaは内部専用 `__principalUserId` だけをユーザー識別子として採用する。
+- MCP LambdaはAPI Gatewayプロキシ形式を返さず、ツール結果のJSONオブジェクトを直接返す。失敗は`error.code`、`error.message`、必要に応じて`error.requestId`と`error.details`で表す。
+- DynamoDBの取得行をそのまま返さず、ツールごとの許可フィールドだけをレスポンスへ構築する。内部`userId`や将来追加される内部属性をモデルへ公開しない。
 - MCP Lambda はメソッド名を `context.clientContext.custom.bedrockAgentCoreToolName` から判定すること（`event` 起点で判定しない）。
 - `save_body_metrics_batch` は1回1〜100件を受け付け、正常レコードを日付単位で登録し、入力不正・競合・書き込み失敗をレコード別結果として返すこと。
 - 一括登録の部分成功はHTTP相当200とし、入力と同じ件数・順序の `results` で `success` / `failed`、処理内容または失敗理由を識別可能にすること。

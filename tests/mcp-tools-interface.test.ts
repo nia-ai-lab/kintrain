@@ -1,19 +1,26 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { GetCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import {
   type BodyMetricDdbSender,
+  type TrainingMenuLookupSender,
   decodeNextToken,
   isValidBodyFatPercent,
   isValidBodyWeightKg,
   localDateInclusiveUpperKey,
   localDateStartUtc,
+  mcpToolResponse,
+  normalizeAiCharacterProfileForMcp,
+  normalizeDailyRecordForMcp,
+  normalizeGoalForMcp,
+  normalizeGymVisitWeightSnapshots,
   normalizeNonNegativeDecimal,
   parseAnalysisExportSelection,
   parseLocalTime,
   parseYmd,
   resolveRecordDate,
+  resolveTrainingMenuForHistory,
   resolveTimeZoneId,
   saveBodyMetricsBatch
 } from "../amplify/functions/mcp-tools-api/handler.ts";
@@ -21,8 +28,8 @@ import {
 type JsonObject = Record<string, unknown>;
 const silentLogger = () => undefined;
 
-function parseResponse(response: { body: string }): JsonObject {
-  return JSON.parse(response.body) as JsonObject;
+function parseResponse(response: JsonObject): JsonObject {
+  return response;
 }
 
 function createMemoryBodyMetricSender(
@@ -131,6 +138,131 @@ test("invalid time zones are rejected instead of silently replaced", () => {
   assert.equal(resolveTimeZoneId({ timeZoneId: "Not/AZone" }), undefined);
 });
 
+test("MCP tool responses return direct JSON without an API Gateway proxy envelope", () => {
+  const success = mcpToolResponse(200, {
+    tool: "get_goal",
+    item: { targetWeightKg: 70 }
+  });
+  assert.deepEqual(success, {
+    tool: "get_goal",
+    item: { targetWeightKg: 70 }
+  });
+  assert.equal(Object.hasOwn(success, "statusCode"), false);
+  assert.equal(Object.hasOwn(success, "headers"), false);
+  assert.equal(Object.hasOwn(success, "body"), false);
+
+  const failure = mcpToolResponse(400, {
+    code: "INVALID_DATE",
+    message: "date is invalid.",
+    field: "date"
+  });
+  assert.deepEqual(failure, {
+    error: {
+      code: "INVALID_DATE",
+      message: "date is invalid.",
+      details: {
+        field: "date"
+      }
+    }
+  });
+});
+
+test("MCP read responses expose only allowlisted database fields", () => {
+  const internalFields = {
+    userId: "internal-user",
+    secretInternalFlag: "must-not-leak"
+  };
+  const daily = normalizeDailyRecordForMcp({
+    ...internalFields,
+    recordDate: "2026-07-26",
+    bodyWeightKg: 70,
+    diary: "記録"
+  });
+  const goal = normalizeGoalForMcp({
+    ...internalFields,
+    targetWeightKg: 68,
+    comment: "目標"
+  });
+  const character = normalizeAiCharacterProfileForMcp({
+    ...internalFields,
+    characterId: "coach",
+    characterName: "AIコーチ",
+    coachAvatarObjectKey: "users/internal/avatar.png"
+  });
+  const visit = normalizeGymVisitWeightSnapshots({
+    ...internalFields,
+    visitId: "visit-1",
+    entries: [
+      {
+        ...internalFields,
+        trainingMenuItemId: "menu-1",
+        trainingNameSnapshot: "ベンチプレス",
+        weightKg: 60,
+        reps: 10,
+        sets: 3
+      }
+    ]
+  });
+
+  for (const item of [daily, goal, character, visit]) {
+    const serialized = JSON.stringify(item);
+    assert.equal(serialized.includes("internal-user"), false);
+    assert.equal(serialized.includes("secretInternalFlag"), false);
+    assert.equal(serialized.includes("coachAvatarObjectKey"), false);
+  }
+});
+
+test("training history resolves a registered menu name without requiring its ID", async () => {
+  let observedNormalizedName = "";
+  const send: TrainingMenuLookupSender = async (command) => {
+    assert.ok(command instanceof QueryCommand);
+    observedNormalizedName = String(command.input.ExpressionAttributeValues?.[":normalizedTrainingName"]);
+    return {
+      Items: [
+        {
+          trainingMenuItemId: "menu-1",
+          trainingName: "バーベルスクワット"
+        }
+      ]
+    };
+  };
+  const resolved = await resolveTrainingMenuForHistory(
+    { trainingMenuName: "  バーベルスクワット  " },
+    "user-a",
+    send
+  );
+  assert.equal(observedNormalizedName, "バーベルスクワット");
+  assert.deepEqual(resolved, {
+    value: {
+      trainingMenuItemId: "menu-1",
+      trainingMenuName: "バーベルスクワット"
+    }
+  });
+});
+
+test("training history rejects mismatched menu ID and name references", async () => {
+  const send: TrainingMenuLookupSender = async () => ({
+    Items: [
+      {
+        trainingMenuItemId: "menu-from-name",
+        trainingName: "ベンチプレス"
+      }
+    ]
+  });
+  const resolved = await resolveTrainingMenuForHistory(
+    {
+      trainingMenuItemId: "different-menu",
+      trainingMenuName: "ベンチプレス"
+    },
+    "user-a",
+    send
+  );
+  assert.ok("response" in resolved);
+  if ("response" in resolved) {
+    assert.equal((resolved.response.error as JsonObject).code, "TRAINING_MENU_REFERENCE_MISMATCH");
+  }
+});
+
 test("pagination tokens are bound to the original tool and range", () => {
   const context = JSON.stringify(["get_daily_records", "2026-07-01", "2026-07-13", "Asia/Tokyo"]);
   const token = Buffer.from(
@@ -155,6 +287,31 @@ test("history list schemas share the paging and local-date interface", async () 
   }
   const gymVisits = schemas.find((candidate) => candidate.name === "get_gym_visits");
   assert.equal(Object.hasOwn(gymVisits!.inputSchema.properties, "days"), false);
+  const trainingHistory = schemas.find((candidate) => candidate.name === "get_training_history");
+  assert.ok(Object.hasOwn(trainingHistory!.inputSchema.properties, "trainingMenuItemId"));
+  assert.ok(Object.hasOwn(trainingHistory!.inputSchema.properties, "trainingMenuName"));
+});
+
+test("MCP schemas distinguish single-day lookup and constrain diary save mode", async () => {
+  const schemas = JSON.parse(
+    await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
+  ) as Array<{
+    name: string;
+    description: string;
+    inputSchema: {
+      properties: Record<string, { enum?: string[] }>;
+      required?: string[];
+    };
+  }>;
+  const history = schemas.find((candidate) => candidate.name === "get_training_history");
+  const dailyRecord = schemas.find((candidate) => candidate.name === "get_daily_record");
+  const dailyRecords = schemas.find((candidate) => candidate.name === "get_daily_records");
+  const saveDiary = schemas.find((candidate) => candidate.name === "save_daily_diary");
+  assert.ok(history);
+  assert.equal(history.inputSchema.required, undefined);
+  assert.match(dailyRecord!.description, /1日/);
+  assert.match(dailyRecords!.description, /複数日/);
+  assert.deepEqual(saveDiary!.inputSchema.properties.mode.enum, ["append", "overwrite"]);
 });
 
 test("analysis export schemas expose manifest and section paging without set details", async () => {
@@ -222,8 +379,8 @@ test("analysis export selection requires a complete range or explicit all-availa
   });
   assert.ok("response" in incomplete);
   if ("response" in incomplete) {
-    assert.equal(incomplete.response.statusCode, 400);
-    assert.equal(parseResponse(incomplete.response).code, "INVALID_DATE_RANGE");
+    const error = incomplete.response.error as JsonObject;
+    assert.equal(error.code, "INVALID_DATE_RANGE");
   }
 
   const reversed = parseAnalysisExportSelection({
@@ -341,7 +498,6 @@ test("batch body metrics returns success and failure for every record in input o
     }
   );
 
-  assert.equal(response.statusCode, 200);
   const body = parseResponse(response);
   assert.equal(body.outcome, "partially_succeeded");
   assert.deepEqual(body.summary, {
@@ -446,8 +602,7 @@ test("batch body metrics rejects request-level errors before processing records"
     "user-a",
     { send: memory.send, logger: silentLogger }
   );
-  assert.equal(response.statusCode, 400);
-  assert.equal(parseResponse(response).code, "INVALID_TIME_ZONE");
+  assert.equal((response.error as JsonObject).code, "INVALID_TIME_ZONE");
   assert.equal(memory.updateCount(), 0);
 });
 

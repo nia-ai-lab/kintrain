@@ -107,13 +107,17 @@
   },
   {
     "name": "get_training_history",
-    "description": "特定トレーニングメニューの過去実施履歴を取得する",
+    "description": "特定トレーニングメニューの過去実施履歴を取得する。trainingMenuItemIdまたはtrainingMenuNameのどちらかを指定する。通常の会話では種目名をそのままtrainingMenuNameへ指定できる。",
     "inputSchema": {
       "type": "object",
       "properties": {
         "trainingMenuItemId": {
           "type": "string",
-          "description": "対象トレーニングメニューID"
+          "description": "対象トレーニングメニューID。IDが既知の場合に指定する。"
+        },
+        "trainingMenuName": {
+          "type": "string",
+          "description": "対象トレーニング名。登録済みの名前と空白・英字大小を除いて完全一致させる。IDが不明な通常の会話ではこちらを指定する。"
         },
         "limit": {
           "type": "integer",
@@ -139,13 +143,12 @@
           "type": "string",
           "description": "前回レスポンスのnextToken。続きがない場合は指定しない。"
         }
-      },
-      "required": ["trainingMenuItemId"]
+      }
     }
   },
   {
     "name": "get_daily_records",
-    "description": "日付範囲のDaily記録を取得する",
+    "description": "期間または複数日分のDaily記録を取得する。1日だけを取得する場合はget_daily_recordを使用する。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -178,7 +181,7 @@
   },
   {
     "name": "get_daily_record",
-    "description": "指定日のDaily記録を取得する",
+    "description": "指定した1日だけのDaily記録を取得する。期間や複数日の取得にはget_daily_recordsを使用する。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -212,6 +215,7 @@
         },
         "mode": {
           "type": "string",
+          "enum": ["append", "overwrite"],
           "description": "既存日記がある場合の保存モード。append または overwrite。"
         }
       },

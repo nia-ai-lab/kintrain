@@ -131,11 +131,10 @@ MCP Lambdaは `event.__principalUserId` だけをユーザー識別子として�
 
 ## 8. 残存リスクと対象外
 
-この修正はMCP Lambdaが使用するDynamoDB `userId` の境界を保護する。次は別項目として引き続き対応する。
+この修正はMCP Lambdaが使用するDynamoDB `userId` の境界を保護する。MCP Lambdaの取得レスポンスも許可フィールド方式へ変更し、内部`userId`をモデルへ返さない。
 
 - Runtime Memoryの `actorId` は、署名検証済みclaimへ固定する必要がある（SEC-03）。
 - Web取得ツールのSSRF・prompt injection対策が必要である（SEC-02）。
-- MCP Lambdaの応答から内部 `userId` を除去し、モデルへ不要な識別子を返さない。
 - 新規ツール追加時にidentity非公開とユーザー分離を自動検査するCIを導入する。
 
 SEC-03が未解決であっても、REQUEST InterceptorはGatewayへ提示されたアクセストークンを独立して再検証するため、MCPのDynamoDB境界がモデル入力へ戻ることはない。ただしMemory境界は別途是正が必要である。
