@@ -476,6 +476,22 @@ a {
   border-top: 1px solid var(--line);
 }
 
+.menu-set-use-actions {
+  justify-content: flex-end;
+}
+
+.menu-set-use-date {
+  display: grid;
+  gap: 4px;
+  min-width: 148px;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.menu-set-use-date input {
+  color: var(--ink);
+}
+
 .menu-set-prescription-card h3 {
   margin: 0.3rem 0 0;
 }
@@ -512,6 +528,19 @@ a {
   }
 
   .menu-management-tabs .btn {
+    flex: 1;
+  }
+
+  .menu-set-use-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .menu-set-use-date {
+    flex: 1 1 100%;
+  }
+
+  .menu-set-use-actions .btn {
     flex: 1;
   }
 }

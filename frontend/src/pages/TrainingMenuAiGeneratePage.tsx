@@ -140,8 +140,8 @@ function buildFixedInstruction(
   const existingSetNamesText = existingSetNames.length > 0 ? existingSetNames.join(' / ') : 'なし';
 
   return [
-    'これは KinTrain の「今日のメニュー」作成依頼です。',
-    'あなたの仕事は、ユーザー条件に合わせた一時メニューセットを提案し、ユーザーが明示的に登録を指示した時だけ MCP ツールで対象日の計画として登録することです。',
+    'これは KinTrain の「一時メニュー」作成依頼です。',
+    'あなたの仕事は、ユーザー条件に合わせた一時メニューセットを提案し、ユーザーが明示的に登録を指示した時だけ MCP ツールで指定期間の計画として登録することです。',
     '重要ルール:',
     '- 既存のトレーニングメニューセットや既存のトレーニングメニューは絶対に更新・削除・上書きしないこと。',
     '- 既存種目を使う場合は list_training_menu_items の trainingMenuItemId を指定して再利用すること。',

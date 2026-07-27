@@ -869,6 +869,20 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await login(page);
   await page.goto('/training-menu');
 
+  await expect(page.getByRole('link', { name: 'AIで一時メニューを作る' })).toBeVisible();
+  await expect(page.locator('.menu-set-create-panel option[value="temporary"]')).toHaveText('一時セット');
+  await expect(page.getByPlaceholder('例: 胸の日 / 回復メニュー')).toBeVisible();
+  await expect(page.getByText('今日の一時セット', { exact: true })).toHaveCount(0);
+
+  const useDate = '2026-08-03';
+  await page.getByLabel('利用日').fill(useDate);
+  const assignRequest = page.waitForRequest((request) =>
+    request.method() === 'PUT' && new URL(request.url()).pathname.endsWith(`/daily-training-plans/${useDate}`)
+  );
+  await page.getByRole('button', { name: '利用日に設定' }).click();
+  await assignRequest;
+  await expect(page.getByText('指定日のメニューに設定しました。')).toBeVisible();
+
   const uniqueName = `UI追加-${Date.now()}`;
   await page.getByRole('button', { name: '種目一覧' }).click();
   const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
@@ -892,6 +906,13 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   page.once('dialog', (dialog) => dialog.accept());
   await addedCard.getByRole('button', { name: '種目自体を削除' }).click();
   await expect(page.locator('details.menu-item-library-card').filter({ hasText: uniqueName })).toHaveCount(0);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/training-menu');
+  const hasHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth
+  );
+  assert.equal(hasHorizontalOverflow, false);
 });
 
 test('カレンダーとDailyで記録の入力・参照ができる', async ({ page }) => {

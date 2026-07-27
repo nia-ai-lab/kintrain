@@ -85,7 +85,7 @@ async function confirmDailyPlanReplacement(date: string, nextSetId?: string): Pr
   if (!current || current.trainingMenuSetId === nextSetId) {
     return true;
   }
-  return window.confirm('今日のメニューはすでに設定されています。新しいメニューに置き換えますか？');
+  return window.confirm('指定日のメニューはすでに設定されています。新しいメニューに置き換えますか？');
 }
 
 export function TrainingMenuPage() {
@@ -134,7 +134,7 @@ export function TrainingMenuPage() {
             <p className="muted">セットごとの目標と、共有する種目を分けて管理します。</p>
           </div>
           <Link to="/training-menu/ai-generate" className="btn primary menu-generate-button">
-            AIで今日のメニューを作る
+            AIで一時メニューを作る
           </Link>
         </div>
         <div className="menu-management-tabs" role="tablist" aria-label="メニュー管理">
@@ -257,12 +257,12 @@ function SetManagement({
           <input
             value={newSetName}
             onChange={(event) => setNewSetName(event.target.value)}
-            placeholder="例: 胸の日 / 今日の回復メニュー"
+            placeholder="例: 胸の日 / 回復メニュー"
             maxLength={40}
           />
           <select value={newSetType} onChange={(event) => setNewSetType(event.target.value as 'reusable' | 'temporary')}>
             <option value="reusable">恒常セット</option>
-            <option value="temporary">期間限定の一時セット</option>
+            <option value="temporary">一時セット</option>
           </select>
           {newSetType === 'temporary' && (
             <div className="menu-validity-grid">
@@ -313,6 +313,7 @@ function SetEditor({
   const [validToDate, setValidToDate] = useState(set.validToDate ?? today);
   const [draftItems, setDraftItems] = useState<SetItemDraft[]>(set.items);
   const [addItemId, setAddItemId] = useState('');
+  const [useDate, setUseDate] = useState(today);
 
   useEffect(() => {
     setName(set.setName);
@@ -320,6 +321,7 @@ function SetEditor({
     setValidToDate(set.validToDate ?? today);
     setDraftItems(set.items);
     setAddItemId('');
+    setUseDate(today);
   }, [set.id, set.items, set.setName, set.validFromDate, set.validToDate, today]);
 
   const itemById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
@@ -382,22 +384,30 @@ function SetEditor({
             </div>
             <h2>{set.setName}</h2>
           </div>
-          <div className="row-wrap">
+          <div className="row-wrap menu-set-use-actions">
+            <label className="menu-set-use-date">
+              利用日
+              <input
+                type="date"
+                value={useDate}
+                onChange={(event) => setUseDate(event.target.value)}
+              />
+            </label>
             <button
               type="button"
               className="btn subtle"
-              disabled={disabled}
+              disabled={disabled || !useDate}
               onClick={() => void onRun(
                 async () => {
-                  if (!(await confirmDailyPlanReplacement(today, set.id))) {
-                    throw new Error('今日のメニュー変更をキャンセルしました。');
+                  if (!(await confirmDailyPlanReplacement(useDate, set.id))) {
+                    throw new Error('指定日のメニュー変更をキャンセルしました。');
                   }
-                  await putDailyTrainingPlan(today, set.id);
+                  await putDailyTrainingPlan(useDate, set.id);
                 },
-                '今日のメニューに設定しました。'
+                '指定日のメニューに設定しました。'
               )}
             >
-              今日使う
+              利用日に設定
             </button>
             {!set.isDefault && (
               <button
