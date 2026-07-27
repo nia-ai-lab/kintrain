@@ -53,6 +53,33 @@ function validatePrescription(item: SetItemDraft): string | null {
   return null;
 }
 
+function enumerateDates(validFromDate: string, validToDate: string): string[] {
+  if (!validFromDate || !validToDate || validFromDate > validToDate) {
+    return [];
+  }
+  const start = new Date(`${validFromDate}T00:00:00Z`);
+  const dates: string[] = [];
+  for (let offset = 0; offset < 31; offset += 1) {
+    const current = new Date(start);
+    current.setUTCDate(start.getUTCDate() + offset);
+    const date = current.toISOString().slice(0, 10);
+    if (date > validToDate) return dates;
+    dates.push(date);
+  }
+  return [];
+}
+
+async function confirmValidityReplacement(validFromDate: string, validToDate: string, nextSetId?: string): Promise<boolean> {
+  const dates = enumerateDates(validFromDate, validToDate);
+  if (!dates.length) {
+    throw new Error('有効期間は開始日から31日以内で指定してください。');
+  }
+  const plans = await Promise.all(dates.map((date) => getDailyTrainingPlan(date)));
+  const conflicts = plans.filter((plan) => plan && plan.trainingMenuSetId !== nextSetId);
+  if (!conflicts.length) return true;
+  return window.confirm('指定期間には別の一時メニューがあります。新しいメニューに置き換えますか？');
+}
+
 async function confirmDailyPlanReplacement(date: string, nextSetId?: string): Promise<boolean> {
   const current = await getDailyTrainingPlan(date);
   if (!current || current.trainingMenuSetId === nextSetId) {
@@ -168,6 +195,8 @@ function SetManagement({
 }) {
   const [newSetName, setNewSetName] = useState('');
   const [newSetType, setNewSetType] = useState<'reusable' | 'temporary'>('reusable');
+  const [newValidFromDate, setNewValidFromDate] = useState(today);
+  const [newValidToDate, setNewValidToDate] = useState(today);
 
   return (
     <div className="menu-management-layout">
@@ -186,6 +215,9 @@ function SetManagement({
                 {set.setType === 'temporary' ? '一時' : '恒常'}
                 {set.source === 'ai' ? '・AI作成' : ''}
                 {set.isDefault ? '・デフォルト' : ''}・{set.items.length}種目
+                {set.setType === 'temporary' && set.validFromDate && set.validToDate
+                  ? `・${set.validFromDate}〜${set.validToDate}`
+                  : ''}
               </small>
             </button>
           ))}
@@ -197,7 +229,10 @@ function SetManagement({
             event.preventDefault();
             const name = newSetName.trim();
             if (!name) return;
-            if (newSetType === 'temporary' && !(await confirmDailyPlanReplacement(today))) {
+            if (
+              newSetType === 'temporary' &&
+              !(await confirmValidityReplacement(newValidFromDate, newValidToDate))
+            ) {
               return;
             }
             let createdId = '';
@@ -206,13 +241,12 @@ function SetManagement({
                 setName: name,
                 setType: newSetType,
                 source: 'manual',
-                scheduledDate: newSetType === 'temporary' ? today : undefined
+                validFromDate: newSetType === 'temporary' ? newValidFromDate : undefined,
+                validToDate: newSetType === 'temporary' ? newValidToDate : undefined,
+                replaceExistingPlan: newSetType === 'temporary'
               });
               createdId = created.trainingMenuSetId;
-              if (newSetType === 'temporary') {
-                await putDailyTrainingPlan(today, createdId);
-              }
-            }, newSetType === 'temporary' ? '一時セットを作成し、今日のメニューに設定しました。' : 'メニューセットを作成しました。');
+            }, newSetType === 'temporary' ? '有効期間付きの一時セットを作成しました。' : 'メニューセットを作成しました。');
             if (createdId) {
               onCreated(createdId);
               setNewSetName('');
@@ -228,8 +262,20 @@ function SetManagement({
           />
           <select value={newSetType} onChange={(event) => setNewSetType(event.target.value as 'reusable' | 'temporary')}>
             <option value="reusable">恒常セット</option>
-            <option value="temporary">今日の一時セット</option>
+            <option value="temporary">期間限定の一時セット</option>
           </select>
+          {newSetType === 'temporary' && (
+            <div className="menu-validity-grid">
+              <label>
+                有効開始日
+                <input type="date" value={newValidFromDate} onChange={(event) => setNewValidFromDate(event.target.value)} />
+              </label>
+              <label>
+                有効終了日
+                <input type="date" min={newValidFromDate} value={newValidToDate} onChange={(event) => setNewValidToDate(event.target.value)} />
+              </label>
+            </div>
+          )}
           <button className="btn primary" type="submit" disabled={disabled || !newSetName.trim()}>
             作成
           </button>
@@ -263,20 +309,26 @@ function SetEditor({
   onRun: (action: () => Promise<void>, success: string) => Promise<void>;
 }) {
   const [name, setName] = useState(set.setName);
+  const [validFromDate, setValidFromDate] = useState(set.validFromDate ?? today);
+  const [validToDate, setValidToDate] = useState(set.validToDate ?? today);
   const [draftItems, setDraftItems] = useState<SetItemDraft[]>(set.items);
   const [addItemId, setAddItemId] = useState('');
 
   useEffect(() => {
     setName(set.setName);
+    setValidFromDate(set.validFromDate ?? today);
+    setValidToDate(set.validToDate ?? today);
     setDraftItems(set.items);
     setAddItemId('');
-  }, [set.id, set.items, set.setName]);
+  }, [set.id, set.items, set.setName, set.validFromDate, set.validToDate, today]);
 
   const itemById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
   const assignedIds = new Set(draftItems.map((item) => item.menuItemId));
   const addableItems = menuItems.filter((item) => item.isActive && !assignedIds.has(item.id));
   const dirty =
     name.trim() !== set.setName ||
+    (set.setType === 'temporary' &&
+      (validFromDate !== set.validFromDate || validToDate !== set.validToDate)) ||
     JSON.stringify(draftItems.map(({ id: _id, ...item }) => item)) !==
       JSON.stringify(set.items.map(({ id: _id, ...item }) => item));
 
@@ -285,7 +337,18 @@ function SetEditor({
     if (error) {
       throw new Error(error);
     }
-    await updateTrainingMenuSet(set.id, { setName: name.trim() });
+    if (
+      set.setType === 'temporary' &&
+      !(await confirmValidityReplacement(validFromDate, validToDate, set.id))
+    ) {
+      throw new Error('有効期間の変更をキャンセルしました。');
+    }
+    await updateTrainingMenuSet(set.id, {
+      setName: name.trim(),
+      ...(set.setType === 'temporary'
+        ? { validFromDate, validToDate, replaceExistingPlan: true }
+        : {})
+    });
     for (const item of draftItems) {
       const original = set.items.find((entry) => entry.id === item.id);
       if (original && JSON.stringify(original) !== JSON.stringify(item)) {
@@ -356,6 +419,18 @@ function SetEditor({
           セット名
           <input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} />
         </label>
+        {set.setType === 'temporary' && (
+          <div className="menu-validity-grid">
+            <label>
+              有効開始日
+              <input type="date" value={validFromDate} onChange={(event) => setValidFromDate(event.target.value)} />
+            </label>
+            <label>
+              有効終了日
+              <input type="date" min={validFromDate} value={validToDate} onChange={(event) => setValidToDate(event.target.value)} />
+            </label>
+          </div>
+        )}
         {set.setType === 'reusable' && !set.isDefault && (
           <label className="menu-set-default-check">
             <input

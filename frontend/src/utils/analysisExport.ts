@@ -209,7 +209,8 @@ export async function createAnalysisExport(
           isDefault: item.isDefault,
           setType: item.setType,
           source: item.source,
-          scheduledDate: nullableString(item.scheduledDate),
+          validFromDate: nullableString(item.validFromDate),
+          validToDate: nullableString(item.validToDate),
           isActive: item.isActive,
           items: item.items.map((setItem) => ({
             trainingMenuSetItemId: setItem.trainingMenuSetItemId,

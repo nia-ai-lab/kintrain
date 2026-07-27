@@ -38,7 +38,8 @@ export type TrainingMenuSetDto = {
   isDefault: boolean;
   setType: 'reusable' | 'temporary';
   source: 'manual' | 'ai';
-  scheduledDate?: string;
+  validFromDate?: string;
+  validToDate?: string;
   isActive: boolean;
   items: TrainingMenuSetItemDto[];
   createdAt?: string;
@@ -388,7 +389,9 @@ export async function createTrainingMenuSet(input: {
   setName: string;
   setType?: 'reusable' | 'temporary';
   source?: 'manual' | 'ai';
-  scheduledDate?: string;
+  validFromDate?: string;
+  validToDate?: string;
+  replaceExistingPlan?: boolean;
   isDefault?: boolean;
 }): Promise<TrainingMenuSetDto> {
   return coreApiFetch<TrainingMenuSetDto>('/training-menu-sets', {
@@ -403,7 +406,9 @@ export async function updateTrainingMenuSet(
     setName: string;
     setType: 'reusable' | 'temporary';
     source: 'manual' | 'ai';
-    scheduledDate?: string;
+    validFromDate?: string;
+    validToDate?: string;
+    replaceExistingPlan?: boolean;
     isDefault: boolean;
   }>
 ): Promise<TrainingMenuSetDto> {

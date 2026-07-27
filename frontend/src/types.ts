@@ -40,7 +40,8 @@ export interface TrainingMenuSet {
   isAiGenerated: boolean;
   setType: 'reusable' | 'temporary';
   source: 'manual' | 'ai';
-  scheduledDate?: string;
+  validFromDate?: string;
+  validToDate?: string;
   isActive: boolean;
   itemIds: string[];
   items: TrainingMenuSetItem[];

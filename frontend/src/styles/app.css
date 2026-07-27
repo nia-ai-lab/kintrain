@@ -943,6 +943,12 @@ a {
   justify-content: flex-end;
 }
 
+.menu-validity-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
 .copy-last-button {
   white-space: nowrap;
   word-break: keep-all;
@@ -1311,6 +1317,40 @@ a {
     grid-template-columns: 1fr;
   }
 
+  .menu-validity-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .training-item-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .training-item-summary {
+    min-width: 0;
+  }
+
+  .training-item-head h2 {
+    overflow-wrap: anywhere;
+  }
+
+  .session-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .session-actions .btn {
+    min-height: 46px;
+    width: 100%;
+    padding-inline: 8px;
+  }
+
+  .session-actions .btn:last-child {
+    grid-column: 1 / -1;
+  }
+
   .top-header {
     gap: 6px;
   }
@@ -1388,9 +1428,13 @@ a {
   }
 
   .input-grid.training-metrics-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 8px;
     align-items: start;
+  }
+
+  .input-grid.training-metrics-grid > label:nth-of-type(3) {
+    grid-column: 1 / -1;
   }
 
   .input-grid.training-metrics-grid > label {
@@ -1407,8 +1451,9 @@ a {
   }
 
   .input-grid.training-metrics-grid input {
-    height: 48px;
-    min-height: 48px;
+    height: 54px;
+    min-height: 54px;
+    font-size: 1.05rem;
   }
 
   .training-metric-total {

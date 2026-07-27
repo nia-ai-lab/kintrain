@@ -1,6 +1,7 @@
 import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import { ddb } from "../shared/ddb";
+import { enumerateYmdRange } from "../shared/date-range";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
@@ -2149,6 +2150,8 @@ async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolRespons
       setName: set.setName,
       setType: set.setType ?? "reusable",
       source: set.source ?? "manual",
+      validFromDate: set.validFromDate ?? set.scheduledDate,
+      validToDate: set.validToDate ?? set.scheduledDate,
       isDefault: set.isDefault === true,
       items: (links.Items ?? [])
         .filter((item) => item.trainingMenuSetId === set.trainingMenuSetId)
@@ -2165,34 +2168,50 @@ async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolRespons
   });
 }
 
-async function createDailyTrainingPlanFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const setName = toNonEmptyString(args.setName);
-  const planDate = toNonEmptyString(args.planDate);
+  const validFromDate = parseYmd(args.validFromDate);
+  const validToDate = parseYmd(args.validToDate);
+  const validityDates =
+    validFromDate && validToDate ? enumerateYmdRange(validFromDate, validToDate) : undefined;
   const idempotencyKey = toNonEmptyString(args.idempotencyKey);
   const rawItems = Array.isArray(args.items) ? (args.items as AiMenuItemInput[]) : null;
-  if (!setName || !planDate || !/^\d{4}-\d{2}-\d{2}$/.test(planDate) || !idempotencyKey || !rawItems?.length) {
-    return mcpToolResponse(400, { message: "idempotencyKey, planDate, setName and items are required." });
+  if (!setName || !validityDates || !idempotencyKey || !rawItems?.length) {
+    return mcpToolResponse(400, {
+      message: "idempotencyKey, validFromDate, validToDate, setName and items are required; validity is limited to 31 days."
+    });
   }
   if (rawItems.length > 12) {
     return mcpToolResponse(400, { message: "items cannot exceed 12." });
   }
 
-  const currentPlan = await ddb.send(
-    new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } })
+  const currentPlans = await Promise.all(
+    validityDates.map((planDate) =>
+      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
+    )
   );
-  if (currentPlan.Item?.idempotencyKey === idempotencyKey) {
+  const replayPlans = currentPlans
+    .map((result) => result.Item)
+    .filter((item): item is Record<string, unknown> => Boolean(item));
+  const replaySetIds = new Set(replayPlans.map((item) => item.trainingMenuSetId));
+  if (
+    replayPlans.length === validityDates.length &&
+    replayPlans.every((item) => item.idempotencyKey === idempotencyKey) &&
+    replaySetIds.size === 1
+  ) {
     return mcpToolResponse(200, {
-      tool: "create_daily_training_plan_from_ai",
-      trainingMenuSetId: currentPlan.Item.trainingMenuSetId,
-      planDate,
+      tool: "create_temporary_training_menu_set_from_ai",
+      trainingMenuSetId: replayPlans[0].trainingMenuSetId,
+      validFromDate,
+      validToDate,
       idempotentReplay: true
     });
   }
-  if (currentPlan.Item && args.replaceExistingPlan !== true) {
+  const conflictingDates = validityDates.filter((_, index) => Boolean(currentPlans[index].Item));
+  if (conflictingDates.length && args.replaceExistingPlan !== true) {
     return mcpToolResponse(409, {
-      message: "a daily training plan already exists. ask the user before replacing it.",
-      existingTrainingMenuSetId: currentPlan.Item.trainingMenuSetId,
-      planDate
+      message: "one or more dates already have a temporary menu. ask the user before replacing them.",
+      conflictingDates
     });
   }
 
@@ -2326,7 +2345,8 @@ async function createDailyTrainingPlanFromAi(args: ToolArgs, userId: string): Pr
           menuSetOrder,
           setType: "temporary",
           source: "ai",
-          scheduledDate: planDate,
+          validFromDate,
+          validToDate,
           isDefault: false,
           isActive: true,
           createdAt: ts,
@@ -2369,33 +2389,37 @@ async function createDailyTrainingPlanFromAi(args: ToolArgs, userId: string): Pr
         }
       ];
     }),
-    {
-      Put: {
-        TableName: dailyTrainingPlanTableName,
-        Item: {
-          userId,
-          planDate,
-          trainingMenuSetId,
-          source: "ai",
-          idempotencyKey,
-          createdAt: ts,
-          updatedAt: ts
-        },
-        ConditionExpression: currentPlan.Item
-          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
-          : "attribute_not_exists(userId)",
-        ...(currentPlan.Item
-          ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": currentPlan.Item.trainingMenuSetId } }
-          : {})
-      }
-    }
+    ...validityDates.map((planDate, index) => {
+      const currentPlan = currentPlans[index].Item;
+      return {
+        Put: {
+          TableName: dailyTrainingPlanTableName,
+          Item: {
+            userId,
+            planDate,
+            trainingMenuSetId,
+            source: "ai",
+            idempotencyKey,
+            createdAt: currentPlan?.createdAt ?? ts,
+            updatedAt: ts
+          },
+          ConditionExpression: currentPlan
+            ? "trainingMenuSetId = :expectedTrainingMenuSetId"
+            : "attribute_not_exists(userId)",
+          ...(currentPlan
+            ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": currentPlan.trainingMenuSetId } }
+            : {})
+        }
+      };
+    })
   ];
 
   await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
   return mcpToolResponse(200, {
-    tool: "create_daily_training_plan_from_ai",
+    tool: "create_temporary_training_menu_set_from_ai",
     trainingMenuSetId,
-    planDate,
+    validFromDate,
+    validToDate,
     setName,
     reusedItemCount: normalizedItems.filter((item) => !item.newItem).length,
     createdItemCount: normalizedItems.filter((item) => item.newItem).length
@@ -2463,8 +2487,8 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     if (toolName === "list_training_menu_sets") {
       return listTrainingMenuSetsForAi(userId);
     }
-    if (toolName === "create_daily_training_plan_from_ai") {
-      return createDailyTrainingPlanFromAi(event, userId);
+    if (toolName === "create_temporary_training_menu_set_from_ai") {
+      return createTemporaryTrainingMenuSetFromAi(event, userId);
     }
 
     return mcpToolResponse(404, { message: `Method not found: ${toolName}` });

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { encodePageToken } from "../amplify/functions/shared/pagination.ts";
+import { enumerateYmdRange } from "../amplify/functions/shared/date-range.ts";
 import {
   type BodyMetricDdbSender,
   type TrainingMenuLookupSender,
@@ -28,6 +29,15 @@ import {
 
 type JsonObject = Record<string, unknown>;
 const silentLogger = () => undefined;
+
+test("temporary menu validity enumerates inclusive dates and enforces the limit", () => {
+  assert.deepEqual(
+    enumerateYmdRange("2026-07-27", "2026-07-29"),
+    ["2026-07-27", "2026-07-28", "2026-07-29"]
+  );
+  assert.equal(enumerateYmdRange("2026-07-29", "2026-07-27"), undefined);
+  assert.equal(enumerateYmdRange("2026-07-27", "2026-08-27"), undefined);
+});
 
 function parseResponse(response: JsonObject): JsonObject {
   return response;
@@ -425,6 +435,7 @@ test("AI menu schema declares zero as the minimum weight", async () => {
   ) as Array<{
     name: string;
     inputSchema: {
+      required?: string[];
       properties: {
         items?: {
           items?: {
@@ -434,8 +445,12 @@ test("AI menu schema declares zero as the minimum weight", async () => {
       };
     };
   }>;
-  const schema = schemas.find((candidate) => candidate.name === "create_daily_training_plan_from_ai");
-  assert.ok(schema, "create_daily_training_plan_from_ai schema is missing");
+  const schema = schemas.find((candidate) => candidate.name === "create_temporary_training_menu_set_from_ai");
+  assert.ok(schema, "create_temporary_training_menu_set_from_ai schema is missing");
+  assert.deepEqual(
+    schema.inputSchema.required,
+    ["idempotencyKey", "validFromDate", "validToDate", "setName", "items"]
+  );
   const itemProperties = schema.inputSchema.properties.items?.items?.properties as
     | Record<string, { properties?: Record<string, { minimum?: number; type?: string }> }>
     | undefined;

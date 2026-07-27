@@ -237,7 +237,8 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
         isAiGenerated: set.isAiGenerated === true,
         setType: set.setType === 'temporary' ? 'temporary' : 'reusable',
         source: set.source === 'ai' ? 'ai' : 'manual',
-        scheduledDate: set.scheduledDate,
+        validFromDate: set.validFromDate,
+        validToDate: set.validToDate,
         isActive: true,
         itemIds: uniqueItemIds,
         items
@@ -462,7 +463,8 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
     isAiGenerated: item.source === 'ai',
     setType: item.setType,
     source: item.source,
-    scheduledDate: item.scheduledDate,
+    validFromDate: item.validFromDate,
+    validToDate: item.validToDate,
     isActive: item.isActive !== false,
     itemIds: item.items.map((setItem) => setItem.trainingMenuItemId),
     items: item.items.map((setItem) => ({
@@ -1056,7 +1058,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return {
             savedCount: 0,
             ok: false,
-            message: '有効な入力がありません。数値を入力するか「前回と同じ」を押してください。'
+            message: '有効な入力がありません。数値を入力するか「前回値を入力」を押してください。'
           };
         }
         if (savedCount > maxTrainingSessionEntryCount) {

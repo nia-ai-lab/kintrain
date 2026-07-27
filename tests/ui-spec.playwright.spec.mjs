@@ -831,21 +831,37 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await expect(page.getByRole('heading', { name: '当日の筋トレ内容' })).toBeVisible();
 });
 
-test('トレーニング実施画面で入力クリアができ、セット詳細入力を表示しない', async ({ page }) => {
+test('トレーニング実施画面で入力を消すことができ、セット詳細入力を表示しない', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
   await page.goto('/training-session');
 
   const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
-  await chestCard.getByRole('button', { name: '前回と同じ' }).click();
+  await chestCard.getByRole('button', { name: '前回値を入力' }).click();
   await expect(chestCard.getByLabel('重量')).toHaveValue('25');
   await page.reload();
   await expect(chestCard.getByLabel('重量')).toHaveValue('25');
-  await chestCard.getByRole('button', { name: '入力クリア' }).click();
+  await chestCard.getByRole('button', { name: '入力を消す' }).click();
   await expect(chestCard.getByLabel('重量')).toHaveValue('');
 
   await expect(page.getByRole('button', { name: 'セット詳細を入力' })).toHaveCount(0);
   await expect(page.locator('.set-detail-list')).toHaveCount(0);
+});
+
+test('iPhone幅の実施画面で操作と入力欄が横にはみ出さない', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-session');
+
+  await expect(page.getByText('メニューセットの設定', { exact: false }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: '設定値を入力' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: '前回値を入力' }).first()).toBeVisible();
+  await expect(page.getByRole('button', { name: '入力を消す' }).first()).toBeVisible();
+  const hasHorizontalOverflow = await page.evaluate(
+    () => document.documentElement.scrollWidth > window.innerWidth
+  );
+  assert.equal(hasHorizontalOverflow, false);
 });
 
 test('トレーニングメニューで追加・編集・削除ができる', async ({ page }) => {

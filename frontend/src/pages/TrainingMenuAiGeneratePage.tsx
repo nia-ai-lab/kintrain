@@ -18,6 +18,8 @@ type MenuGenerationFormState = {
   daysPerWeek: number;
   gymInput: string;
   freeTextRequest: string;
+  validFromDate: string;
+  validToDate: string;
 };
 
 type MenuGenerationSessionState = {
@@ -39,7 +41,9 @@ const initialFormState: MenuGenerationFormState = {
   goal: 'muscle-gain',
   daysPerWeek: 4,
   gymInput: '',
-  freeTextRequest: ''
+  freeTextRequest: '',
+  validFromDate: '',
+  validToDate: ''
 };
 
 function readStoredSession(): MenuGenerationSessionState | null {
@@ -106,7 +110,9 @@ function buildConditionKey(form: MenuGenerationFormState): string {
     goal: form.goal,
     daysPerWeek: normalizeDaysPerWeek(form.daysPerWeek),
     gymInput: form.gymInput.trim(),
-    freeTextRequest: form.freeTextRequest.trim()
+    freeTextRequest: form.freeTextRequest.trim(),
+    validFromDate: form.validFromDate,
+    validToDate: form.validToDate
   });
 }
 
@@ -114,7 +120,8 @@ function buildFixedInstruction(
   form: MenuGenerationFormState,
   existingTrainingNames: string[],
   existingSetNames: string[],
-  planDate: string
+  validFromDate: string,
+  validToDate: string
 ): string {
   const policyLabel =
     form.policy === 'machine-only'
@@ -148,13 +155,13 @@ function buildFixedInstruction(
     '- 用具は マシン / フリー / 自重 / その他 のいずれかだけを使うこと。',
     '- 重量は 0 以上とし、自重種目は追加重量なしを 0kg で表してよい。',
     '- 頻度は 1..8 の整数で表すこと。1 は毎日、8 は 8日+ を意味する。',
-    '- 週間頻度は「1週間に何回ジムへ行く想定か」という意味であり、曜日別に複数日分のメニューセットを作る意味ではない。',
-    '- 提案するのは、ユーザーがジムで都度上から順に見て実施判断できる 1 つのメニューセットである。',
-    '- 各種目ごとに「何日おきに実施する想定か」を頻度として設計し、日別分割プランにはしないこと。',
+    '- 1回のツール呼び出しでは、指定した有効期間に共通して使う1つの一時メニューセットを登録すること。',
+    '- 日によって内容を変える場合は、重ならない有効期間に分け、必要な回数だけ登録ツールを呼び出してよい。',
+    '- 複数日を束ねる計画オブジェクトは作らず、各一時メニューセットの有効期間で表現すること。',
     '- トレーニング名は純粋な種目名だけにすること。ジム名、AI、プラン名、曜日名、連番など不要な接頭辞・接尾辞を入れてはならない。',
     '- 一時セットはデフォルトセットにしないこと。',
-    '- 登録には create_daily_training_plan_from_ai を使い、planDate と一意な idempotencyKey を必ず渡すこと。',
-    '- 対象日に既存計画があるとツールが返した場合、ユーザーへ置き換え確認を行い、承認後だけ replaceExistingPlan=true で再実行すること。',
+    '- 登録には create_temporary_training_menu_set_from_ai を使い、validFromDate、validToDate と一意な idempotencyKey を必ず渡すこと。',
+    '- 期間内に既存の一時メニューがあるとツールが返した場合、ユーザーへ置き換え確認を行い、承認後だけ replaceExistingPlan=true で再実行すること。',
     '',
     '今回の作成条件:',
     `- 方針: ${policyLabel}`,
@@ -162,7 +169,7 @@ function buildFixedInstruction(
     `- 週間頻度: ${normalizeDaysPerWeek(form.daysPerWeek)}`,
     `- ジム施設入力: ${form.gymInput.trim() || '未指定'}`,
     `- 個別要求: ${form.freeTextRequest.trim() || 'なし'}`,
-    `- 利用日: ${planDate}`,
+    `- 有効期間: ${validFromDate}〜${validToDate}`,
     '',
     `既存メニューセット名: ${existingSetNamesText}`,
     `既存トレーニング名: ${existingNamesText}`
@@ -174,9 +181,10 @@ function buildRuntimeMessage(
   userText: string,
   existingTrainingNames: string[],
   existingSetNames: string[],
-  planDate: string
+  validFromDate: string,
+  validToDate: string
 ): string {
-  const fixedInstruction = buildFixedInstruction(form, existingTrainingNames, existingSetNames, planDate);
+  const fixedInstruction = buildFixedInstruction(form, existingTrainingNames, existingSetNames, validFromDate, validToDate);
   return `${fixedInstruction}\n\n---\nユーザー入力:\n${userText.trim()}`;
 }
 
@@ -200,6 +208,7 @@ function displayUserMessage(form: MenuGenerationFormState, text: string, isIniti
     `方針: ${policyLabel}`,
     `目標: ${goalLabel}`,
     `週間頻度: ${normalizeDaysPerWeek(form.daysPerWeek)}`,
+    `有効期間: ${form.validFromDate}〜${form.validToDate}`,
     `ジム施設: ${form.gymInput.trim() || '未指定'}`,
     `個別要求: ${text.trim() || 'この条件で提案してください。'}`
   ].join('\n');
@@ -208,6 +217,15 @@ function displayUserMessage(form: MenuGenerationFormState, text: string, isIniti
 function validateInitialForm(form: MenuGenerationFormState): string | null {
   if (!form.gymInput.trim()) {
     return 'ジム施設入力は必須です。ジム名称または設備説明URLを入力してください。';
+  }
+  if (!form.validFromDate || !form.validToDate || form.validFromDate > form.validToDate) {
+    return '有効開始日と有効終了日を正しく指定してください。';
+  }
+  const start = new Date(`${form.validFromDate}T00:00:00Z`);
+  const end = new Date(`${form.validToDate}T00:00:00Z`);
+  const days = Math.floor((end.getTime() - start.getTime()) / 86_400_000) + 1;
+  if (!Number.isFinite(days) || days < 1 || days > 31) {
+    return '一時メニューの有効期間は31日以内で指定してください。';
   }
   const daysPerWeek = Number(form.daysPerWeek);
   if (!Number.isFinite(daysPerWeek) || daysPerWeek < 1 || daysPerWeek > 7) {
@@ -247,6 +265,14 @@ export function TrainingMenuAiGeneratePage() {
   useEffect(() => {
     persistSession(session);
   }, [session]);
+
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      validFromDate: prev.validFromDate || today,
+      validToDate: prev.validToDate || today
+    }));
+  }, [today]);
 
   useEffect(() => {
     if (!listRef.current) {
@@ -417,7 +443,14 @@ export function TrainingMenuAiGeneratePage() {
       });
     }
     const userText = normalizedForm.freeTextRequest || 'この条件でトレーニングメニュー案を提案してください。';
-    const runtimeMessage = buildRuntimeMessage(normalizedForm, userText, existingTrainingNames, existingSetNames, today);
+    const runtimeMessage = buildRuntimeMessage(
+      normalizedForm,
+      userText,
+      existingTrainingNames,
+      existingSetNames,
+      normalizedForm.validFromDate,
+      normalizedForm.validToDate
+    );
     const userFacingMessage = displayUserMessage(normalizedForm, userText, true);
     await sendToRuntime({
       userFacingMessage,
@@ -439,7 +472,7 @@ export function TrainingMenuAiGeneratePage() {
     setChatInput('');
     await sendToRuntime({
       userFacingMessage: text,
-      runtimeMessage: buildRuntimeMessage(form, text, existingTrainingNames, existingSetNames, today),
+      runtimeMessage: buildRuntimeMessage(form, text, existingTrainingNames, existingSetNames, form.validFromDate, form.validToDate),
       nextSessionId: session.sessionId,
       nextConditionKey: session.conditionKey
     });
@@ -449,10 +482,10 @@ export function TrainingMenuAiGeneratePage() {
     if (!session || !isAuthenticated || isStreaming) {
       return;
     }
-    const command = `現在の提案内容を ${today} の一時メニューセットとして登録してください。既存種目はIDで再利用し、該当する既存種目がない場合だけ新規種目を作成してください。一意なidempotencyKeyを生成し、create_daily_training_plan_from_aiで今日の計画に設定してください。`;
+    const command = `現在の提案内容を ${form.validFromDate} から ${form.validToDate} まで有効な一時メニューセットとして登録してください。既存種目はIDで再利用し、該当する既存種目がない場合だけ新規種目を作成してください。一意なidempotencyKeyを生成し、create_temporary_training_menu_set_from_aiで登録してください。`;
     await sendToRuntime({
       userFacingMessage: command,
-      runtimeMessage: buildRuntimeMessage(form, command, existingTrainingNames, existingSetNames, today),
+      runtimeMessage: buildRuntimeMessage(form, command, existingTrainingNames, existingSetNames, form.validFromDate, form.validToDate),
       nextSessionId: session.sessionId,
       nextConditionKey: session.conditionKey,
       refreshAfterDone: true
@@ -510,6 +543,26 @@ export function TrainingMenuAiGeneratePage() {
                 max={7}
                 value={form.daysPerWeek}
                 onChange={(e) => setForm((prev) => ({ ...prev, daysPerWeek: normalizeDaysPerWeek(Number(e.target.value)) }))}
+              />
+            </label>
+          </div>
+
+          <div className="menu-validity-grid">
+            <label>
+              有効開始日
+              <input
+                type="date"
+                value={form.validFromDate}
+                onChange={(e) => setForm((prev) => ({ ...prev, validFromDate: e.target.value }))}
+              />
+            </label>
+            <label>
+              有効終了日
+              <input
+                type="date"
+                min={form.validFromDate}
+                value={form.validToDate}
+                onChange={(e) => setForm((prev) => ({ ...prev, validToDate: e.target.value }))}
               />
             </label>
           </div>

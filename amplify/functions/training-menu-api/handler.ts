@@ -10,6 +10,7 @@ import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
+import { enumerateYmdRange } from "../shared/date-range";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response, toNonEmptyString } from "../shared/http";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
@@ -47,7 +48,9 @@ type MenuSetInput = {
   setName: string;
   setType?: MenuSetType;
   source?: DataSource;
-  scheduledDate?: string;
+  validFromDate?: string;
+  validToDate?: string;
+  replaceExistingPlan?: boolean;
   isDefault?: boolean;
 };
 
@@ -114,6 +117,14 @@ function normalizeSetType(value: unknown): MenuSetType {
 
 function normalizeSource(value: unknown): DataSource {
   return value === "ai" ? "ai" : "manual";
+}
+
+function validityFromSet(set: Record<string, unknown>): { validFromDate?: string; validToDate?: string } {
+  const legacyDate = typeof set.scheduledDate === "string" ? set.scheduledDate : undefined;
+  return {
+    validFromDate: typeof set.validFromDate === "string" ? set.validFromDate : legacyDate,
+    validToDate: typeof set.validToDate === "string" ? set.validToDate : legacyDate
+  };
 }
 
 function parsePrescription(input: PrescriptionInput, current?: Record<string, unknown>): Prescription | null {
@@ -201,13 +212,14 @@ function toSetItemResponse(item: Record<string, unknown>): Record<string, unknow
 }
 
 function toMenuSetResponse(set: Record<string, unknown>, items: Record<string, unknown>[]): Record<string, unknown> {
+  const validity = validityFromSet(set);
   return {
     trainingMenuSetId: set.trainingMenuSetId,
     setName: String(set.setName ?? ""),
     menuSetOrder: Number(set.menuSetOrder ?? 0),
     setType: normalizeSetType(set.setType),
     source: normalizeSource(set.source),
-    scheduledDate: typeof set.scheduledDate === "string" ? set.scheduledDate : undefined,
+    ...validity,
     isDefault: set.isDefault === true,
     isActive: set.isActive !== false,
     items: items.map(toSetItemResponse),
@@ -478,12 +490,33 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
   }
   const setType = normalizeSetType(body.setType);
   const source = normalizeSource(body.source);
-  const scheduledDate = body.scheduledDate ? parseYmd(body.scheduledDate) : undefined;
-  if (body.scheduledDate && !scheduledDate) {
-    return response(400, { message: "scheduledDate must be YYYY-MM-DD." });
+  const validFromDate = body.validFromDate ? parseYmd(body.validFromDate) : undefined;
+  const validToDate = body.validToDate ? parseYmd(body.validToDate) : undefined;
+  const validityDates =
+    setType === "temporary" && validFromDate && validToDate
+      ? enumerateYmdRange(validFromDate, validToDate)
+      : setType === "temporary"
+        ? null
+        : [];
+  if (!validityDates) {
+    return response(400, {
+      message: "temporary set requires validFromDate and validToDate in YYYY-MM-DD format within 31 days."
+    });
   }
   if (setType === "temporary" && body.isDefault) {
     return response(400, { message: "temporary set cannot be default." });
+  }
+  const existingPlans = await Promise.all(
+    validityDates.map((planDate) =>
+      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
+    )
+  );
+  const conflicts = validityDates.filter((_, index) => Boolean(existingPlans[index].Item));
+  if (conflicts.length && body.replaceExistingPlan !== true) {
+    return response(409, {
+      message: "one or more dates already have a temporary menu. confirm replacement first.",
+      conflictingDates: conflicts
+    });
   }
   const currentDefaultId = await getCurrentDefaultSetId(userId);
   const isDefault = setType === "reusable" && (body.isDefault === true || !currentDefaultId);
@@ -497,7 +530,8 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     menuSetOrder,
     setType,
     source,
-    ...(scheduledDate ? { scheduledDate } : {}),
+    ...(validFromDate ? { validFromDate } : {}),
+    ...(validToDate ? { validToDate } : {}),
     isDefault,
     ...(isDefault ? { defaultSetMarker } : {}),
     isActive: true,
@@ -516,6 +550,28 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     });
   }
   writes.push({ Put: { TableName: trainingMenuSetTableName, Item: item } });
+  validityDates.forEach((planDate, index) => {
+    const existing = existingPlans[index].Item;
+    writes.push({
+      Put: {
+        TableName: dailyTrainingPlanTableName,
+        Item: {
+          userId,
+          planDate,
+          trainingMenuSetId,
+          source,
+          createdAt: existing?.createdAt ?? ts,
+          updatedAt: ts
+        },
+        ConditionExpression: existing
+          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
+          : "attribute_not_exists(userId)",
+        ...(existing
+          ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId } }
+          : {})
+      }
+    });
+  });
   await ddb.send(new TransactWriteCommand({ TransactItems: writes }));
   return response(201, toMenuSetResponse(item, []));
 }
@@ -533,13 +589,21 @@ async function updateMenuSet(
   const setName = body.setName !== undefined ? toNonEmptyString(body.setName) : String(current.setName);
   const setType = body.setType !== undefined ? normalizeSetType(body.setType) : normalizeSetType(current.setType);
   const source = body.source !== undefined ? normalizeSource(body.source) : normalizeSource(current.source);
-  const scheduledDate = body.scheduledDate === undefined
-    ? (typeof current.scheduledDate === "string" ? current.scheduledDate : undefined)
-    : body.scheduledDate
-      ? parseYmd(body.scheduledDate)
-      : undefined;
+  const currentValidity = validityFromSet(current);
+  const validFromDate = setType === "temporary"
+    ? (body.validFromDate !== undefined ? parseYmd(body.validFromDate) : currentValidity.validFromDate)
+    : undefined;
+  const validToDate = setType === "temporary"
+    ? (body.validToDate !== undefined ? parseYmd(body.validToDate) : currentValidity.validToDate)
+    : undefined;
+  const validityDates =
+    setType === "temporary" && validFromDate && validToDate
+      ? enumerateYmdRange(validFromDate, validToDate)
+      : setType === "temporary"
+        ? null
+        : [];
   const makeDefault = body.isDefault === true;
-  if (!setName || (body.scheduledDate && !scheduledDate) || (setType === "temporary" && makeDefault)) {
+  if (!setName || !validityDates || (setType === "temporary" && makeDefault)) {
     return response(400, { message: "invalid training menu set." });
   }
   if (current.isDefault === true && setType === "temporary") {
@@ -549,6 +613,32 @@ async function updateMenuSet(
     return response(400, { message: "choose another reusable set as default first." });
   }
   const ts = nowIsoSeconds();
+  const existingPlans = await Promise.all(
+    validityDates.map((planDate) =>
+      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
+    )
+  );
+  const conflicts = validityDates.filter((_, index) => {
+    const assignedSetId = existingPlans[index].Item?.trainingMenuSetId;
+    return typeof assignedSetId === "string" && assignedSetId !== trainingMenuSetId;
+  });
+  if (conflicts.length && body.replaceExistingPlan !== true) {
+    return response(409, {
+      message: "one or more dates already have a temporary menu. confirm replacement first.",
+      conflictingDates: conflicts
+    });
+  }
+  const oldValidityDates =
+    currentValidity.validFromDate && currentValidity.validToDate
+      ? enumerateYmdRange(currentValidity.validFromDate, currentValidity.validToDate) ?? []
+      : [];
+  const nextDateSet = new Set(validityDates);
+  const oldOnlyDates = oldValidityDates.filter((planDate) => !nextDateSet.has(planDate));
+  const oldOnlyPlans = await Promise.all(
+    oldOnlyDates.map((planDate) =>
+      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
+    )
+  );
   const currentDefaultId = makeDefault ? await getCurrentDefaultSetId(userId) : null;
   const writes: NonNullable<TransactWriteCommandInput["TransactItems"]> = [];
   if (makeDefault && currentDefaultId && currentDefaultId !== trainingMenuSetId) {
@@ -570,11 +660,12 @@ async function updateMenuSet(
     "updatedAt=:updatedAt"
   ];
   const removeParts: string[] = [];
-  if (scheduledDate) {
-    setParts.push("scheduledDate=:scheduledDate");
+  if (validFromDate && validToDate) {
+    setParts.push("validFromDate=:validFromDate", "validToDate=:validToDate");
   } else {
-    removeParts.push("scheduledDate");
+    removeParts.push("validFromDate", "validToDate");
   }
+  removeParts.push("scheduledDate");
   if (isDefault) {
     setParts.push("defaultSetMarker=:defaultSetMarker");
   } else {
@@ -592,10 +683,46 @@ async function updateMenuSet(
         ":source": source,
         ":isDefault": isDefault,
         ":updatedAt": ts,
-        ...(scheduledDate ? { ":scheduledDate": scheduledDate } : {}),
+        ...(validFromDate && validToDate
+          ? { ":validFromDate": validFromDate, ":validToDate": validToDate }
+          : {}),
         ...(isDefault ? { ":defaultSetMarker": defaultSetMarker } : {})
       }
     }
+  });
+  oldOnlyDates.forEach((planDate, index) => {
+    if (oldOnlyPlans[index].Item?.trainingMenuSetId === trainingMenuSetId) {
+      writes.push({
+        Delete: {
+          TableName: dailyTrainingPlanTableName,
+          Key: { userId, planDate },
+          ConditionExpression: "trainingMenuSetId = :trainingMenuSetId",
+          ExpressionAttributeValues: { ":trainingMenuSetId": trainingMenuSetId }
+        }
+      });
+    }
+  });
+  validityDates.forEach((planDate, index) => {
+    const existing = existingPlans[index].Item;
+    writes.push({
+      Put: {
+        TableName: dailyTrainingPlanTableName,
+        Item: {
+          userId,
+          planDate,
+          trainingMenuSetId,
+          source,
+          createdAt: existing?.createdAt ?? ts,
+          updatedAt: ts
+        },
+        ConditionExpression: existing
+          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
+          : "attribute_not_exists(userId)",
+        ...(existing
+          ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId } }
+          : {})
+      }
+    });
   });
   await ddb.send(new TransactWriteCommand({ TransactItems: writes }));
   return response(200, toMenuSetResponse({
@@ -603,7 +730,8 @@ async function updateMenuSet(
     setName,
     setType,
     source,
-    scheduledDate,
+    validFromDate,
+    validToDate,
     isDefault,
     updatedAt: ts
   }, await listSetItems(userId, trainingMenuSetId)));

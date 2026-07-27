@@ -432,11 +432,11 @@ export function TrainingSessionPage() {
           return (
             <article className={`card training-session-card${hasStarted ? ' is-entered' : ''}`} key={draftKey}>
               <div className="training-item-head">
-                <div>
+                <div className="training-item-summary">
                   <p className="priority-chip">優先 {index + 1}</p>
                   <h2>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</h2>
                   <p className="muted">
-                    今日の目標: {formatWeightLoad({
+                    {resolvedMenuSet?.setType === 'temporary' ? '本日の設定' : 'メニューセットの設定'}: {formatWeightLoad({
                       weightKg: item.targetWeightKg,
                       weightInputModeSnapshot: item.weightInputMode,
                       loadMultiplierSnapshot: item.loadMultiplier,
@@ -493,10 +493,10 @@ export function TrainingSessionPage() {
                         reps: item.targetRepsMax,
                         sets: item.targetSets
                       });
-                      setStatusText(`${item.trainingName} に今日の目標を入力しました。`);
+                      setStatusText(`${item.trainingName} に設定値を入力しました。`);
                     }}
                   >
-                    目標どおり入力
+                    設定値を入力
                   </button>
                   <button
                     type="button"
@@ -525,7 +525,7 @@ export function TrainingSessionPage() {
                       );
                     }}
                   >
-                    前回と同じ
+                    前回値を入力
                   </button>
                   <button
                     type="button"
@@ -535,7 +535,7 @@ export function TrainingSessionPage() {
                       setStatusText(`${item.trainingName} を今回の記録対象から外しました。`);
                     }}
                   >
-                    入力クリア
+                    入力を消す
                   </button>
                 </div>
               </div>
