@@ -75,7 +75,10 @@ interface AppStateContextValue {
   removeOtherActivity: (date: string, index: number) => void;
   flushDailyRecord: (date: string) => Promise<{ ok: boolean; message?: string }>;
   getDailySaveStatus: (date: string) => DailySaveStatus;
-  addMenuItem: (item: Omit<TrainingMenuItem, 'id' | 'order' | 'isActive'>, options?: { targetSetId?: string }) => void;
+  addMenuItem: (
+    item: Omit<TrainingMenuItem, 'id' | 'order' | 'isActive' | 'usageCount'>,
+    options?: { targetSetId?: string }
+  ) => void;
   updateMenuItem: (itemId: string, patch: Partial<TrainingMenuItem>) => void;
   deleteMenuItem: (itemId: string) => void;
   moveMenuItem: (itemId: string, direction: -1 | 1) => void;
@@ -206,7 +209,9 @@ function normalizeRepsRange(input: {
 }
 
 function getDefaultMenuSetId(menuSets: TrainingMenuSet[]): string {
-  return menuSets.find((set) => set.isDefault)?.id ?? menuSets[0]?.id ?? '';
+  return menuSets.find((set) => set.isDefault && set.setType === 'reusable')?.id
+    ?? menuSets.find((set) => set.setType === 'reusable')?.id
+    ?? '';
 }
 
 function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenuSet[], activeSetId?: string): {
@@ -220,15 +225,22 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
     .filter((set) => set && set.isActive !== false)
     .sort((a, b) => a.order - b.order)
     .map((set, idx) => {
-      const uniqueItemIds = Array.from(new Set((set.itemIds ?? []).filter((itemId) => validItemIds.has(itemId))));
+      const items = (set.items ?? [])
+        .filter((item) => validItemIds.has(item.menuItemId))
+        .sort((a, b) => a.order - b.order);
+      const uniqueItemIds = Array.from(new Set(items.map((item) => item.menuItemId)));
       return {
         id: set.id || `menu-set-${idx + 1}`,
         setName: (set.setName ?? '').trim() || `メニューセット ${idx + 1}`,
         order: idx + 1,
         isDefault: Boolean(set.isDefault),
         isAiGenerated: set.isAiGenerated === true,
+        setType: set.setType === 'temporary' ? 'temporary' : 'reusable',
+        source: set.source === 'ai' ? 'ai' : 'manual',
+        scheduledDate: set.scheduledDate,
         isActive: true,
-        itemIds: uniqueItemIds
+        itemIds: uniqueItemIds,
+        items
       } as TrainingMenuSet;
     });
 
@@ -240,27 +252,17 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
     };
   }
 
-  const orphanItemIds = menuItems.map((item) => item.id).filter((itemId) => !menuSets.some((set) => set.itemIds.includes(itemId)));
-
   const defaultId = getDefaultMenuSetId(menuSets);
-  if (orphanItemIds.length > 0) {
-    const fallbackDefaultId = defaultId || menuSets[0].id;
-    const defaultSetIndex = menuSets.findIndex((set) => set.id === fallbackDefaultId);
-    const targetIndex = defaultSetIndex >= 0 ? defaultSetIndex : 0;
-    menuSets[targetIndex] = {
-      ...menuSets[targetIndex],
-      itemIds: [...menuSets[targetIndex].itemIds, ...orphanItemIds]
-    };
-  }
-
-  const normalizedDefaultId = getDefaultMenuSetId(menuSets) || menuSets[0].id;
+  const normalizedDefaultId = menuSets.find((set) => set.isDefault && set.setType === 'reusable')?.id ?? '';
   const withSingleDefault = menuSets.map((set) => ({
     ...set,
-    isDefault: set.id === normalizedDefaultId
+    isDefault: Boolean(normalizedDefaultId) && set.id === normalizedDefaultId
   }));
 
   const resolvedActive =
-    (activeSetId && withSingleDefault.some((set) => set.id === activeSetId) ? activeSetId : '') || normalizedDefaultId;
+    (activeSetId && withSingleDefault.some((set) => set.id === activeSetId) ? activeSetId : '')
+    || normalizedDefaultId
+    || withSingleDefault[0].id;
 
   return {
     menuSets: withSingleDefault,
@@ -337,6 +339,7 @@ function normalizeAppData(rawData: AppData): AppData {
       weightInputMode,
       loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
       fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
+      usageCount: Number(item.usageCount ?? 0),
       ...normalizeRepsRange(item)
     };
   });
@@ -422,19 +425,12 @@ function mapRemoteMenuItem(item: {
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
-  frequency?: number | string;
-  defaultWeightKg: number;
   weightInputMode?: unknown;
   loadMultiplier?: unknown;
   fixedWeightKg?: unknown;
-  defaultRepsMin: number;
-  defaultRepsMax: number;
-  defaultReps?: number;
-  defaultSets: number;
-  displayOrder: number;
   isActive: boolean;
+  usageCount?: number;
 }): TrainingMenuItem {
-  const repsRange = normalizeRepsRange(item);
   const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
   return {
     id: item.trainingMenuItemId,
@@ -443,16 +439,17 @@ function mapRemoteMenuItem(item: {
     equipment: normalizeTrainingEquipment(item.equipment),
     isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
     description: normalizeTrainingDescription(item.description),
-    frequency: normalizeTrainingFrequency(item.frequency),
-    defaultWeightKg: Number(item.defaultWeightKg),
+    frequency: 3,
+    defaultWeightKg: 0,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
     fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
-    defaultRepsMin: repsRange.defaultRepsMin,
-    defaultRepsMax: repsRange.defaultRepsMax,
-    defaultSets: Number(item.defaultSets),
-    order: Number(item.displayOrder),
-    isActive: Boolean(item.isActive)
+    defaultRepsMin: 1,
+    defaultRepsMax: 1,
+    defaultSets: 1,
+    order: 0,
+    isActive: Boolean(item.isActive),
+    usageCount: Number(item.usageCount ?? 0)
   };
 }
 
@@ -462,9 +459,25 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
     setName: item.setName,
     order: Number(item.menuSetOrder),
     isDefault: Boolean(item.isDefault),
-    isAiGenerated: item.isAiGenerated === true,
+    isAiGenerated: item.source === 'ai',
+    setType: item.setType,
+    source: item.source,
+    scheduledDate: item.scheduledDate,
     isActive: item.isActive !== false,
-    itemIds: Array.isArray(item.itemIds) ? item.itemIds.filter((id): id is string => typeof id === 'string') : []
+    itemIds: item.items.map((setItem) => setItem.trainingMenuItemId),
+    items: item.items.map((setItem) => ({
+      id: setItem.trainingMenuSetItemId,
+      menuSetId: setItem.trainingMenuSetId,
+      menuItemId: setItem.trainingMenuItemId,
+      order: setItem.displayOrder,
+      targetWeightKg: setItem.targetWeightKg,
+      targetRepsMin: setItem.targetRepsMin,
+      targetRepsMax: setItem.targetRepsMax,
+      targetSets: setItem.targetSets,
+      recommendedIntervalDays: normalizeTrainingFrequency(setItem.recommendedIntervalDays),
+      instruction: setItem.instruction,
+      createdBy: setItem.createdBy
+    }))
   };
 }
 
@@ -495,6 +508,15 @@ function mapRemoteGymVisit(visit: {
     calculatedTotalWeightKg?: number;
     reps?: number;
     sets?: number;
+    sourceTrainingMenuSetId?: string;
+    sourceTrainingMenuSetNameSnapshot?: string;
+    sourceTrainingMenuSetItemId?: string;
+    sourceTrainingMenuSetTypeSnapshot?: 'reusable' | 'temporary';
+    targetWeightKgSnapshot?: number;
+    targetRepsMinSnapshot?: number;
+    targetRepsMaxSnapshot?: number;
+    targetSetsSnapshot?: number;
+    targetInstructionSnapshot?: string;
   }>;
 }) {
   const startedDate = new Date(visit.startedAtUtc);
@@ -528,7 +550,16 @@ function mapRemoteGymVisit(visit: {
           ? entry.calculatedTotalWeightKg
           : undefined,
       reps: Number(entry.reps ?? 0),
-      sets: Number(entry.sets ?? 0)
+      sets: Number(entry.sets ?? 0),
+      sourceTrainingMenuSetId: entry.sourceTrainingMenuSetId,
+      sourceTrainingMenuSetNameSnapshot: entry.sourceTrainingMenuSetNameSnapshot,
+      sourceTrainingMenuSetItemId: entry.sourceTrainingMenuSetItemId,
+      sourceTrainingMenuSetTypeSnapshot: entry.sourceTrainingMenuSetTypeSnapshot,
+      targetWeightKgSnapshot: entry.targetWeightKgSnapshot,
+      targetRepsMinSnapshot: entry.targetRepsMinSnapshot,
+      targetRepsMaxSnapshot: entry.targetRepsMaxSnapshot,
+      targetSetsSnapshot: entry.targetSetsSnapshot,
+      targetInstructionSnapshot: entry.targetInstructionSnapshot
     };
   });
 
@@ -1007,7 +1038,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                   )
                 : undefined,
               reps: entry.reps ?? 0,
-              sets: entry.sets ?? 0
+              sets: entry.sets ?? 0,
+              sourceTrainingMenuSetId: entry.menuSetId,
+              sourceTrainingMenuSetNameSnapshot: entry.menuSetName,
+              sourceTrainingMenuSetItemId: entry.menuSetItemId,
+              sourceTrainingMenuSetTypeSnapshot: entry.menuSetType,
+              targetWeightKgSnapshot: entry.targetWeightKg,
+              targetRepsMinSnapshot: entry.targetRepsMin,
+              targetRepsMaxSnapshot: entry.targetRepsMax,
+              targetSetsSnapshot: entry.targetSets,
+              targetInstructionSnapshot: entry.targetInstruction
             };
           });
 
@@ -1054,7 +1094,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                 calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
                 reps: entry.reps,
                 sets: entry.sets,
-                performedAtUtc: endedAtUtc
+                performedAtUtc: endedAtUtc,
+                sourceTrainingMenuSetId: entry.sourceTrainingMenuSetId,
+                sourceTrainingMenuSetNameSnapshot: entry.sourceTrainingMenuSetNameSnapshot,
+                sourceTrainingMenuSetItemId: entry.sourceTrainingMenuSetItemId,
+                sourceTrainingMenuSetTypeSnapshot: entry.sourceTrainingMenuSetTypeSnapshot,
+                targetWeightKgSnapshot: entry.targetWeightKgSnapshot,
+                targetRepsMinSnapshot: entry.targetRepsMinSnapshot,
+                targetRepsMaxSnapshot: entry.targetRepsMaxSnapshot,
+                targetSetsSnapshot: entry.targetSetsSnapshot,
+                targetInstructionSnapshot: entry.targetInstructionSnapshot
               };
             })
           });
@@ -1253,26 +1302,20 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           equipment: normalizeTrainingEquipment(item.equipment),
           isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
           description: normalizeTrainingDescription(item.description),
-          frequency: normalizeTrainingFrequency(item.frequency),
-          defaultWeightKg: Math.round(item.defaultWeightKg * 100) / 100,
           weightInputMode: item.weightInputMode,
           loadMultiplier: item.loadMultiplier,
-          fixedWeightKg: Math.round(item.fixedWeightKg * 100) / 100,
-          defaultRepsMin: Math.floor(item.defaultRepsMin),
-          defaultRepsMax: Math.floor(item.defaultRepsMax),
-          defaultReps: Math.floor(item.defaultRepsMax),
-          defaultSets: Math.floor(item.defaultSets)
+          fixedWeightKg: Math.round(item.fixedWeightKg * 100) / 100
         };
         if (
           !payload.trainingName ||
-          !Number.isFinite(payload.defaultWeightKg) ||
-          payload.defaultWeightKg < 0 ||
+          !Number.isFinite(item.defaultWeightKg) ||
+          item.defaultWeightKg < 0 ||
           !Number.isFinite(payload.fixedWeightKg) ||
           payload.fixedWeightKg < 0 ||
-          payload.defaultRepsMin <= 0 ||
-          payload.defaultRepsMax <= 0 ||
-          payload.defaultRepsMin > payload.defaultRepsMax ||
-          payload.defaultSets <= 0
+          item.defaultRepsMin <= 0 ||
+          item.defaultRepsMax <= 0 ||
+          item.defaultRepsMin > item.defaultRepsMax ||
+          item.defaultSets <= 0
         ) {
           setCoreDataError('トレーニング名と重量/回数（最小/最大）/セットは正しい値で入力してください。');
           return;
@@ -1283,7 +1326,15 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             const targetSetId =
               options?.targetSetId || data.activeTrainingMenuSetId || getDefaultMenuSetId(data.menuSets) || fallbackSetId;
             if (targetSetId) {
-              await addTrainingMenuItemToSetApi(targetSetId, created.trainingMenuItemId);
+              await addTrainingMenuItemToSetApi(targetSetId, {
+                trainingMenuItemId: created.trainingMenuItemId,
+                targetWeightKg: item.defaultWeightKg,
+                targetRepsMin: item.defaultRepsMin,
+                targetRepsMax: item.defaultRepsMax,
+                targetSets: item.defaultSets,
+                recommendedIntervalDays: item.frequency,
+                instruction: ''
+              });
             }
             await refreshCoreData();
             setCoreDataError('');
@@ -1329,15 +1380,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           equipment: normalizeTrainingEquipment(nextItem.equipment),
           isAiGenerated: normalizeAiGeneratedFlag(nextItem.isAiGenerated),
           description: normalizeTrainingDescription(nextItem.description),
-          frequency: normalizeTrainingFrequency(nextItem.frequency),
-          defaultWeightKg: Math.round(nextItem.defaultWeightKg * 100) / 100,
           weightInputMode: nextItem.weightInputMode,
           loadMultiplier: nextItem.loadMultiplier,
-          fixedWeightKg: Math.round(nextItem.fixedWeightKg * 100) / 100,
-          defaultRepsMin: Math.floor(nextItem.defaultRepsMin),
-          defaultRepsMax: Math.floor(nextItem.defaultRepsMax),
-          defaultReps: Math.floor(nextItem.defaultRepsMax),
-          defaultSets: Math.floor(nextItem.defaultSets)
+          fixedWeightKg: Math.round(nextItem.fixedWeightKg * 100) / 100
         })
           .then(() => {
             setCoreDataError('');
@@ -1411,7 +1456,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           const created = await createTrainingMenuSetApi({
             setName: trimmedName,
             isDefault: options?.isDefault,
-            isAiGenerated: options?.isAiGenerated
+            setType: 'reusable',
+            source: options?.isAiGenerated ? 'ai' : 'manual'
           });
           await refreshCoreData();
           setData((prev) => ({
@@ -1436,7 +1482,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         try {
           await updateTrainingMenuSetApi(setId, {
             setName: trimmedName,
-            isAiGenerated: options?.isAiGenerated
+            source: options?.isAiGenerated ? 'ai' : 'manual'
           });
           setData((prev) => ({
             ...prev,
@@ -1519,7 +1565,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         try {
-          await addTrainingMenuItemToSetApi(setId, itemId);
+          await addTrainingMenuItemToSetApi(setId, {
+            trainingMenuItemId: itemId,
+            targetWeightKg: 0,
+            targetRepsMin: 1,
+            targetRepsMax: 1,
+            targetSets: 1,
+            recommendedIntervalDays: 3
+          });
           setData((prev) => ({
             ...prev,
             menuSets: prev.menuSets.map((set) => {
@@ -1544,7 +1597,11 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return;
         }
         try {
-          await removeTrainingMenuItemFromSetApi(setId, itemId);
+          const setItemId = data.menuSets.find((set) => set.id === setId)?.items.find((item) => item.menuItemId === itemId)?.id;
+          if (!setItemId) {
+            return;
+          }
+          await removeTrainingMenuItemFromSetApi(setId, setItemId);
           setData((prev) => ({
             ...prev,
             menuSets: prev.menuSets.map((set) =>
@@ -1596,7 +1653,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           await reorderTrainingMenuSetItemsApi(
             setId,
             reordered.map((menuItemId, idx) => ({
-              trainingMenuItemId: menuItemId,
+              trainingMenuSetItemId:
+                targetSet.items.find((item) => item.menuItemId === menuItemId)?.id ?? menuItemId,
               displayOrder: idx + 1
             }))
           );

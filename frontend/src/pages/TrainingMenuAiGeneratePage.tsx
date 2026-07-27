@@ -4,7 +4,7 @@ import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
 import { invokeAiRuntimeStream, isAiRuntimeConfigured } from '../api/aiRuntimeApi';
-import { useAppState } from '../AppState';
+import { useAppState, useTodayYmd } from '../AppState';
 import { useAuth } from '../AuthState';
 import type { ChatMessage } from '../types';
 import { toLocalIsoWithOffset } from '../utils/date';
@@ -110,7 +110,12 @@ function buildConditionKey(form: MenuGenerationFormState): string {
   });
 }
 
-function buildFixedInstruction(form: MenuGenerationFormState, existingTrainingNames: string[], existingSetNames: string[]): string {
+function buildFixedInstruction(
+  form: MenuGenerationFormState,
+  existingTrainingNames: string[],
+  existingSetNames: string[],
+  planDate: string
+): string {
   const policyLabel =
     form.policy === 'machine-only'
       ? 'マシンのみ'
@@ -128,17 +133,18 @@ function buildFixedInstruction(form: MenuGenerationFormState, existingTrainingNa
   const existingSetNamesText = existingSetNames.length > 0 ? existingSetNames.join(' / ') : 'なし';
 
   return [
-    'これは KinTrain のトレーニングメニュー新規作成依頼です。',
-    'あなたの仕事は、ユーザー条件に合わせて新しいトレーニングメニューセット案を提案し、ユーザーが明示的に登録を指示した時だけ MCP ツールで登録することです。',
+    'これは KinTrain の「今日のメニュー」作成依頼です。',
+    'あなたの仕事は、ユーザー条件に合わせた一時メニューセットを提案し、ユーザーが明示的に登録を指示した時だけ MCP ツールで対象日の計画として登録することです。',
     '重要ルール:',
     '- 既存のトレーニングメニューセットや既存のトレーニングメニューは絶対に更新・削除・上書きしないこと。',
-    '- 登録時は必ず新規メニューセット 1 件と、新規トレーニングメニュー項目群を作成すること。',
-    '- 登録対象の各トレーニングメニュー項目はすべて isAiGenerated=true として扱うこと。',
+    '- 既存種目を使う場合は list_training_menu_items の trainingMenuItemId を指定して再利用すること。',
+    '- 適切な既存種目がない場合は新規種目マスタを作成してよいこと。',
+    '- 1つの一時セット内で既存種目と新規種目を混在させてよいこと。',
     '- ユーザーが「登録して」「この内容で保存して」など明示的に指示するまで、登録ツールを呼び出してはならない。',
-    '- 既存メニュー名と重複するトレーニング名は避けること。重複しそうなら、AI生成用として意味の分かる別名にして提案すること。',
+    '- 新規種目を作る前に list_training_menu_items で重複を確認すること。同じ種目があれば既存IDを使うこと。',
     '- ジム設備情報が名称だけで不確かな場合はユーザーに確認すること。確認しても不明なままなら、設備不明前提の仮案を出すこと。',
     '- 提案時は自然文の説明に加えて、登録可能なメニューセット案を分かりやすい Markdown の番号付き一覧で示すこと。',
-    '- 各種目には少なくとも トレーニング名 / 部位 / 用具 / 頻度 / 重量 / 回数最小 / 回数最大 / セット / 説明 を含めること。',
+    '- 各種目には少なくとも 種目 / 目標重量 / 目標回数最小 / 目標回数最大 / 目標セット数 / 推奨間隔 を含めること。',
     '- 用具は マシン / フリー / 自重 / その他 のいずれかだけを使うこと。',
     '- 重量は 0 以上とし、自重種目は追加重量なしを 0kg で表してよい。',
     '- 頻度は 1..8 の整数で表すこと。1 は毎日、8 は 8日+ を意味する。',
@@ -146,7 +152,9 @@ function buildFixedInstruction(form: MenuGenerationFormState, existingTrainingNa
     '- 提案するのは、ユーザーがジムで都度上から順に見て実施判断できる 1 つのメニューセットである。',
     '- 各種目ごとに「何日おきに実施する想定か」を頻度として設計し、日別分割プランにはしないこと。',
     '- トレーニング名は純粋な種目名だけにすること。ジム名、AI、プラン名、曜日名、連番など不要な接頭辞・接尾辞を入れてはならない。',
-    '- デフォルトの新規セットは既定セットにしないこと。ただし既定セットが 0 件のユーザーに対して最初のセットを作ることは許容される。',
+    '- 一時セットはデフォルトセットにしないこと。',
+    '- 登録には create_daily_training_plan_from_ai を使い、planDate と一意な idempotencyKey を必ず渡すこと。',
+    '- 対象日に既存計画があるとツールが返した場合、ユーザーへ置き換え確認を行い、承認後だけ replaceExistingPlan=true で再実行すること。',
     '',
     '今回の作成条件:',
     `- 方針: ${policyLabel}`,
@@ -154,6 +162,7 @@ function buildFixedInstruction(form: MenuGenerationFormState, existingTrainingNa
     `- 週間頻度: ${normalizeDaysPerWeek(form.daysPerWeek)}`,
     `- ジム施設入力: ${form.gymInput.trim() || '未指定'}`,
     `- 個別要求: ${form.freeTextRequest.trim() || 'なし'}`,
+    `- 利用日: ${planDate}`,
     '',
     `既存メニューセット名: ${existingSetNamesText}`,
     `既存トレーニング名: ${existingNamesText}`
@@ -164,9 +173,10 @@ function buildRuntimeMessage(
   form: MenuGenerationFormState,
   userText: string,
   existingTrainingNames: string[],
-  existingSetNames: string[]
+  existingSetNames: string[],
+  planDate: string
 ): string {
-  const fixedInstruction = buildFixedInstruction(form, existingTrainingNames, existingSetNames);
+  const fixedInstruction = buildFixedInstruction(form, existingTrainingNames, existingSetNames, planDate);
   return `${fixedInstruction}\n\n---\nユーザー入力:\n${userText.trim()}`;
 }
 
@@ -224,6 +234,7 @@ function MarkdownMessage({ content }: { content: string }) {
 export function TrainingMenuAiGeneratePage() {
   const { isAuthenticated } = useAuth();
   const { data, refreshCoreData } = useAppState();
+  const today = useTodayYmd();
   const [form, setForm] = useState<MenuGenerationFormState>(initialFormState);
   const [session, setSession] = useState<MenuGenerationSessionState | null>(() => readStoredSession());
   const [chatInput, setChatInput] = useState('');
@@ -260,7 +271,7 @@ export function TrainingMenuAiGeneratePage() {
   const currentConditionKey = buildConditionKey(form);
   const hasConditionChanges = hasConversation && activeConditionKey !== currentConditionKey;
   const existingTrainingNames = useMemo(
-    () => [...new Set(data.menuItems.map((item) => item.trainingName.trim()).filter(Boolean))],
+    () => [...new Set(data.menuItems.map((item) => `${item.id}: ${item.trainingName.trim()}`).filter(Boolean))],
     [data.menuItems]
   );
   const existingSetNames = useMemo(
@@ -406,7 +417,7 @@ export function TrainingMenuAiGeneratePage() {
       });
     }
     const userText = normalizedForm.freeTextRequest || 'この条件でトレーニングメニュー案を提案してください。';
-    const runtimeMessage = buildRuntimeMessage(normalizedForm, userText, existingTrainingNames, existingSetNames);
+    const runtimeMessage = buildRuntimeMessage(normalizedForm, userText, existingTrainingNames, existingSetNames, today);
     const userFacingMessage = displayUserMessage(normalizedForm, userText, true);
     await sendToRuntime({
       userFacingMessage,
@@ -428,7 +439,7 @@ export function TrainingMenuAiGeneratePage() {
     setChatInput('');
     await sendToRuntime({
       userFacingMessage: text,
-      runtimeMessage: buildRuntimeMessage(form, text, existingTrainingNames, existingSetNames),
+      runtimeMessage: buildRuntimeMessage(form, text, existingTrainingNames, existingSetNames, today),
       nextSessionId: session.sessionId,
       nextConditionKey: session.conditionKey
     });
@@ -438,10 +449,10 @@ export function TrainingMenuAiGeneratePage() {
     if (!session || !isAuthenticated || isStreaming) {
       return;
     }
-    const command = '現在の提案内容を、新規トレーニングメニューセットとして登録してください。既存メニューセットや既存メニューは変更せず、各種目はすべて新規作成し isAiGenerated=true で登録してください。既定セットは切り替えないでください。';
+    const command = `現在の提案内容を ${today} の一時メニューセットとして登録してください。既存種目はIDで再利用し、該当する既存種目がない場合だけ新規種目を作成してください。一意なidempotencyKeyを生成し、create_daily_training_plan_from_aiで今日の計画に設定してください。`;
     await sendToRuntime({
       userFacingMessage: command,
-      runtimeMessage: buildRuntimeMessage(form, command, existingTrainingNames, existingSetNames),
+      runtimeMessage: buildRuntimeMessage(form, command, existingTrainingNames, existingSetNames, today),
       nextSessionId: session.sessionId,
       nextConditionKey: session.conditionKey,
       refreshAfterDone: true

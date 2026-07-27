@@ -17,17 +17,11 @@ export type TrainingMenuItemDto = {
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
-  frequency?: number | string;
-  defaultWeightKg: number;
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
   fixedWeightKg?: number;
-  defaultRepsMin: number;
-  defaultRepsMax: number;
-  defaultReps?: number;
-  defaultSets: number;
-  displayOrder: number;
   isActive: boolean;
+  usageCount: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -42,9 +36,27 @@ export type TrainingMenuSetDto = {
   setName: string;
   menuSetOrder: number;
   isDefault: boolean;
-  isAiGenerated?: boolean;
+  setType: 'reusable' | 'temporary';
+  source: 'manual' | 'ai';
+  scheduledDate?: string;
   isActive: boolean;
-  itemIds: string[];
+  items: TrainingMenuSetItemDto[];
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type TrainingMenuSetItemDto = {
+  trainingMenuSetItemId: string;
+  trainingMenuSetId: string;
+  trainingMenuItemId: string;
+  displayOrder: number;
+  targetWeightKg: number;
+  targetRepsMin: number;
+  targetRepsMax: number;
+  targetSets: number;
+  recommendedIntervalDays: number;
+  instruction: string;
+  createdBy: 'manual' | 'ai';
   createdAt?: string;
   updatedAt?: string;
 };
@@ -69,6 +81,15 @@ type GymVisitEntryInput = {
   reps: number;
   sets: number;
   performedAtUtc: string;
+  sourceTrainingMenuSetId?: string;
+  sourceTrainingMenuSetNameSnapshot?: string;
+  sourceTrainingMenuSetItemId?: string;
+  sourceTrainingMenuSetTypeSnapshot?: 'reusable' | 'temporary';
+  targetWeightKgSnapshot?: number;
+  targetRepsMinSnapshot?: number;
+  targetRepsMaxSnapshot?: number;
+  targetSetsSnapshot?: number;
+  targetInstructionSnapshot?: string;
 };
 
 type CreateGymVisitInput = {
@@ -104,15 +125,17 @@ export type TrainingSessionViewItemDto = {
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
-  frequency?: number | string;
-  defaultWeightKg: number;
+  trainingMenuSetItemId: string;
+  targetWeightKg: number;
+  targetRepsMin: number;
+  targetRepsMax: number;
+  targetSets: number;
+  recommendedIntervalDays: number;
+  instruction: string;
+  createdBy: 'manual' | 'ai';
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
   fixedWeightKg?: number;
-  defaultRepsMin: number;
-  defaultRepsMax: number;
-  defaultReps?: number;
-  defaultSets: number;
   displayOrder: number;
   isActive: boolean;
   lastPerformanceSnapshot?: {
@@ -132,6 +155,14 @@ export type TrainingSessionViewItemDto = {
 };
 
 export type TrainingSessionViewResponse = {
+  resolvedMenuSet: {
+    trainingMenuSetId: string;
+    setName: string;
+    setType: 'reusable' | 'temporary';
+    source: 'manual' | 'ai';
+    isDefault: boolean;
+  } | null;
+  resolvedFromDailyPlan: boolean;
   items: TrainingSessionViewItemDto[];
   todayDoneTrainingMenuItemIds: string[];
 };
@@ -304,15 +335,9 @@ export async function createTrainingMenuItem(input: {
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
-  frequency?: number;
-  defaultWeightKg: number;
   weightInputMode: WeightInputMode;
   loadMultiplier: WeightLoadMultiplier;
   fixedWeightKg: number;
-  defaultRepsMin: number;
-  defaultRepsMax: number;
-  defaultReps?: number;
-  defaultSets: number;
 }): Promise<TrainingMenuItemDto> {
   return coreApiFetch<TrainingMenuItemDto>('/training-menu-items', {
     method: 'POST',
@@ -328,15 +353,9 @@ export async function updateTrainingMenuItem(
     equipment: string;
     isAiGenerated: boolean;
     description: string;
-    frequency: number;
-    defaultWeightKg: number;
     weightInputMode: WeightInputMode;
     loadMultiplier: WeightLoadMultiplier;
     fixedWeightKg: number;
-    defaultRepsMin: number;
-    defaultRepsMax: number;
-    defaultReps: number;
-    defaultSets: number;
     isActive: boolean;
   }>
 ): Promise<TrainingMenuItemDto> {
@@ -367,8 +386,10 @@ export async function listTrainingMenuSets(): Promise<ListTrainingMenuSetsRespon
 
 export async function createTrainingMenuSet(input: {
   setName: string;
+  setType?: 'reusable' | 'temporary';
+  source?: 'manual' | 'ai';
+  scheduledDate?: string;
   isDefault?: boolean;
-  isAiGenerated?: boolean;
 }): Promise<TrainingMenuSetDto> {
   return coreApiFetch<TrainingMenuSetDto>('/training-menu-sets', {
     method: 'POST',
@@ -380,8 +401,10 @@ export async function updateTrainingMenuSet(
   trainingMenuSetId: string,
   input: Partial<{
     setName: string;
+    setType: 'reusable' | 'temporary';
+    source: 'manual' | 'ai';
+    scheduledDate?: string;
     isDefault: boolean;
-    isAiGenerated: boolean;
   }>
 ): Promise<TrainingMenuSetDto> {
   return coreApiFetch<TrainingMenuSetDto>(`/training-menu-sets/${trainingMenuSetId}`, {
@@ -396,27 +419,96 @@ export async function deleteTrainingMenuSet(trainingMenuSetId: string): Promise<
   });
 }
 
-export async function addTrainingMenuItemToSet(trainingMenuSetId: string, trainingMenuItemId: string): Promise<void> {
-  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items`, {
+export async function addTrainingMenuItemToSet(
+  trainingMenuSetId: string,
+  input: {
+    trainingMenuItemId: string;
+    targetWeightKg: number;
+    targetRepsMin: number;
+    targetRepsMax: number;
+    targetSets: number;
+    recommendedIntervalDays: number;
+    instruction?: string;
+    createdBy?: 'manual' | 'ai';
+  }
+): Promise<TrainingMenuSetItemDto> {
+  return coreApiFetch<TrainingMenuSetItemDto>(`/training-menu-sets/${trainingMenuSetId}/items`, {
     method: 'POST',
-    body: JSON.stringify({ trainingMenuItemId })
+    body: JSON.stringify(input)
   });
 }
 
-export async function removeTrainingMenuItemFromSet(trainingMenuSetId: string, trainingMenuItemId: string): Promise<void> {
-  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items/${trainingMenuItemId}`, {
+export async function updateTrainingMenuSetItem(
+  trainingMenuSetId: string,
+  trainingMenuSetItemId: string,
+  input: Partial<{
+    targetWeightKg: number;
+    targetRepsMin: number;
+    targetRepsMax: number;
+    targetSets: number;
+    recommendedIntervalDays: number;
+    instruction: string;
+  }>
+): Promise<TrainingMenuSetItemDto> {
+  return coreApiFetch<TrainingMenuSetItemDto>(
+    `/training-menu-sets/${trainingMenuSetId}/items/${trainingMenuSetItemId}`,
+    { method: 'PUT', body: JSON.stringify(input) }
+  );
+}
+
+export async function removeTrainingMenuItemFromSet(
+  trainingMenuSetId: string,
+  trainingMenuSetItemId: string
+): Promise<void> {
+  await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items/${trainingMenuSetItemId}`, {
     method: 'DELETE'
   });
 }
 
 export async function reorderTrainingMenuSetItems(
   trainingMenuSetId: string,
-  items: Array<{ trainingMenuItemId: string; displayOrder: number }>
+  items: Array<{ trainingMenuSetItemId: string; displayOrder: number }>
 ): Promise<void> {
   await coreApiFetch<void>(`/training-menu-sets/${trainingMenuSetId}/items/reorder`, {
     method: 'PUT',
     body: JSON.stringify({ items })
   });
+}
+
+export type DailyTrainingPlanDto = {
+  planDate: string;
+  trainingMenuSetId: string;
+  source: 'manual' | 'ai';
+  createdAt: string;
+  updatedAt: string;
+};
+
+export async function getDailyTrainingPlan(date: string): Promise<DailyTrainingPlanDto | null> {
+  try {
+    return await coreApiFetch<DailyTrainingPlanDto>(`/daily-training-plans/${encodeURIComponent(date)}`, {
+      method: 'GET'
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('not found')) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function putDailyTrainingPlan(
+  date: string,
+  trainingMenuSetId: string,
+  source: 'manual' | 'ai' = 'manual'
+): Promise<DailyTrainingPlanDto> {
+  return coreApiFetch<DailyTrainingPlanDto>(`/daily-training-plans/${encodeURIComponent(date)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ trainingMenuSetId, source })
+  });
+}
+
+export async function deleteDailyTrainingPlan(date: string): Promise<void> {
+  await coreApiFetch<void>(`/daily-training-plans/${encodeURIComponent(date)}`, { method: 'DELETE' });
 }
 
 export async function createGymVisit(input: CreateGymVisitInput): Promise<GymVisitDto> {

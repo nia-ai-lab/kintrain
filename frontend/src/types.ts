@@ -24,6 +24,7 @@ export interface TrainingMenuItem {
   defaultSets: number;
   order: number;
   isActive: boolean;
+  usageCount: number;
 }
 
 export type TrainingEquipment = 'マシン' | 'フリー' | '自重' | 'その他';
@@ -37,8 +38,26 @@ export interface TrainingMenuSet {
   order: number;
   isDefault: boolean;
   isAiGenerated: boolean;
+  setType: 'reusable' | 'temporary';
+  source: 'manual' | 'ai';
+  scheduledDate?: string;
   isActive: boolean;
   itemIds: string[];
+  items: TrainingMenuSetItem[];
+}
+
+export interface TrainingMenuSetItem {
+  id: string;
+  menuSetId: string;
+  menuItemId: string;
+  order: number;
+  targetWeightKg: number;
+  targetRepsMin: number;
+  targetRepsMax: number;
+  targetSets: number;
+  recommendedIntervalDays: TrainingFrequencyDays;
+  instruction: string;
+  createdBy: 'manual' | 'ai';
 }
 
 export interface ExerciseEntry {
@@ -56,6 +75,15 @@ export interface ExerciseEntry {
   reps: number;
   sets: number;
   setDetails?: SetDetail[];
+  sourceTrainingMenuSetId?: string;
+  sourceTrainingMenuSetNameSnapshot?: string;
+  sourceTrainingMenuSetItemId?: string;
+  sourceTrainingMenuSetTypeSnapshot?: 'reusable' | 'temporary';
+  targetWeightKgSnapshot?: number;
+  targetRepsMinSnapshot?: number;
+  targetRepsMaxSnapshot?: number;
+  targetSetsSnapshot?: number;
+  targetInstructionSnapshot?: string;
 }
 
 export interface GymVisit {
@@ -69,6 +97,15 @@ export interface GymVisit {
 
 export interface DraftEntry {
   menuItemId: string;
+  menuSetId?: string;
+  menuSetItemId?: string;
+  menuSetName?: string;
+  menuSetType?: 'reusable' | 'temporary';
+  targetWeightKg?: number;
+  targetRepsMin?: number;
+  targetRepsMax?: number;
+  targetSets?: number;
+  targetInstruction?: string;
   weightKg?: number;
   reps?: number;
   sets?: number;

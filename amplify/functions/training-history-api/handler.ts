@@ -10,6 +10,7 @@ const trainingPerformanceTableName = process.env.TRAINING_PERFORMANCE_TABLE_NAME
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
 const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
+const dailyTrainingPlanTableName = process.env.DAILY_TRAINING_PLAN_TABLE_NAME ?? "";
 
 const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
@@ -42,6 +43,15 @@ type ExerciseEntry = {
   performedAtUtc: string;
   note?: string;
   rpe?: number;
+  sourceTrainingMenuSetId?: string;
+  sourceTrainingMenuSetNameSnapshot?: string;
+  sourceTrainingMenuSetItemId?: string;
+  sourceTrainingMenuSetTypeSnapshot?: "reusable" | "temporary";
+  targetWeightKgSnapshot?: number;
+  targetRepsMinSnapshot?: number;
+  targetRepsMaxSnapshot?: number;
+  targetSetsSnapshot?: number;
+  targetInstructionSnapshot?: string;
 };
 
 type GymVisitInput = {
@@ -161,6 +171,21 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
           entry.frequencySnapshot >= 1 &&
           entry.frequencySnapshot <= 8)) &&
       (entry.note === undefined || (typeof entry.note === "string" && entry.note.trim().length <= 500))
+      &&
+      (entry.sourceTrainingMenuSetId === undefined || typeof entry.sourceTrainingMenuSetId === "string") &&
+      (entry.sourceTrainingMenuSetNameSnapshot === undefined ||
+        typeof entry.sourceTrainingMenuSetNameSnapshot === "string") &&
+      (entry.sourceTrainingMenuSetItemId === undefined || typeof entry.sourceTrainingMenuSetItemId === "string") &&
+      (entry.sourceTrainingMenuSetTypeSnapshot === undefined ||
+        entry.sourceTrainingMenuSetTypeSnapshot === "reusable" ||
+        entry.sourceTrainingMenuSetTypeSnapshot === "temporary") &&
+      (entry.targetWeightKgSnapshot === undefined || isNonNegativeNumber(entry.targetWeightKgSnapshot)) &&
+      (entry.targetRepsMinSnapshot === undefined || isPositiveNumber(entry.targetRepsMinSnapshot)) &&
+      (entry.targetRepsMaxSnapshot === undefined || isPositiveNumber(entry.targetRepsMaxSnapshot)) &&
+      (entry.targetSetsSnapshot === undefined || isPositiveNumber(entry.targetSetsSnapshot)) &&
+      (entry.targetInstructionSnapshot === undefined ||
+        (typeof entry.targetInstructionSnapshot === "string" &&
+          entry.targetInstructionSnapshot.trim().length <= 500))
     );
   });
 }
@@ -208,6 +233,16 @@ export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
       fixedWeightKgSnapshot,
       calculatedTotalWeightKg,
       note
+      ,
+      sourceTrainingMenuSetId: toTrimmedString(entry.sourceTrainingMenuSetId),
+      sourceTrainingMenuSetNameSnapshot: toTrimmedString(entry.sourceTrainingMenuSetNameSnapshot),
+      sourceTrainingMenuSetItemId: toTrimmedString(entry.sourceTrainingMenuSetItemId),
+      sourceTrainingMenuSetTypeSnapshot: entry.sourceTrainingMenuSetTypeSnapshot,
+      targetWeightKgSnapshot: entry.targetWeightKgSnapshot,
+      targetRepsMinSnapshot: entry.targetRepsMinSnapshot,
+      targetRepsMaxSnapshot: entry.targetRepsMaxSnapshot,
+      targetSetsSnapshot: entry.targetSetsSnapshot,
+      targetInstructionSnapshot: toTrimmedString(entry.targetInstructionSnapshot)
     };
   });
 }
@@ -234,6 +269,15 @@ type TrainingPerformanceItem = {
   reps: number;
   sets: number;
   note: string;
+  sourceTrainingMenuSetId?: string;
+  sourceTrainingMenuSetNameSnapshot?: string;
+  sourceTrainingMenuSetItemId?: string;
+  sourceTrainingMenuSetTypeSnapshot?: "reusable" | "temporary";
+  targetWeightKgSnapshot?: number;
+  targetRepsMinSnapshot?: number;
+  targetRepsMaxSnapshot?: number;
+  targetSetsSnapshot?: number;
+  targetInstructionSnapshot?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -277,6 +321,15 @@ function buildTrainingPerformanceItems(params: {
     reps: entry.reps,
     sets: entry.sets,
     note: entry.note ?? "",
+    sourceTrainingMenuSetId: entry.sourceTrainingMenuSetId,
+    sourceTrainingMenuSetNameSnapshot: entry.sourceTrainingMenuSetNameSnapshot,
+    sourceTrainingMenuSetItemId: entry.sourceTrainingMenuSetItemId,
+    sourceTrainingMenuSetTypeSnapshot: entry.sourceTrainingMenuSetTypeSnapshot,
+    targetWeightKgSnapshot: entry.targetWeightKgSnapshot,
+    targetRepsMinSnapshot: entry.targetRepsMinSnapshot,
+    targetRepsMaxSnapshot: entry.targetRepsMaxSnapshot,
+    targetSetsSnapshot: entry.targetSetsSnapshot,
+    targetInstructionSnapshot: entry.targetInstructionSnapshot,
     createdAt: params.createdAt,
     updatedAt: params.updatedAt
   }));
@@ -367,8 +420,14 @@ async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: 
 
 async function resolveTrainingSessionMenuSetId(
   userId: string,
-  requestedTrainingMenuSetId: string
-): Promise<{ trainingMenuSetId: string; notFound: boolean }> {
+  requestedTrainingMenuSetId: string,
+  date: string
+): Promise<{
+  trainingMenuSetId: string;
+  notFound: boolean;
+  resolvedFromDailyPlan: boolean;
+  menuSet?: Record<string, unknown>;
+}> {
   if (requestedTrainingMenuSetId) {
     const result = await ddb.send(
       new GetCommand({
@@ -380,9 +439,41 @@ async function resolveTrainingSessionMenuSetId(
       })
     );
     if (!result.Item || result.Item.isActive === false) {
-      return { trainingMenuSetId: "", notFound: true };
+      return { trainingMenuSetId: "", notFound: true, resolvedFromDailyPlan: false };
     }
-    return { trainingMenuSetId: requestedTrainingMenuSetId, notFound: false };
+    return {
+      trainingMenuSetId: requestedTrainingMenuSetId,
+      notFound: false,
+      resolvedFromDailyPlan: false,
+      menuSet: result.Item as Record<string, unknown>
+    };
+  }
+
+  const dailyPlanResult = await ddb.send(
+    new GetCommand({
+      TableName: dailyTrainingPlanTableName,
+      Key: { userId, planDate: date }
+    })
+  );
+  const dailySetId =
+    typeof dailyPlanResult.Item?.trainingMenuSetId === "string"
+      ? dailyPlanResult.Item.trainingMenuSetId
+      : "";
+  if (dailySetId) {
+    const dailySetResult = await ddb.send(
+      new GetCommand({
+        TableName: trainingMenuSetTableName,
+        Key: { userId, trainingMenuSetId: dailySetId }
+      })
+    );
+    if (dailySetResult.Item && dailySetResult.Item.isActive !== false) {
+      return {
+        trainingMenuSetId: dailySetId,
+        notFound: false,
+        resolvedFromDailyPlan: true,
+        menuSet: dailySetResult.Item as Record<string, unknown>
+      };
+    }
   }
 
   const defaultMenuSetResult = await ddb.send(
@@ -398,10 +489,34 @@ async function resolveTrainingSessionMenuSetId(
     })
   );
 
-  const defaultMenuSetIdRaw = defaultMenuSetResult.Items?.[0]?.trainingMenuSetId;
+  let defaultMenuSetIdRaw = defaultMenuSetResult.Items?.[0]?.trainingMenuSetId;
+  if (typeof defaultMenuSetIdRaw !== "string") {
+    const reusableSets = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetTableName,
+        IndexName: "UserMenuSetByOrderIndex",
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: { ":userId": userId }
+      })
+    );
+    defaultMenuSetIdRaw = reusableSets.Items?.find(
+      (item) => item.isActive !== false && item.setType !== "temporary"
+    )?.trainingMenuSetId;
+  }
+  const defaultMenuSet =
+    typeof defaultMenuSetIdRaw === "string"
+      ? await ddb.send(
+          new GetCommand({
+            TableName: trainingMenuSetTableName,
+            Key: { userId, trainingMenuSetId: defaultMenuSetIdRaw }
+          })
+        )
+      : undefined;
   return {
     trainingMenuSetId: typeof defaultMenuSetIdRaw === "string" ? defaultMenuSetIdRaw : "",
-    notFound: false
+    notFound: false,
+    resolvedFromDailyPlan: false,
+    menuSet: defaultMenuSet?.Item as Record<string, unknown> | undefined
   };
 }
 
@@ -425,7 +540,12 @@ async function listActiveMenuItemsForSet(
     })
   );
 
-  const orderedMenuItemIds = (setItemsResult.Items ?? [])
+  const orderedSetItems = (setItemsResult.Items ?? []).filter(
+    (item) =>
+      typeof item.trainingMenuItemId === "string" &&
+      typeof item.trainingMenuSetItemId === "string"
+  );
+  const orderedMenuItemIds = orderedSetItems
     .map((item) => (typeof item.trainingMenuItemId === "string" ? item.trainingMenuItemId : ""))
     .filter((trainingMenuItemId) => trainingMenuItemId.length > 0);
   const uniqueOrderedMenuItemIds = Array.from(new Set(orderedMenuItemIds));
@@ -456,13 +576,28 @@ async function listActiveMenuItemsForSet(
     }
   }
 
-  return uniqueOrderedMenuItemIds
-    .map((trainingMenuItemId) => menuItemsById.get(trainingMenuItemId))
-    .filter((item): item is Record<string, unknown> => item !== undefined && item.isActive !== false);
+  return orderedSetItems.flatMap((setItem): Record<string, unknown>[] => {
+      const menuItem = menuItemsById.get(String(setItem.trainingMenuItemId));
+      if (!menuItem || menuItem.isActive === false) {
+        return [];
+      }
+      return [{
+        ...menuItem,
+        trainingMenuSetItemId: setItem.trainingMenuSetItemId,
+        displayOrder: setItem.displayOrder,
+        targetWeightKg: setItem.targetWeightKg,
+        targetRepsMin: setItem.targetRepsMin,
+        targetRepsMax: setItem.targetRepsMax,
+        targetSets: setItem.targetSets,
+        recommendedIntervalDays: setItem.recommendedIntervalDays,
+        instruction: setItem.instruction ?? "",
+        createdBy: setItem.createdBy ?? "manual"
+      }];
+    });
 }
 
-function exceedsTransactionLimit(existingPerformanceCount: number, newEntryCount: number): boolean {
-  return existingPerformanceCount + newEntryCount + 1 > 25;
+function exceedsTransactionLimit(stalePerformanceCount: number, newEntryCount: number): boolean {
+  return stalePerformanceCount + newEntryCount + 1 > 25;
 }
 
 async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
@@ -540,7 +675,13 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
 }
 
 async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
-  if (!trainingMenuTableName || !trainingMenuSetTableName || !trainingMenuSetItemTableName || !trainingPerformanceTableName) {
+  if (
+    !trainingMenuTableName ||
+    !trainingMenuSetTableName ||
+    !trainingMenuSetItemTableName ||
+    !dailyTrainingPlanTableName ||
+    !trainingPerformanceTableName
+  ) {
     return response(500, { message: "Lambda environment is not configured." });
   }
 
@@ -553,7 +694,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
     typeof event.queryStringParameters?.trainingMenuSetId === "string"
       ? event.queryStringParameters.trainingMenuSetId.trim()
       : "";
-  const resolvedMenuSet = await resolveTrainingSessionMenuSetId(userId, requestedTrainingMenuSetId);
+  const resolvedMenuSet = await resolveTrainingSessionMenuSetId(userId, requestedTrainingMenuSetId, date);
   if (resolvedMenuSet.notFound) {
     return response(404, { message: "training menu set not found." });
   }
@@ -583,7 +724,6 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   const items = await Promise.all(
     activeMenuItems.map(async (menu) => {
       const trainingMenuItemId = String(menu.trainingMenuItemId);
-      const repsRange = toRepsRange(menu as Record<string, unknown>);
       const weightInputMode = normalizeWeightInputMode(menu.weightInputMode);
       const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(userId, trainingMenuItemId);
 
@@ -594,15 +734,17 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
         equipment: typeof menu.equipment === "string" ? menu.equipment : "",
         isAiGenerated: menu.isAiGenerated === true,
         description: typeof menu.description === "string" ? menu.description : "",
-        frequency: toFrequencyDays(menu.frequency),
-        defaultWeightKg: menu.defaultWeightKg,
+        trainingMenuSetItemId: menu.trainingMenuSetItemId,
+        targetWeightKg: Number(menu.targetWeightKg),
+        targetRepsMin: Number(menu.targetRepsMin),
+        targetRepsMax: Number(menu.targetRepsMax),
+        targetSets: Number(menu.targetSets),
+        recommendedIntervalDays: Number(menu.recommendedIntervalDays),
+        instruction: typeof menu.instruction === "string" ? menu.instruction : "",
+        createdBy: menu.createdBy === "ai" ? "ai" : "manual",
         weightInputMode,
         loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
         fixedWeightKg: normalizeFixedWeightKg(menu.fixedWeightKg),
-        defaultRepsMin: repsRange.defaultRepsMin,
-        defaultRepsMax: repsRange.defaultRepsMax,
-        defaultReps: repsRange.defaultRepsMax,
-        defaultSets: menu.defaultSets,
         displayOrder: menu.displayOrder,
         isActive: menu.isActive,
         lastPerformanceSnapshot
@@ -611,6 +753,16 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   );
 
   return response(200, {
+    resolvedMenuSet: resolvedMenuSet.menuSet
+      ? {
+          trainingMenuSetId: resolvedMenuSet.trainingMenuSetId,
+          setName: String(resolvedMenuSet.menuSet.setName ?? ""),
+          setType: resolvedMenuSet.menuSet.setType === "temporary" ? "temporary" : "reusable",
+          source: resolvedMenuSet.menuSet.source === "ai" ? "ai" : "manual",
+          isDefault: resolvedMenuSet.menuSet.isDefault === true
+        }
+      : null,
+    resolvedFromDailyPlan: resolvedMenuSet.resolvedFromDailyPlan,
     items,
     todayDoneTrainingMenuItemIds: Array.from(todayDoneTrainingMenuItemIds)
   });
@@ -730,9 +882,6 @@ async function putGymVisit(
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
   const existingPerformanceItems = await listTrainingPerformanceItemsByVisitId(userId, visitId);
-  if (exceedsTransactionLimit(existingPerformanceItems.length, normalizedEntries.length)) {
-    return response(400, { message: `1回の記録で更新できる種目数は最大${maxVisitEntryCount}件です。` });
-  }
   const createdAt = typeof existing.Item.createdAt === "string" ? existing.Item.createdAt : ts;
   const visitItem = buildVisitItem({
     userId,
@@ -755,6 +904,13 @@ async function putGymVisit(
     createdAt,
     updatedAt: ts
   });
+  const nextPerformanceIds = new Set(performanceItems.map((item) => item.trainingPerformanceId));
+  const stalePerformanceItems = existingPerformanceItems.filter(
+    (item) => !nextPerformanceIds.has(item.trainingPerformanceId)
+  );
+  if (exceedsTransactionLimit(stalePerformanceItems.length, performanceItems.length)) {
+    return response(400, { message: `1回の記録で更新できる種目数は最大${maxVisitEntryCount}件です。` });
+  }
 
   await ddb.send(
     new TransactWriteCommand({
@@ -765,7 +921,7 @@ async function putGymVisit(
             Item: visitItem
           }
         },
-        ...existingPerformanceItems.map((item) => ({
+        ...stalePerformanceItems.map((item) => ({
           Delete: {
             TableName: trainingPerformanceTableName,
             Key: {

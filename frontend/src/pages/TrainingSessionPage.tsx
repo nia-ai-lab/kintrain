@@ -1,7 +1,7 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
-import { getTrainingSessionView } from '../api/coreApi';
+import { deleteTrainingMenuSet, getTrainingSessionView } from '../api/coreApi';
 import type { DraftEntry, TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
@@ -31,6 +31,12 @@ type TrainingSessionLastPerformanceSnapshot = {
 };
 
 type TrainingSessionMenuItem = TrainingMenuItem & {
+  menuSetItemId: string;
+  targetWeightKg: number;
+  targetRepsMin: number;
+  targetRepsMax: number;
+  targetSets: number;
+  targetInstruction: string;
   lastPerformanceSnapshot?: TrainingSessionLastPerformanceSnapshot;
 };
 
@@ -101,7 +107,7 @@ function hasValidWeight(entry: Partial<DraftEntry> | undefined): boolean {
 }
 
 export function TrainingSessionPage() {
-  const { data, setDraftEntry, clearDraftEntry, clearDraft, finalizeTrainingSession } = useAppState();
+  const { data, setDraftEntry, clearDraftEntry, clearDraft, finalizeTrainingSession, refreshCoreData } = useAppState();
   const today = useTodayYmd();
   const navigate = useNavigate();
   const [statusText, setStatusText] = useState('');
@@ -111,15 +117,19 @@ export function TrainingSessionPage() {
   const [sessionItems, setSessionItems] = useState<TrainingSessionMenuItem[]>([]);
   const [isSessionViewLoading, setIsSessionViewLoading] = useState(true);
   const [sessionViewError, setSessionViewError] = useState('');
+  const [resolvedMenuSet, setResolvedMenuSet] = useState<{
+    trainingMenuSetId: string;
+    setName: string;
+    setType: 'reusable' | 'temporary';
+    source: 'manual' | 'ai';
+    isDefault: boolean;
+  } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
   const draftEntries = data.trainingDraft?.entriesByItemId ?? {};
   const menuSets = useMemo(() => {
     return data.menuSets.filter((set) => set.isActive).sort((a, b) => a.order - b.order);
   }, [data.menuSets]);
-  const defaultMenuSet = useMemo(() => {
-    return menuSets.find((set) => set.isDefault) ?? menuSets[0] ?? null;
-  }, [menuSets]);
   const [selectedMenuSetId, setSelectedMenuSetId] = useState('');
 
   useEffect(() => {
@@ -129,15 +139,12 @@ export function TrainingSessionPage() {
       }
       return;
     }
-    if (!menuSets.some((set) => set.id === selectedMenuSetId)) {
-      setSelectedMenuSetId(defaultMenuSet?.id ?? menuSets[0].id);
+    if (selectedMenuSetId && !menuSets.some((set) => set.id === selectedMenuSetId)) {
+      setSelectedMenuSetId('');
     }
-  }, [defaultMenuSet?.id, menuSets, selectedMenuSetId]);
+  }, [menuSets, selectedMenuSetId]);
 
-  const selectedMenuSet = useMemo(() => {
-    return menuSets.find((set) => set.id === selectedMenuSetId) ?? defaultMenuSet;
-  }, [defaultMenuSet, menuSets, selectedMenuSetId]);
-  const effectiveSelectedMenuSetId = selectedMenuSet?.id ?? '';
+  const effectiveSelectedMenuSetId = selectedMenuSetId;
 
   useEffect(() => {
     let isActive = true;
@@ -161,16 +168,23 @@ export function TrainingSessionPage() {
             equipment: normalizeTrainingEquipment(item.equipment),
             isAiGenerated: item.isAiGenerated === true,
             description: typeof item.description === 'string' ? item.description : '',
-            frequency: normalizeTrainingFrequency(item.frequency),
-            defaultWeightKg: Number(item.defaultWeightKg),
+            frequency: normalizeTrainingFrequency(item.recommendedIntervalDays),
+            defaultWeightKg: Number(item.targetWeightKg),
             weightInputMode,
             loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
             fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
-            defaultRepsMin: Number(item.defaultRepsMin),
-            defaultRepsMax: Number(item.defaultRepsMax),
-            defaultSets: Number(item.defaultSets),
+            defaultRepsMin: Number(item.targetRepsMin),
+            defaultRepsMax: Number(item.targetRepsMax),
+            defaultSets: Number(item.targetSets),
             order: Number(item.displayOrder),
             isActive: item.isActive !== false,
+            usageCount: 0,
+            menuSetItemId: item.trainingMenuSetItemId,
+            targetWeightKg: Number(item.targetWeightKg),
+            targetRepsMin: Number(item.targetRepsMin),
+            targetRepsMax: Number(item.targetRepsMax),
+            targetSets: Number(item.targetSets),
+            targetInstruction: item.instruction ?? '',
             lastPerformanceSnapshot: item.lastPerformanceSnapshot
               ? {
                   performedAtUtc: item.lastPerformanceSnapshot.performedAtUtc,
@@ -189,6 +203,10 @@ export function TrainingSessionPage() {
               : undefined
             };
           });
+        setResolvedMenuSet(remote.resolvedMenuSet);
+        if (!selectedMenuSetId && remote.resolvedMenuSet?.trainingMenuSetId) {
+          setSelectedMenuSetId(remote.resolvedMenuSet.trainingMenuSetId);
+        }
         setSessionItems(items);
       } catch (error) {
         if (!isActive) {
@@ -196,6 +214,7 @@ export function TrainingSessionPage() {
         }
         const message = error instanceof Error ? error.message : '実施メニューの取得に失敗しました。';
         setSessionViewError(message);
+        setResolvedMenuSet(null);
         setSessionItems([]);
       } finally {
         if (isActive) {
@@ -208,7 +227,7 @@ export function TrainingSessionPage() {
     return () => {
       isActive = false;
     };
-  }, [effectiveSelectedMenuSetId, today]);
+  }, [effectiveSelectedMenuSetId, selectedMenuSetId, today]);
 
   const prioritized = useMemo(() => {
     return getPrioritizedTrainingSessionItems({
@@ -218,7 +237,7 @@ export function TrainingSessionPage() {
   }, [sessionItems, today]);
 
   const menuItemById = useMemo(() => {
-    const map = new Map<string, TrainingSessionMenuItem>();
+    const map = new Map<string, TrainingMenuItem>();
     for (const item of data.menuItems) {
       map.set(item.id, item);
     }
@@ -229,8 +248,8 @@ export function TrainingSessionPage() {
   }, [data.menuItems, sessionItems]);
 
   const enteredItems = useMemo(() => {
-    return Object.values(draftEntries)
-      .map((draft) => {
+    return Object.entries(draftEntries)
+      .map(([draftKey, draft]) => {
         const item =
           menuItemById.get(draft.menuItemId) ??
           ({
@@ -250,7 +269,9 @@ export function TrainingSessionPage() {
             defaultSets: 1,
             order: Number.MAX_SAFE_INTEGER,
             isActive: true
-          } satisfies TrainingSessionMenuItem);
+            ,
+            usageCount: 0
+          } satisfies TrainingMenuItem);
         const hasStarted =
           draft?.weightKg !== undefined ||
           (draft?.reps ?? 0) > 0 ||
@@ -260,6 +281,7 @@ export function TrainingSessionPage() {
           (draft?.reps ?? 0) > 0 &&
           (draft?.sets ?? 0) > 0;
         return {
+          draftKey,
           item,
           draft,
           hasStarted,
@@ -318,9 +340,13 @@ export function TrainingSessionPage() {
             <h1>トレーニング実施</h1>
             <p className="session-date">{ymdToDisplay(today)}</p>
             <label className="session-menu-set-select">
-              <span>メニューセット</span>
+              <span>
+                今日のメニュー
+                {resolvedMenuSet?.setType === 'temporary' ? ' ・ 一時' : ''}
+                {resolvedMenuSet?.source === 'ai' ? ' ・ AI作成' : ''}
+              </span>
               <select
-                value={effectiveSelectedMenuSetId}
+                value={resolvedMenuSet?.trainingMenuSetId ?? effectiveSelectedMenuSetId}
                 disabled={menuSets.length === 0}
                 onChange={(event) => {
                   setSelectedMenuSetId(event.target.value);
@@ -375,7 +401,8 @@ export function TrainingSessionPage() {
         )}
 
         {prioritized.map((item, index) => {
-          const draft = draftEntries[item.id];
+          const draftKey = item.menuSetItemId || item.id;
+          const draft = draftEntries[draftKey];
           const last = item.lastPerformanceSnapshot;
           const seedWeightKg = last?.weightKg ?? item.defaultWeightKg;
           const seedReps = last?.reps ?? item.defaultRepsMax;
@@ -386,17 +413,42 @@ export function TrainingSessionPage() {
           const setsValue = draft?.sets;
           const memoValue =
             draft && Object.prototype.hasOwnProperty.call(draft, 'memo') ? (draft.memo ?? '') : seedMemo;
+          const sourcePatch = {
+            menuSetId: resolvedMenuSet?.trainingMenuSetId,
+            menuSetItemId: item.menuSetItemId,
+            menuSetName: resolvedMenuSet?.setName,
+            menuSetType: resolvedMenuSet?.setType,
+            targetWeightKg: item.targetWeightKg,
+            targetRepsMin: item.targetRepsMin,
+            targetRepsMax: item.targetRepsMax,
+            targetSets: item.targetSets,
+            targetInstruction: item.targetInstruction
+          };
           const hasStarted =
             draft?.weightKg !== undefined ||
             (draft?.reps ?? 0) > 0 ||
             (draft?.sets ?? 0) > 0;
 
           return (
-            <article className={`card training-session-card${hasStarted ? ' is-entered' : ''}`} key={item.id}>
+            <article className={`card training-session-card${hasStarted ? ' is-entered' : ''}`} key={draftKey}>
               <div className="training-item-head">
                 <div>
                   <p className="priority-chip">優先 {index + 1}</p>
                   <h2>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</h2>
+                  <p className="muted">
+                    今日の目標: {formatWeightLoad({
+                      weightKg: item.targetWeightKg,
+                      weightInputModeSnapshot: item.weightInputMode,
+                      loadMultiplierSnapshot: item.loadMultiplier,
+                      fixedWeightKgSnapshot: item.fixedWeightKg,
+                      calculatedTotalWeightKg: calculateTotalWeightKg(
+                        item.targetWeightKg,
+                        item.weightInputMode,
+                        item.loadMultiplier,
+                        item.fixedWeightKg
+                      )
+                    })} x {formatRepsTarget(item.targetRepsMin, item.targetRepsMax)} x {item.targetSets}set
+                  </p>
                   <p className="muted">
                     直近:{' '}
                     {last
@@ -424,10 +476,35 @@ export function TrainingSessionPage() {
                 <div className="session-actions">
                   <button
                     type="button"
+                    className="btn primary copy-last-button"
+                    onClick={() => {
+                      if (!guardTrainingEntryLimit(draftKey, {
+                        menuItemId: item.id,
+                        weightKg: item.targetWeightKg,
+                        reps: item.targetRepsMax,
+                        sets: item.targetSets
+                      })) {
+                        return;
+                      }
+                      setDraftEntry(draftKey, {
+                        menuItemId: item.id,
+                        ...sourcePatch,
+                        weightKg: item.targetWeightKg,
+                        reps: item.targetRepsMax,
+                        sets: item.targetSets
+                      });
+                      setStatusText(`${item.trainingName} に今日の目標を入力しました。`);
+                    }}
+                  >
+                    目標どおり入力
+                  </button>
+                  <button
+                    type="button"
                     className="btn subtle copy-last-button"
+                    disabled={!last}
                     onClick={() => {
                       if (
-                        !guardTrainingEntryLimit(item.id, {
+                        !guardTrainingEntryLimit(draftKey, {
                           menuItemId: item.id,
                           weightKg: seedWeightKg,
                           reps: seedReps,
@@ -436,16 +513,15 @@ export function TrainingSessionPage() {
                       ) {
                         return;
                       }
-                      setDraftEntry(item.id, {
+                      setDraftEntry(draftKey, {
                         menuItemId: item.id,
+                        ...sourcePatch,
                         weightKg: seedWeightKg,
                         reps: seedReps,
                         sets: seedSets
                       });
                       setStatusText(
-                        last
-                          ? `${item.trainingName} に前回値を入力しました。`
-                          : `${item.trainingName} にメニュー既定値を入力しました。`
+                        `${item.trainingName} に前回値を入力しました。`
                       );
                     }}
                   >
@@ -455,7 +531,7 @@ export function TrainingSessionPage() {
                     type="button"
                     className="btn danger copy-last-button"
                     onClick={() => {
-                      clearDraftEntry(item.id);
+                      clearDraftEntry(draftKey);
                       setStatusText(`${item.trainingName} を今回の記録対象から外しました。`);
                     }}
                   >
@@ -485,15 +561,16 @@ export function TrainingSessionPage() {
                     onChange={(e) => {
                       const nextWeightKg = toWeightNumber(e.target.value);
                       if (
-                        !guardTrainingEntryLimit(item.id, {
+                        !guardTrainingEntryLimit(draftKey, {
                           menuItemId: item.id,
                           weightKg: nextWeightKg
                         })
                       ) {
                         return;
                       }
-                      setDraftEntry(item.id, {
+                      setDraftEntry(draftKey, {
                         menuItemId: item.id,
+                        ...sourcePatch,
                         weightKg: nextWeightKg
                       });
                     }}
@@ -512,15 +589,16 @@ export function TrainingSessionPage() {
                     onChange={(e) => {
                       const nextReps = toCountNumber(e.target.value);
                       if (
-                        !guardTrainingEntryLimit(item.id, {
+                        !guardTrainingEntryLimit(draftKey, {
                           menuItemId: item.id,
                           reps: nextReps
                         })
                       ) {
                         return;
                       }
-                      setDraftEntry(item.id, {
+                      setDraftEntry(draftKey, {
                         menuItemId: item.id,
+                        ...sourcePatch,
                         reps: nextReps
                       });
                     }}
@@ -537,15 +615,16 @@ export function TrainingSessionPage() {
                     onChange={(e) => {
                       const nextSets = toCountNumber(e.target.value);
                       if (
-                        !guardTrainingEntryLimit(item.id, {
+                        !guardTrainingEntryLimit(draftKey, {
                           menuItemId: item.id,
                           sets: nextSets
                         })
                       ) {
                         return;
                       }
-                      setDraftEntry(item.id, {
+                      setDraftEntry(draftKey, {
                         menuItemId: item.id,
+                        ...sourcePatch,
                         sets: nextSets
                       });
                     }}
@@ -578,8 +657,9 @@ export function TrainingSessionPage() {
                   placeholder="任意でメモを入力"
                   maxLength={500}
                   onChange={(e) =>
-                    setDraftEntry(item.id, {
+                    setDraftEntry(draftKey, {
                       menuItemId: item.id,
+                      ...sourcePatch,
                       memo: e.target.value
                     })
                   }
@@ -612,8 +692,8 @@ export function TrainingSessionPage() {
               <>
                 <p>以下の内容で記録します。</p>
                 <ul className="simple-list training-session-confirm-list">
-                  {validEnteredItems.map(({ item, draft }) => (
-                    <li key={item.id}>
+                  {validEnteredItems.map(({ draftKey, item, draft }) => (
+                    <li key={draftKey}>
                       <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
                       <span>
                         {formatWeightLoad({
@@ -639,8 +719,8 @@ export function TrainingSessionPage() {
               <div className="training-session-confirm-warning">
                 <p>以下は入力途中のため、今回の保存対象には含まれません。</p>
                 <ul className="simple-list">
-                  {incompleteEnteredItems.map(({ item, draft }) => (
-                    <li key={item.id}>
+                  {incompleteEnteredItems.map(({ draftKey, item, draft }) => (
+                    <li key={draftKey}>
                       <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
                       <span>
                         重量:{draft?.weightKg ?? '未入力'} / 回数:{draft?.reps ?? '未入力'} / セット:{draft?.sets ?? '未入力'}
@@ -674,6 +754,18 @@ export function TrainingSessionPage() {
                   }
                   setIsConfirmModalOpen(false);
                   setStatusText('');
+                  if (
+                    resolvedMenuSet?.setType === 'temporary' &&
+                    window.confirm('記録が完了しました。この一時メニューセットを削除しますか？ 実施履歴は残ります。')
+                  ) {
+                    try {
+                      await deleteTrainingMenuSet(resolvedMenuSet.trainingMenuSetId);
+                      await refreshCoreData();
+                    } catch (error) {
+                      setStatusText(error instanceof Error ? error.message : '一時セットを削除できませんでした。');
+                      return;
+                    }
+                  }
                   navigate(`/daily/${today}`);
                 }}
               >
