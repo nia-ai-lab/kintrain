@@ -44,6 +44,12 @@ function buildCoreMockData() {
         trainingName: 'チェストプレス',
         description:
           '肩甲骨を軽く寄せて胸を張ります。\nハンドルは胸の高さに合わせ、肘を伸ばし切る直前で止めます。\n戻す動作はゆっくり行ってください。',
+        bodyPart: '胸',
+        equipment: 'マシン',
+        weightInputMode: 'direct',
+        loadMultiplier: 1,
+        fixedWeightKg: 0,
+        usageCount: 1,
         defaultWeightKg: 25,
         defaultRepsMin: 8,
         defaultRepsMax: 12,
@@ -56,6 +62,12 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-2',
         trainingName: 'ラットプルダウン',
+        bodyPart: '背中',
+        equipment: 'マシン',
+        weightInputMode: 'direct',
+        loadMultiplier: 1,
+        fixedWeightKg: 0,
+        usageCount: 1,
         defaultWeightKg: 30,
         defaultRepsMin: 8,
         defaultRepsMax: 10,
@@ -68,6 +80,12 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-3',
         trainingName: 'レッグプレス',
+        bodyPart: '脚',
+        equipment: 'マシン',
+        weightInputMode: 'direct',
+        loadMultiplier: 1,
+        fixedWeightKg: 0,
+        usageCount: 1,
         defaultWeightKg: 80,
         defaultRepsMin: 10,
         defaultRepsMax: 12,
@@ -80,6 +98,12 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-4',
         trainingName: 'ショルダープレス',
+        bodyPart: '肩',
+        equipment: 'マシン',
+        weightInputMode: 'direct',
+        loadMultiplier: 1,
+        fixedWeightKg: 0,
+        usageCount: 1,
         defaultWeightKg: 15,
         defaultRepsMin: 8,
         defaultRepsMax: 10,
@@ -92,6 +116,12 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-5',
         trainingName: 'シーテッドロー',
+        bodyPart: '背中',
+        equipment: 'マシン',
+        weightInputMode: 'direct',
+        loadMultiplier: 1,
+        fixedWeightKg: 0,
+        usageCount: 1,
         defaultWeightKg: 27.5,
         defaultRepsMin: 10,
         defaultRepsMax: 12,
@@ -108,9 +138,28 @@ function buildCoreMockData() {
         setName: 'メインメニュー',
         menuSetOrder: 1,
         isDefault: true,
-        isAiGenerated: false,
+        setType: 'reusable',
+        source: 'manual',
         isActive: true,
-        itemIds: ['m-1', 'm-2', 'm-3', 'm-4', 'm-5'],
+        items: [
+          ['m-1', 25, 8, 12, 3],
+          ['m-2', 30, 8, 10, 3],
+          ['m-3', 80, 10, 12, 3],
+          ['m-4', 15, 8, 10, 3],
+          ['m-5', 27.5, 10, 12, 3]
+        ].map(([trainingMenuItemId, targetWeightKg, targetRepsMin, targetRepsMax, targetSets], index) => ({
+          trainingMenuSetItemId: `set-item-${index + 1}`,
+          trainingMenuSetId: 'set-1',
+          trainingMenuItemId,
+          displayOrder: index + 1,
+          targetWeightKg,
+          targetRepsMin,
+          targetRepsMax,
+          targetSets,
+          recommendedIntervalDays: 3,
+          instruction: '',
+          createdBy: 'manual'
+        })),
         createdAt: now,
         updatedAt: now
       }
@@ -266,22 +315,87 @@ async function attachCoreApiMock(page) {
     if (path === '/training-menu-sets/set-1/items' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
       const itemId = String(input.trainingMenuItemId ?? '');
-      if (itemId && !mock.menuSets[0].itemIds.includes(itemId)) {
-        mock.menuSets[0].itemIds.push(itemId);
+      if (itemId && !mock.menuSets[0].items.some((item) => item.trainingMenuItemId === itemId)) {
+        mock.menuSets[0].items.push({
+          trainingMenuSetItemId: `set-item-${mock.sequence++}`,
+          trainingMenuSetId: 'set-1',
+          trainingMenuItemId: itemId,
+          displayOrder: mock.menuSets[0].items.length + 1,
+          targetWeightKg: Number(input.targetWeightKg),
+          targetRepsMin: Number(input.targetRepsMin),
+          targetRepsMax: Number(input.targetRepsMax),
+          targetSets: Number(input.targetSets),
+          recommendedIntervalDays: Number(input.recommendedIntervalDays),
+          instruction: input.instruction ?? '',
+          createdBy: 'manual'
+        });
       }
-      return json({ trainingMenuSetId: 'set-1', trainingMenuItemId: itemId }, 201);
+      return json(mock.menuSets[0].items.at(-1), 201);
+    }
+    if (path === '/training-menu-sets/set-1' && method === 'PUT') {
+      const input = JSON.parse(req.postData() ?? '{}');
+      mock.menuSets[0] = { ...mock.menuSets[0], ...input, updatedAt: now };
+      return json(mock.menuSets[0]);
+    }
+    if (path === '/training-menu-sets/set-1/items/reorder' && method === 'PUT') {
+      const input = JSON.parse(req.postData() ?? '{}');
+      const order = new Map(input.items.map((item) => [item.trainingMenuSetItemId, item.displayOrder]));
+      mock.menuSets[0].items = mock.menuSets[0].items
+        .map((item) => ({ ...item, displayOrder: order.get(item.trainingMenuSetItemId) ?? item.displayOrder }))
+        .sort((a, b) => a.displayOrder - b.displayOrder);
+      return json({ updatedCount: input.items.length });
+    }
+    if (path.startsWith('/training-menu-sets/set-1/items/') && method === 'PUT') {
+      const setItemId = path.split('/').pop();
+      const input = JSON.parse(req.postData() ?? '{}');
+      const index = mock.menuSets[0].items.findIndex((item) => item.trainingMenuSetItemId === setItemId);
+      mock.menuSets[0].items[index] = { ...mock.menuSets[0].items[index], ...input, updatedAt: now };
+      return json(mock.menuSets[0].items[index]);
+    }
+    if (path.startsWith('/training-menu-sets/set-1/items/') && method === 'DELETE') {
+      const setItemId = path.split('/').pop();
+      mock.menuSets[0].items = mock.menuSets[0].items.filter((item) => item.trainingMenuSetItemId !== setItemId);
+      return route.fulfill({ status: 204, body: '' });
+    }
+    if (path.startsWith('/daily-training-plans/') && method === 'GET') {
+      return json({ message: 'daily training plan not found.' }, 404);
+    }
+    if (path.startsWith('/daily-training-plans/') && method === 'PUT') {
+      const input = JSON.parse(req.postData() ?? '{}');
+      return json({
+        planDate: path.split('/').pop(),
+        trainingMenuSetId: input.trainingMenuSetId,
+        source: input.source ?? 'manual',
+        createdAt: now,
+        updatedAt: now
+      }, 201);
     }
     if (path === '/training-session-view' && method === 'GET') {
-      const sorted = [...mock.menuItems]
-        .sort((a, b) => a.displayOrder - b.displayOrder)
-        .map((item) => ({
-          ...item,
-          bodyPart: item.bodyPart ?? '',
-          equipment: item.equipment ?? 'マシン',
-          isAiGenerated: item.isAiGenerated === true,
-          frequency: item.frequency ?? 3
-        }));
+      const set = mock.menuSets[0];
+      const sorted = set.items.map((setItem, index) => ({
+        ...mock.menuItems.find((item) => item.trainingMenuItemId === setItem.trainingMenuItemId),
+        ...setItem,
+        ...(index === 0
+          ? {
+              lastPerformanceSnapshot: {
+                performedAtUtc: `${state.todayYmd}T10:00:00Z`,
+                weightKg: 25,
+                reps: 12,
+                sets: 3,
+                visitDateLocal: state.todayYmd
+              }
+            }
+          : {})
+      }));
       return json({
+        resolvedMenuSet: {
+          trainingMenuSetId: set.trainingMenuSetId,
+          setName: set.setName,
+          setType: set.setType,
+          source: set.source,
+          isDefault: set.isDefault
+        },
+        resolvedFromDailyPlan: false,
         items: sorted,
         todayDoneTrainingMenuItemIds: []
       });
@@ -305,14 +419,13 @@ async function attachCoreApiMock(page) {
       const item = {
         trainingMenuItemId: `mock-${mock.sequence}`,
         trainingName: String(input.trainingName ?? '').trim(),
+        bodyPart: String(input.bodyPart ?? ''),
+        equipment: input.equipment ?? 'その他',
         description: String(input.description ?? '').trim(),
-        defaultWeightKg: Number(input.defaultWeightKg ?? 0),
         weightInputMode: input.weightInputMode ?? 'direct',
         loadMultiplier: Number(input.loadMultiplier ?? 1),
         fixedWeightKg: Number(input.fixedWeightKg ?? 0),
-        defaultRepsMin: repsMin,
-        defaultRepsMax: repsMax,
-        defaultSets: Number(input.defaultSets ?? 0),
+        usageCount: 0,
         displayOrder: mock.menuItems.length + 1,
         isActive: true,
         createdAt: now,
@@ -741,48 +854,28 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await page.goto('/training-menu');
 
   const uniqueName = `UI追加-${Date.now()}`;
-  const addSection = page
-    .locator('section.card')
-    .filter({ has: page.getByRole('heading', { name: /へ種目追加/ }) })
-    .first();
+  await page.getByRole('button', { name: '種目一覧' }).click();
+  const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
+  await createPanel.locator('summary').click();
+  await createPanel.getByLabel('種目名').fill(uniqueName);
+  await createPanel.getByLabel('鍛える部位').fill('胸');
+  await createPanel.getByLabel('用具').selectOption('フリー');
+  await createPanel.getByLabel('重量入力方式').selectOption('perSide');
+  await createPanel.getByLabel('バーなどの固定重量').fill('20');
+  await createPanel.getByLabel('種目の説明').fill('胸を張ってゆっくり動かす。');
+  await createPanel.getByRole('button', { name: '種目一覧へ登録' }).click();
 
-  await addSection.getByLabel('トレーニング名').fill(uniqueName);
-  await addSection.getByLabel('重量 (kg)').fill('22.5');
-  await addSection.getByLabel('重量の入力方式').selectOption('perSide');
-  await addSection.getByLabel('バー等の固定分 (kg)').fill('20');
-  await addSection.getByLabel('回数 最小').fill('8');
-  await addSection.getByLabel('回数 最大').fill('11');
-  await addSection.getByLabel('セット').fill('3');
-  await addSection.getByLabel('説明').fill('胸を張ってゆっくり動かす。');
-  await addSection.getByRole('button', { name: 'このセットへ追加', exact: true }).click();
-
-  const addedCard = page.locator('article.card').filter({ has: page.locator(`input[value="${uniqueName}"]`) }).first();
+  const addedCard = page.locator('details.menu-item-library-card').filter({ hasText: uniqueName });
   await expect(addedCard).toBeVisible();
-  await expect(addedCard.getByLabel('説明')).toHaveValue('胸を張ってゆっくり動かす。');
-  await expect(addedCard.getByText('換算総重量: 65kg')).toBeVisible();
+  await addedCard.locator('summary').click();
+  await expect(addedCard.getByLabel('種目の説明')).toHaveValue('胸を張ってゆっくり動かす。');
+  await addedCard.getByLabel('鍛える部位').fill('上胸');
+  await addedCard.getByRole('button', { name: '種目情報を保存' }).click();
+  await expect(addedCard.getByLabel('鍛える部位')).toHaveValue('上胸');
 
-  const weightInput = addedCard.getByLabel('重量 (kg)');
-  await weightInput.fill('');
-  await expect(weightInput).toHaveValue('');
-  await weightInput.fill('0');
-  await weightInput.blur();
-  await expect(weightInput).toHaveValue('0');
-
-  const repsMinInput = addedCard.getByLabel('回数 最小');
-  await repsMinInput.fill('');
-  await expect(repsMinInput).toHaveValue('');
-  await repsMinInput.fill('7');
-  await repsMinInput.blur();
-  await expect(repsMinInput).toHaveValue('7');
-
-  await addedCard.getByLabel('回数 最大').fill('9');
-  await addedCard.getByLabel('回数 最大').blur();
-  await expect(addedCard.getByLabel('回数 最大')).toHaveValue('9');
-
-  await addedCard.getByRole('button', { name: '上へ移動' }).click();
-  await addedCard.getByRole('button', { name: '下へ移動' }).click();
-  await addedCard.getByRole('button', { name: '種目削除' }).click();
-  await expect(page.locator('article.card').filter({ has: page.locator(`input[value="${uniqueName}"]`) })).toHaveCount(0);
+  page.once('dialog', (dialog) => dialog.accept());
+  await addedCard.getByRole('button', { name: '種目自体を削除' }).click();
+  await expect(page.locator('details.menu-item-library-card').filter({ hasText: uniqueName })).toHaveCount(0);
 });
 
 test('カレンダーとDailyで記録の入力・参照ができる', async ({ page }) => {

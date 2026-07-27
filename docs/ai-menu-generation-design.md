@@ -4,6 +4,10 @@
 対象: 実装正本
 ステータス: 実装済み
 
+> AIによる今日の一時セット作成、既存種目再利用、新規種目混在の設計は
+> `docs/training-menu-and-daily-plan-requirements.md` を正本とする。
+> 本書の旧登録ツール契約は移行前設計である。
+
 ## 1. 設計方針
 
 - UIは `AiRuntimeEndpoint` に対してメニュー生成専用チャットを行う

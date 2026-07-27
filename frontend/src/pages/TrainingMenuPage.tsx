@@ -1,707 +1,724 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useAppState } from '../AppState';
-import type { TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem, WeightInputMode } from '../types';
+import { useAppState, useTodayYmd } from '../AppState';
+import {
+  addTrainingMenuItemToSet,
+  createTrainingMenuItem,
+  createTrainingMenuSet,
+  deleteTrainingMenuItem,
+  deleteTrainingMenuSet,
+  getDailyTrainingPlan,
+  putDailyTrainingPlan,
+  removeTrainingMenuItemFromSet,
+  reorderTrainingMenuSetItems,
+  updateTrainingMenuItem,
+  updateTrainingMenuSet,
+  updateTrainingMenuSetItem
+} from '../api/coreApi';
+import type {
+  TrainingEquipment,
+  TrainingFrequencyDays,
+  TrainingMenuItem,
+  TrainingMenuSet,
+  TrainingMenuSetItem,
+  WeightInputMode
+} from '../types';
 import { formatTrainingLabel } from '../utils/training';
-import { calculateTotalWeightKg } from '../utils/weightLoad';
 
-const CREATE_NEW_SET_OPTION = '__create_new_set__';
-const TRAINING_EQUIPMENT_OPTIONS: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
-const TRAINING_FREQUENCY_OPTIONS: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
+type MenuTab = 'sets' | 'items';
+type SetItemDraft = TrainingMenuSetItem;
 
-function frequencyLabel(days: TrainingFrequencyDays): string {
-  if (days === 1) {
-    return '毎日';
-  }
-  if (days === 8) {
-    return '8日+';
-  }
-  return `${days}日`;
+const equipmentOptions: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
+const intervalOptions: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
+
+function intervalLabel(value: TrainingFrequencyDays): string {
+  return value === 1 ? '毎日' : value === 8 ? '8日以上' : `${value}日`;
 }
 
-function MenuMetricInput({
-  label,
-  value,
-  min,
-  step,
-  onCommit
-}: {
-  label: string;
-  value: number;
-  min: number;
-  step: number;
-  onCommit: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState(String(value));
+function errorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message ? error.message : fallback;
+}
 
-  useEffect(() => {
-    setDraft(String(value));
-  }, [value]);
-
-  function commitDraft(isValid: boolean) {
-    const trimmed = draft.trim();
-    const nextValue = Number(trimmed);
-    if (!trimmed || !isValid || !Number.isFinite(nextValue) || nextValue < min) {
-      setDraft(String(value));
-      return;
-    }
-    if (nextValue === value) {
-      setDraft(String(value));
-      return;
-    }
-    onCommit(nextValue);
+function validatePrescription(item: SetItemDraft): string | null {
+  if (!Number.isFinite(item.targetWeightKg) || item.targetWeightKg < 0) {
+    return '目標重量は0以上で入力してください。';
   }
+  if (
+    item.targetRepsMin < 1 ||
+    item.targetRepsMax < item.targetRepsMin ||
+    item.targetSets < 1
+  ) {
+    return '回数とセット数を確認してください。';
+  }
+  return null;
+}
 
-  return (
-    <label>
-      {label}
-      <input
-        type="number"
-        min={min}
-        step={step}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={(e) => commitDraft(e.currentTarget.validity.valid)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            e.currentTarget.blur();
-          }
-          if (e.key === 'Escape') {
-            setDraft(String(value));
-          }
-        }}
-      />
-    </label>
-  );
+async function confirmDailyPlanReplacement(date: string, nextSetId?: string): Promise<boolean> {
+  const current = await getDailyTrainingPlan(date);
+  if (!current || current.trainingMenuSetId === nextSetId) {
+    return true;
+  }
+  return window.confirm('今日のメニューはすでに設定されています。新しいメニューに置き換えますか？');
 }
 
 export function TrainingMenuPage() {
-  const {
-    data,
-    addMenuItem,
-    updateMenuItem,
-    deleteMenuItem,
-    createMenuSet,
-    renameMenuSet,
-    deleteMenuSet,
-    setDefaultMenuSet,
-    setActiveMenuSet,
-    assignMenuItemToSet,
-    unassignMenuItemFromSet,
-    moveMenuItemInSet,
-    coreDataError,
-    isCoreDataLoading
-  } = useAppState();
-  const [statusText, setStatusText] = useState('');
-  const [setNameDraft, setSetNameDraft] = useState('');
-  const [setDefaultChecked, setSetDefaultChecked] = useState(false);
-  const [setAiGeneratedChecked, setSetAiGeneratedChecked] = useState(false);
-  const [isCreateSetMode, setIsCreateSetMode] = useState(false);
-  const [showDeleteSetConfirm, setShowDeleteSetConfirm] = useState(false);
-  const [selectedExistingItemId, setSelectedExistingItemId] = useState('');
+  const { data, refreshCoreData, isCoreDataLoading, coreDataError } = useAppState();
+  const today = useTodayYmd();
+  const [tab, setTab] = useState<MenuTab>('sets');
+  const [selectedSetId, setSelectedSetId] = useState('');
+  const [status, setStatus] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
 
   const menuSets = useMemo(() => [...data.menuSets].sort((a, b) => a.order - b.order), [data.menuSets]);
-  const activeSet = useMemo(() => {
-    return menuSets.find((set) => set.id === data.activeTrainingMenuSetId) ?? menuSets.find((set) => set.isDefault) ?? menuSets[0];
-  }, [data.activeTrainingMenuSetId, menuSets]);
-  const editingSet = isCreateSetMode ? null : activeSet;
-  const isFirstSetCreation = isCreateSetMode && menuSets.length === 0;
+  const menuItems = useMemo(
+    () => [...data.menuItems].sort((a, b) => a.trainingName.localeCompare(b.trainingName)),
+    [data.menuItems]
+  );
+  const selectedSet = menuSets.find((set) => set.id === selectedSetId) ?? menuSets[0] ?? null;
 
   useEffect(() => {
-    if (menuSets.length > 0) {
-      return;
+    if (!selectedSetId && menuSets[0]) {
+      setSelectedSetId(menuSets[0].id);
+    } else if (selectedSetId && !menuSets.some((set) => set.id === selectedSetId)) {
+      setSelectedSetId(menuSets[0]?.id ?? '');
     }
-    if (!isCreateSetMode) {
-      setIsCreateSetMode(true);
+  }, [menuSets, selectedSetId]);
+
+  async function run(action: () => Promise<void>, success: string) {
+    setIsSaving(true);
+    setStatus('');
+    try {
+      await action();
+      await refreshCoreData();
+      setStatus(success);
+    } catch (error) {
+      setStatus(errorMessage(error, '操作に失敗しました。'));
+    } finally {
+      setIsSaving(false);
     }
-    if (!setDefaultChecked) {
-      setSetDefaultChecked(true);
-    }
-  }, [isCreateSetMode, menuSets.length, setDefaultChecked]);
-
-  useEffect(() => {
-    if (isCreateSetMode) {
-      return;
-    }
-    setSetNameDraft(activeSet?.setName ?? '');
-    setSetDefaultChecked(Boolean(activeSet?.isDefault));
-    setSetAiGeneratedChecked(Boolean(activeSet?.isAiGenerated));
-    setSelectedExistingItemId('');
-    setShowDeleteSetConfirm(false);
-  }, [activeSet?.id, activeSet?.setName, activeSet?.isDefault, activeSet?.isAiGenerated, isCreateSetMode]);
-
-  const menuItemById = useMemo(() => {
-    return new Map(data.menuItems.map((item) => [item.id, item]));
-  }, [data.menuItems]);
-
-  const selectedSetItems = useMemo(() => {
-    if (!editingSet) {
-      return [];
-    }
-    return editingSet.itemIds
-      .map((itemId) => menuItemById.get(itemId))
-      .filter((item): item is TrainingMenuItem => item !== undefined);
-  }, [editingSet, menuItemById]);
-
-  const selectedSetItemIds = useMemo(() => new Set(selectedSetItems.map((item) => item.id)), [selectedSetItems]);
-
-  const addableExistingItems = useMemo(() => {
-    return [...data.menuItems]
-      .filter((item) => !selectedSetItemIds.has(item.id))
-      .sort((a, b) => a.trainingName.localeCompare(b.trainingName));
-  }, [data.menuItems, selectedSetItemIds]);
-
-  function onAdd(formData: FormData, targetSetId: string): boolean {
-    const trainingName = String(formData.get('trainingName') ?? '').trim();
-    const bodyPart = String(formData.get('bodyPart') ?? '').trim();
-    const equipment = String(formData.get('equipment') ?? '').trim() as TrainingEquipment;
-    const isAiGenerated = formData.get('isAiGenerated') === 'on';
-    const description = String(formData.get('description') ?? '').trim();
-    const frequency = Number(formData.get('frequency') ?? 0) as TrainingFrequencyDays;
-    const weightInputMode =
-      String(formData.get('weightInputMode') ?? 'direct') === 'perSide' ? 'perSide' : 'direct';
-    if (!trainingName) {
-      setStatusText('トレーニング名を入力してください。');
-      return false;
-    }
-    addMenuItem(
-      {
-        trainingName,
-        bodyPart,
-        equipment: TRAINING_EQUIPMENT_OPTIONS.includes(equipment) ? equipment : 'マシン',
-        isAiGenerated,
-        description,
-        frequency: TRAINING_FREQUENCY_OPTIONS.includes(frequency) ? frequency : 3,
-        defaultWeightKg: Number(formData.get('defaultWeightKg') ?? 0),
-        weightInputMode,
-        loadMultiplier: weightInputMode === 'perSide' ? 2 : 1,
-        fixedWeightKg: weightInputMode === 'perSide' ? Number(formData.get('fixedWeightKg') ?? 0) : 0,
-        defaultRepsMin: Number(formData.get('defaultRepsMin') ?? 0),
-        defaultRepsMax: Number(formData.get('defaultRepsMax') ?? 0),
-        defaultSets: Number(formData.get('defaultSets') ?? 0)
-      },
-      { targetSetId }
-    );
-    setStatusText('種目追加をリクエストしました。');
-    return true;
   }
-
-  const selectedSetOptionValue = isCreateSetMode ? CREATE_NEW_SET_OPTION : activeSet?.id ?? CREATE_NEW_SET_OPTION;
 
   return (
     <div className="stack-lg training-menu-page">
-      <section className="card training-menu-header-card">
+      <section className="card training-menu-header-card stack-md">
         <div className="row-between menu-page-head">
-          <select
-            className="menu-set-switch-select"
-            value={selectedSetOptionValue}
-            onChange={(e) => {
-              const nextValue = e.target.value;
-              if (nextValue === CREATE_NEW_SET_OPTION) {
-                setIsCreateSetMode(true);
-                setSetNameDraft('');
-                setSetDefaultChecked(menuSets.length === 0);
-                setSetAiGeneratedChecked(false);
-                setSelectedExistingItemId('');
-                return;
-              }
-              setIsCreateSetMode(false);
-              setActiveMenuSet(nextValue);
-            }}
-          >
-            <option value={CREATE_NEW_SET_OPTION}>メニューセット新規作成</option>
-            {menuSets.map((set) => (
-              <option key={set.id} value={set.id}>
-                {set.isDefault ? `${set.setName}（デフォルト）` : set.setName}
-              </option>
-            ))}
-          </select>
-          <Link to="/training-menu/ai-generate" className="btn ghost menu-generate-button">
-            AIでメニュー生成
+          <div>
+            <h1>トレーニングメニュー</h1>
+            <p className="muted">セットごとの目標と、共有する種目を分けて管理します。</p>
+          </div>
+          <Link to="/training-menu/ai-generate" className="btn primary menu-generate-button">
+            AIで今日のメニューを作る
           </Link>
         </div>
-      </section>
-
-      <section className="card stack-md training-menu-set-card">
-        <h2>メニューセット</h2>
-        <form
-          className="menu-set-single-form"
-          onSubmit={async (e: FormEvent<HTMLFormElement>) => {
-            e.preventDefault();
-            const trimmed = setNameDraft.trim();
-            if (!trimmed) {
-              setStatusText('メニューセット名を入力してください。');
-              return;
-            }
-
-            if (isCreateSetMode) {
-              const createdSetId = await createMenuSet(trimmed, {
-                isDefault: isFirstSetCreation || setDefaultChecked,
-                isAiGenerated: setAiGeneratedChecked
-              });
-              if (!createdSetId) {
-                setStatusText('メニューセット作成に失敗しました。');
-                return;
-              }
-              setActiveMenuSet(createdSetId);
-              setIsCreateSetMode(false);
-              setStatusText(`メニューセット「${trimmed}」を作成しました。`);
-              return;
-            }
-
-            if (!editingSet) {
-              return;
-            }
-
-            try {
-              await renameMenuSet(editingSet.id, trimmed, { isAiGenerated: setAiGeneratedChecked });
-              if (setDefaultChecked) {
-                await setDefaultMenuSet(editingSet.id);
-              }
-              setStatusText('メニューセットを更新しました。');
-            } catch {
-              setStatusText('メニューセット更新に失敗しました。');
-            }
-          }}
-        >
-          <div className="menu-set-name-edit-row">
-            <div className="row-wrap menu-set-flags-row">
-              <label className="menu-set-default-check">
-                <input
-                  type="checkbox"
-                  checked={isFirstSetCreation ? true : setDefaultChecked}
-                  onChange={(e) => {
-                    if (isFirstSetCreation) {
-                      return;
-                    }
-                    if (editingSet?.isDefault && !e.target.checked) {
-                      return;
-                    }
-                    setSetDefaultChecked(e.target.checked);
-                  }}
-                />
-                <span>デフォルト</span>
-              </label>
-              <label className="menu-set-default-check">
-                <input
-                  type="checkbox"
-                  checked={setAiGeneratedChecked}
-                  onChange={(e) => setSetAiGeneratedChecked(e.target.checked)}
-                />
-                <span>AI生成</span>
-              </label>
-            </div>
-            <input
-              value={setNameDraft}
-              onChange={(e) => setSetNameDraft(e.target.value)}
-              placeholder="メニューセット名"
-              maxLength={40}
-            />
-          </div>
-          <div className="menu-set-submit-row">
-            <button type="submit" className="btn subtle">
-              {isCreateSetMode ? '作成' : '更新'}
-            </button>
-            {!isCreateSetMode && editingSet && (
-              <button type="button" className="btn danger" onClick={() => setShowDeleteSetConfirm(true)}>
-                削除
-              </button>
-            )}
-          </div>
-        </form>
-
-        {statusText && <p className="status-text">{statusText}</p>}
-        {coreDataError && <p className="status-text">{coreDataError}</p>}
-      </section>
-
-      {showDeleteSetConfirm && editingSet && (
-        <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="delete-menu-set-title">
-          <div className="overlay-modal-card">
-            <h3 id="delete-menu-set-title">メニューセットを削除しますか？</h3>
-            <p>「{editingSet.setName}」を削除すると、このセットへの紐付けが解除されます。</p>
-            <div className="overlay-modal-actions">
-              <button type="button" className="btn subtle" onClick={() => setShowDeleteSetConfirm(false)}>
-                キャンセル
-              </button>
-              <button
-                type="button"
-                className="btn danger"
-                onClick={async () => {
-                  try {
-                    await deleteMenuSet(editingSet.id);
-                    setStatusText(`メニューセット「${editingSet.setName}」を削除しました。`);
-                    setShowDeleteSetConfirm(false);
-                    setIsCreateSetMode(false);
-                  } catch {
-                    setStatusText('メニューセット削除に失敗しました。');
-                    setShowDeleteSetConfirm(false);
-                  }
-                }}
-              >
-                削除する
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {editingSet && (
-        <section className="card stack-md training-menu-editor-card">
-          <h2>「{editingSet.setName}」へ種目追加</h2>
-          <form
-            className="menu-add-form"
-            onSubmit={(e: FormEvent<HTMLFormElement>) => {
-              e.preventDefault();
-              const form = e.currentTarget;
-              if (onAdd(new FormData(form), editingSet.id)) {
-                form.reset();
-              }
-            }}
+        <div className="menu-management-tabs" role="tablist" aria-label="メニュー管理">
+          <button
+            type="button"
+            className={`btn ${tab === 'sets' ? 'primary' : 'subtle'}`}
+            onClick={() => setTab('sets')}
           >
-            <div className="menu-training-name-row">
-              <label className="menu-training-name-field">
-                トレーニング名
-                <input name="trainingName" required />
-              </label>
-              <label className="menu-ai-generated-check">
-                <input name="isAiGenerated" type="checkbox" />
-                <span>AI生成</span>
-              </label>
-            </div>
-            <div className="menu-field-group">
-              <p className="menu-field-group-title">基本設定</p>
-              <div className="menu-three-fields-row">
-                <label>
-                  鍛える部位
-                  <input name="bodyPart" placeholder="例: 胸 / 背中 / 脚" />
-                </label>
-                <label>
-                  用具
-                  <select name="equipment" defaultValue="マシン" required>
-                    {TRAINING_EQUIPMENT_OPTIONS.map((equipment) => (
-                      <option key={equipment} value={equipment}>
-                        {equipment}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label>
-                  頻度
-                  <select name="frequency" defaultValue="3" required>
-                    {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
-                      <option key={frequency} value={String(frequency)}>
-                        {frequencyLabel(frequency)}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div className="menu-field-group">
-              <p className="menu-field-group-title">重量設定</p>
-              <div className="menu-weight-fields-row">
-                <label>
-                  重量 (kg)
-                  <input name="defaultWeightKg" type="number" step="0.01" min="0" required />
-                </label>
-                <label>
-                  重量の入力方式
-                  <select name="weightInputMode" defaultValue="direct" required>
-                    <option value="direct">入力値が総重量</option>
-                    <option value="perSide">片側重量 × 2</option>
-                  </select>
-                </label>
-                <label>
-                  バー等の固定分 (kg)
-                  <input name="fixedWeightKg" type="number" step="0.01" min="0" defaultValue="0" required />
-                </label>
-              </div>
-              <p className="muted menu-weight-help">片側重量の場合: 入力重量 × 2 + バー等の固定分</p>
-            </div>
-            <div className="menu-field-group">
-              <p className="menu-field-group-title">回数・セット</p>
-              <div className="menu-reps-fields-row">
-                <label>
-                  回数 最小
-                  <input name="defaultRepsMin" type="number" step="1" min="1" required />
-                </label>
-                <label>
-                  回数 最大
-                  <input name="defaultRepsMax" type="number" step="1" min="1" required />
-                </label>
-                <label>
-                  セット
-                  <input name="defaultSets" type="number" step="1" min="1" required />
-                </label>
-              </div>
-            </div>
-            <label className="menu-training-note-field">
-              説明
-              <textarea
-                name="description"
-                rows={2}
-                maxLength={500}
-                placeholder="フォームや注意点など、種目の説明を入力"
-              />
-            </label>
-            <button className="btn primary menu-add-button" type="submit" disabled={isCoreDataLoading}>
-              {isCoreDataLoading ? '同期中...' : 'このセットへ追加'}
-            </button>
-          </form>
-
-          <div className="menu-existing-attach">
-            <label>
-              既存種目を追加
-              <select value={selectedExistingItemId} onChange={(e) => setSelectedExistingItemId(e.target.value)}>
-                <option value="">種目を選択</option>
-                {addableExistingItems.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <button
-              type="button"
-              className="btn subtle"
-              disabled={!selectedExistingItemId}
-              onClick={async () => {
-                try {
-                  await assignMenuItemToSet(editingSet.id, selectedExistingItemId);
-                  setSelectedExistingItemId('');
-                  setStatusText('既存種目をセットへ追加しました。');
-                } catch {
-                  setStatusText('既存種目の追加に失敗しました。');
-                }
-              }}
-            >
-              セットに追加
-            </button>
-          </div>
-        </section>
-      )}
-
-      {!editingSet && (
-        <section className="card training-menu-empty-card">
-          <p className="muted">メニューセットを作成すると、種目を追加できます。</p>
-        </section>
-      )}
-
-      <section className="stack-md training-menu-item-list">
-        {editingSet && selectedSetItems.length === 0 && <p className="muted">このメニューセットには種目がありません。</p>}
-        {editingSet &&
-          selectedSetItems.map((item, index) => (
-            <MenuItemCard
-              key={item.id}
-              order={index + 1}
-              item={item}
-              onUpdate={(patch) => updateMenuItem(item.id, patch)}
-              onDelete={() => deleteMenuItem(item.id)}
-              onRemoveFromSet={async () => {
-                try {
-                  await unassignMenuItemFromSet(editingSet.id, item.id);
-                  setStatusText(`「${item.trainingName}」をセットから外しました。`);
-                } catch {
-                  setStatusText(`「${item.trainingName}」をセットから外せませんでした。`);
-                }
-              }}
-              onMoveUp={() => void moveMenuItemInSet(editingSet.id, item.id, -1).catch(() => undefined)}
-              onMoveDown={() => void moveMenuItemInSet(editingSet.id, item.id, 1).catch(() => undefined)}
-            />
-          ))}
+            メニューセット
+          </button>
+          <button
+            type="button"
+            className={`btn ${tab === 'items' ? 'primary' : 'subtle'}`}
+            onClick={() => setTab('items')}
+          >
+            種目一覧
+          </button>
+        </div>
+        {(status || coreDataError) && <p className="status-text">{status || coreDataError}</p>}
       </section>
+
+      {tab === 'sets' ? (
+        <SetManagement
+          sets={menuSets}
+          items={menuItems}
+          selectedSet={selectedSet}
+          today={today}
+          disabled={isSaving || isCoreDataLoading}
+          onSelect={setSelectedSetId}
+          onRun={run}
+          onCreated={setSelectedSetId}
+        />
+      ) : (
+        <ItemLibrary items={menuItems} disabled={isSaving || isCoreDataLoading} onRun={run} />
+      )}
     </div>
   );
 }
 
-function MenuItemCard({
-  order,
-  item,
-  onUpdate,
-  onDelete,
-  onRemoveFromSet,
-  onMoveUp,
-  onMoveDown
+function SetManagement({
+  sets,
+  items,
+  selectedSet,
+  today,
+  disabled,
+  onSelect,
+  onRun,
+  onCreated
 }: {
-  order: number;
-  item: TrainingMenuItem;
-  onUpdate: (patch: Partial<TrainingMenuItem>) => void;
-  onDelete: () => void;
-  onRemoveFromSet: () => void;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
+  sets: TrainingMenuSet[];
+  items: TrainingMenuItem[];
+  selectedSet: TrainingMenuSet | null;
+  today: string;
+  disabled: boolean;
+  onSelect: (id: string) => void;
+  onRun: (action: () => Promise<void>, success: string) => Promise<void>;
+  onCreated: (id: string) => void;
 }) {
-  return (
-    <article className="card menu-item-card">
-      <div className="menu-item-header-under">
-        <p className="priority-chip">#{order}</p>
-        <div className="menu-item-actions-under">
-          <button type="button" className="btn subtle menu-item-icon-button" onClick={onMoveUp} aria-label="上へ移動">
-            ↑
-          </button>
-          <button type="button" className="btn subtle menu-item-icon-button" onClick={onMoveDown} aria-label="下へ移動">
-            ↓
-          </button>
-          <button type="button" className="btn subtle" onClick={onRemoveFromSet}>
-            セットから外す
-          </button>
-          <button type="button" className="btn danger menu-item-delete-button" onClick={onDelete}>
-            種目削除
-          </button>
-        </div>
-      </div>
+  const [newSetName, setNewSetName] = useState('');
+  const [newSetType, setNewSetType] = useState<'reusable' | 'temporary'>('reusable');
 
-      <div className="menu-item-editor">
-        <div className="menu-training-name-row">
-          <label className="menu-training-name-field">
-            トレーニング名
-            <input value={item.trainingName} onChange={(e) => onUpdate({ trainingName: e.target.value })} />
-          </label>
-          <label className="menu-ai-generated-check">
-            <input
-              type="checkbox"
-              checked={item.isAiGenerated}
-              onChange={(e) => onUpdate({ isAiGenerated: e.target.checked })}
-            />
-            <span>AI生成</span>
-          </label>
+  return (
+    <div className="menu-management-layout">
+      <aside className="card stack-md menu-set-sidebar">
+        <h2>メニューセット</h2>
+        <div className="stack-sm">
+          {sets.map((set) => (
+            <button
+              type="button"
+              key={set.id}
+              className={`menu-set-list-button${selectedSet?.id === set.id ? ' active' : ''}`}
+              onClick={() => onSelect(set.id)}
+            >
+              <span>{set.setName}</span>
+              <small>
+                {set.setType === 'temporary' ? '一時' : '恒常'}
+                {set.source === 'ai' ? '・AI作成' : ''}
+                {set.isDefault ? '・デフォルト' : ''}・{set.items.length}種目
+              </small>
+            </button>
+          ))}
+          {sets.length === 0 && <p className="muted">まだメニューセットがありません。</p>}
         </div>
-        <div className="menu-field-group">
-          <p className="menu-field-group-title">基本設定</p>
-          <div className="menu-three-fields-row">
-            <label>
-              鍛える部位
-              <input
-                value={item.bodyPart}
-                onChange={(e) => onUpdate({ bodyPart: e.target.value })}
-                placeholder="例: 胸 / 背中 / 脚"
-              />
-            </label>
-            <label>
-              用具
-              <select
-                value={item.equipment}
-                onChange={(e) =>
-                  onUpdate({
-                    equipment: e.target.value as TrainingEquipment
-                  })
-                }
-              >
-                {TRAINING_EQUIPMENT_OPTIONS.map((equipment) => (
-                  <option key={equipment} value={equipment}>
-                    {equipment}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              頻度
-              <select
-                value={item.frequency}
-                onChange={(e) =>
-                  onUpdate({
-                    frequency: Number(e.target.value) as TrainingFrequencyDays
-                  })
-                }
-              >
-                {TRAINING_FREQUENCY_OPTIONS.map((frequency) => (
-                  <option key={frequency} value={String(frequency)}>
-                    {frequencyLabel(frequency)}
-                  </option>
-                ))}
-              </select>
-            </label>
+        <form
+          className="stack-sm menu-set-create-panel"
+          onSubmit={async (event) => {
+            event.preventDefault();
+            const name = newSetName.trim();
+            if (!name) return;
+            if (newSetType === 'temporary' && !(await confirmDailyPlanReplacement(today))) {
+              return;
+            }
+            let createdId = '';
+            await onRun(async () => {
+              const created = await createTrainingMenuSet({
+                setName: name,
+                setType: newSetType,
+                source: 'manual',
+                scheduledDate: newSetType === 'temporary' ? today : undefined
+              });
+              createdId = created.trainingMenuSetId;
+              if (newSetType === 'temporary') {
+                await putDailyTrainingPlan(today, createdId);
+              }
+            }, newSetType === 'temporary' ? '一時セットを作成し、今日のメニューに設定しました。' : 'メニューセットを作成しました。');
+            if (createdId) {
+              onCreated(createdId);
+              setNewSetName('');
+            }
+          }}
+        >
+          <strong>新しいセット</strong>
+          <input
+            value={newSetName}
+            onChange={(event) => setNewSetName(event.target.value)}
+            placeholder="例: 胸の日 / 今日の回復メニュー"
+            maxLength={40}
+          />
+          <select value={newSetType} onChange={(event) => setNewSetType(event.target.value as 'reusable' | 'temporary')}>
+            <option value="reusable">恒常セット</option>
+            <option value="temporary">今日の一時セット</option>
+          </select>
+          <button className="btn primary" type="submit" disabled={disabled || !newSetName.trim()}>
+            作成
+          </button>
+        </form>
+      </aside>
+
+      <main className="stack-md menu-set-detail">
+        {selectedSet ? (
+          <SetEditor set={selectedSet} menuItems={items} today={today} disabled={disabled} onRun={onRun} />
+        ) : (
+          <section className="card">
+            <p className="muted">左のフォームからメニューセットを作成してください。</p>
+          </section>
+        )}
+      </main>
+    </div>
+  );
+}
+
+function SetEditor({
+  set,
+  menuItems,
+  today,
+  disabled,
+  onRun
+}: {
+  set: TrainingMenuSet;
+  menuItems: TrainingMenuItem[];
+  today: string;
+  disabled: boolean;
+  onRun: (action: () => Promise<void>, success: string) => Promise<void>;
+}) {
+  const [name, setName] = useState(set.setName);
+  const [draftItems, setDraftItems] = useState<SetItemDraft[]>(set.items);
+  const [addItemId, setAddItemId] = useState('');
+
+  useEffect(() => {
+    setName(set.setName);
+    setDraftItems(set.items);
+    setAddItemId('');
+  }, [set.id, set.items, set.setName]);
+
+  const itemById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
+  const assignedIds = new Set(draftItems.map((item) => item.menuItemId));
+  const addableItems = menuItems.filter((item) => item.isActive && !assignedIds.has(item.id));
+  const dirty =
+    name.trim() !== set.setName ||
+    JSON.stringify(draftItems.map(({ id: _id, ...item }) => item)) !==
+      JSON.stringify(set.items.map(({ id: _id, ...item }) => item));
+
+  async function saveAll() {
+    const error = draftItems.map(validatePrescription).find(Boolean);
+    if (error) {
+      throw new Error(error);
+    }
+    await updateTrainingMenuSet(set.id, { setName: name.trim() });
+    for (const item of draftItems) {
+      const original = set.items.find((entry) => entry.id === item.id);
+      if (original && JSON.stringify(original) !== JSON.stringify(item)) {
+        await updateTrainingMenuSetItem(set.id, item.id, {
+          targetWeightKg: item.targetWeightKg,
+          targetRepsMin: item.targetRepsMin,
+          targetRepsMax: item.targetRepsMax,
+          targetSets: item.targetSets,
+          recommendedIntervalDays: item.recommendedIntervalDays,
+          instruction: item.instruction
+        });
+      }
+    }
+    if (draftItems.some((item, index) => item.order !== index + 1)) {
+      await reorderTrainingMenuSetItems(
+        set.id,
+        draftItems.map((item, index) => ({ trainingMenuSetItemId: item.id, displayOrder: index + 1 }))
+      );
+    }
+  }
+
+  return (
+    <>
+      <section className="card stack-md">
+        <div className="row-between">
+          <div>
+            <div className="row-wrap">
+              <span className="priority-chip">{set.setType === 'temporary' ? '一時' : '恒常'}</span>
+              {set.source === 'ai' && <span className="priority-chip">AI作成</span>}
+              {set.isDefault && <span className="priority-chip">デフォルト</span>}
+            </div>
+            <h2>{set.setName}</h2>
           </div>
-        </div>
-        <div className="menu-field-group">
-          <p className="menu-field-group-title">重量設定</p>
-          <div className="menu-weight-fields-row">
-            <MenuMetricInput
-              label="重量 (kg)"
-              value={item.defaultWeightKg}
-              min={0}
-              step={0.01}
-              onCommit={(value) => onUpdate({ defaultWeightKg: value })}
-            />
-            <label>
-              重量の入力方式
-              <select
-                value={item.weightInputMode}
-                onChange={(e) => {
-                  const mode = e.target.value as WeightInputMode;
-                  onUpdate({
-                    weightInputMode: mode,
-                    loadMultiplier: mode === 'perSide' ? 2 : 1,
-                    fixedWeightKg: mode === 'direct' ? 0 : item.fixedWeightKg
-                  });
+          <div className="row-wrap">
+            <button
+              type="button"
+              className="btn subtle"
+              disabled={disabled}
+              onClick={() => void onRun(
+                async () => {
+                  if (!(await confirmDailyPlanReplacement(today, set.id))) {
+                    throw new Error('今日のメニュー変更をキャンセルしました。');
+                  }
+                  await putDailyTrainingPlan(today, set.id);
+                },
+                '今日のメニューに設定しました。'
+              )}
+            >
+              今日使う
+            </button>
+            {!set.isDefault && (
+              <button
+                type="button"
+                className="btn danger"
+                disabled={disabled}
+                onClick={() => {
+                  if (window.confirm(`「${set.setName}」を削除しますか？ 実施履歴は残ります。`)) {
+                    void onRun(() => deleteTrainingMenuSet(set.id), 'メニューセットを削除しました。');
+                  }
                 }}
               >
-                {item.weightInputMode === 'legacyUnspecified' && (
-                  <option value="legacyUnspecified">未設定（従来データ）</option>
-                )}
-                <option value="direct">入力値が総重量</option>
-                <option value="perSide">片側重量 × 2</option>
-              </select>
-            </label>
-            <MenuMetricInput
-              label="バー等の固定分 (kg)"
-              value={item.fixedWeightKg}
-              min={0}
-              step={0.01}
-              onCommit={(value) => onUpdate({ fixedWeightKg: item.weightInputMode === 'direct' ? 0 : value })}
-            />
-          </div>
-          <p className="muted menu-total-weight">
-            {item.weightInputMode === 'legacyUnspecified'
-              ? '重量の意味が未設定です。総重量か片側重量かを選択してください。'
-              : item.weightInputMode === 'direct'
-                ? `換算総重量: ${item.defaultWeightKg}kg`
-                : `換算総重量: ${calculateTotalWeightKg(
-                    item.defaultWeightKg,
-                    item.weightInputMode,
-                    item.loadMultiplier,
-                    item.fixedWeightKg
-                  )}kg（片側 × ${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
-          </p>
-        </div>
-        <div className="menu-field-group">
-          <p className="menu-field-group-title">回数・セット</p>
-          <div className="menu-reps-fields-row">
-            <MenuMetricInput
-              label="回数 最小"
-              value={item.defaultRepsMin}
-              min={1}
-              step={1}
-              onCommit={(value) => onUpdate({ defaultRepsMin: value })}
-            />
-            <MenuMetricInput
-              label="回数 最大"
-              value={item.defaultRepsMax}
-              min={1}
-              step={1}
-              onCommit={(value) => onUpdate({ defaultRepsMax: value })}
-            />
-            <MenuMetricInput
-              label="セット"
-              value={item.defaultSets}
-              min={1}
-              step={1}
-              onCommit={(value) => onUpdate({ defaultSets: value })}
-            />
+                削除
+              </button>
+            )}
           </div>
         </div>
-        <label className="menu-training-note-field">
-          説明
-          <textarea
-            rows={2}
-            maxLength={500}
-            value={item.description}
-            onChange={(e) => onUpdate({ description: e.target.value })}
-            placeholder="フォームや注意点など、種目の説明を入力"
+        <label>
+          セット名
+          <input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} />
+        </label>
+        {set.setType === 'reusable' && !set.isDefault && (
+          <label className="menu-set-default-check">
+            <input
+              type="checkbox"
+              onChange={(event) => {
+                if (event.target.checked) {
+                  void onRun(() => updateTrainingMenuSet(set.id, { isDefault: true }).then(() => undefined), 'デフォルトセットを変更しました。');
+                }
+              }}
+            />
+            <span>デフォルトセットにする</span>
+          </label>
+        )}
+      </section>
+
+      <section className="card stack-md">
+        <h3>既存種目を追加</h3>
+        <div className="menu-existing-attach">
+          <select value={addItemId} onChange={(event) => setAddItemId(event.target.value)}>
+            <option value="">種目を選択</option>
+            {addableItems.map((item) => (
+              <option key={item.id} value={item.id}>
+                {formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            className="btn subtle"
+            disabled={disabled || !addItemId}
+            onClick={() => void onRun(
+              async () => {
+                await addTrainingMenuItemToSet(set.id, {
+                  trainingMenuItemId: addItemId,
+                  targetWeightKg: 0,
+                  targetRepsMin: 8,
+                  targetRepsMax: 12,
+                  targetSets: 3,
+                  recommendedIntervalDays: 3
+                });
+              },
+              '種目をセットへ追加しました。'
+            )}
+          >
+            追加
+          </button>
+        </div>
+        <p className="muted">新しい種目は「種目一覧」タブで登録してから追加できます。</p>
+      </section>
+
+      <section className="stack-md">
+        {draftItems.map((setItem, index) => {
+          const menuItem = itemById.get(setItem.menuItemId);
+          if (!menuItem) return null;
+          return (
+            <article className="card stack-md menu-set-prescription-card" key={setItem.id}>
+              <div className="row-between">
+                <div>
+                  <p className="priority-chip">#{index + 1}</p>
+                  <h3>{formatTrainingLabel(menuItem.trainingName, menuItem.bodyPart, menuItem.equipment, menuItem.isAiGenerated)}</h3>
+                </div>
+                <div className="row-wrap">
+                  <button
+                    type="button"
+                    className="btn subtle"
+                    disabled={index === 0}
+                    onClick={() => setDraftItems((current) => {
+                      const next = [...current];
+                      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+                      return next;
+                    })}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    className="btn subtle"
+                    disabled={index === draftItems.length - 1}
+                    onClick={() => setDraftItems((current) => {
+                      const next = [...current];
+                      [next[index], next[index + 1]] = [next[index + 1], next[index]];
+                      return next;
+                    })}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    className="btn danger"
+                    disabled={disabled}
+                    onClick={() => void onRun(
+                      () => removeTrainingMenuItemFromSet(set.id, setItem.id),
+                      '種目をセットから外しました。'
+                    )}
+                  >
+                    セットから外す
+                  </button>
+                </div>
+              </div>
+              <div className="menu-prescription-grid">
+                <label>
+                  目標重量 (kg)
+                  <input
+                    type="number"
+                    min={0}
+                    step={0.01}
+                    value={setItem.targetWeightKg}
+                    onChange={(event) => setDraftItems((current) => current.map((item) =>
+                      item.id === setItem.id ? { ...item, targetWeightKg: Number(event.target.value) } : item
+                    ))}
+                  />
+                </label>
+                <label>
+                  回数 最小
+                  <input
+                    type="number"
+                    min={1}
+                    value={setItem.targetRepsMin}
+                    onChange={(event) => setDraftItems((current) => current.map((item) =>
+                      item.id === setItem.id ? { ...item, targetRepsMin: Number(event.target.value) } : item
+                    ))}
+                  />
+                </label>
+                <label>
+                  回数 最大
+                  <input
+                    type="number"
+                    min={1}
+                    value={setItem.targetRepsMax}
+                    onChange={(event) => setDraftItems((current) => current.map((item) =>
+                      item.id === setItem.id ? { ...item, targetRepsMax: Number(event.target.value) } : item
+                    ))}
+                  />
+                </label>
+                <label>
+                  セット数
+                  <input
+                    type="number"
+                    min={1}
+                    value={setItem.targetSets}
+                    onChange={(event) => setDraftItems((current) => current.map((item) =>
+                      item.id === setItem.id ? { ...item, targetSets: Number(event.target.value) } : item
+                    ))}
+                  />
+                </label>
+                <label>
+                  推奨間隔
+                  <select
+                    value={setItem.recommendedIntervalDays}
+                    onChange={(event) => setDraftItems((current) => current.map((item) =>
+                      item.id === setItem.id
+                        ? { ...item, recommendedIntervalDays: Number(event.target.value) as TrainingFrequencyDays }
+                        : item
+                    ))}
+                  >
+                    {intervalOptions.map((value) => <option value={value} key={value}>{intervalLabel(value)}</option>)}
+                  </select>
+                </label>
+              </div>
+              <label>
+                このセットでの補足
+                <textarea
+                  value={setItem.instruction}
+                  maxLength={500}
+                  rows={2}
+                  onChange={(event) => setDraftItems((current) => current.map((item) =>
+                    item.id === setItem.id ? { ...item, instruction: event.target.value } : item
+                  ))}
+                />
+              </label>
+            </article>
+          );
+        })}
+        {draftItems.length === 0 && <article className="card"><p className="muted">このセットにはまだ種目がありません。</p></article>}
+      </section>
+
+      <section className="sticky-action">
+        <button
+          type="button"
+          className="btn primary large"
+          disabled={disabled || !dirty || !name.trim()}
+          onClick={() => void onRun(saveAll, 'メニューセットを保存しました。')}
+        >
+          変更を保存
+        </button>
+      </section>
+    </>
+  );
+}
+
+function ItemLibrary({
+  items,
+  disabled,
+  onRun
+}: {
+  items: TrainingMenuItem[];
+  disabled: boolean;
+  onRun: (action: () => Promise<void>, success: string) => Promise<void>;
+}) {
+  const [query, setQuery] = useState('');
+  const filtered = items.filter((item) => {
+    const needle = query.trim().toLowerCase();
+    return !needle || `${item.trainingName} ${item.bodyPart} ${item.equipment}`.toLowerCase().includes(needle);
+  });
+
+  return (
+    <div className="stack-md">
+      <section className="card stack-md">
+        <div className="row-between">
+          <div>
+            <h2>種目一覧</h2>
+            <p className="muted">どのセットにも属していない種目も、ここで管理できます。</p>
+          </div>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="種目名・部位・用具で検索"
           />
+        </div>
+      </section>
+      <NewMenuItemForm disabled={disabled} onRun={onRun} />
+      {filtered.map((item) => (
+        <MenuItemEditor key={item.id} item={item} disabled={disabled} onRun={onRun} />
+      ))}
+      {filtered.length === 0 && <section className="card"><p className="muted">条件に一致する種目がありません。</p></section>}
+    </div>
+  );
+}
+
+function NewMenuItemForm({
+  disabled,
+  onRun
+}: {
+  disabled: boolean;
+  onRun: (action: () => Promise<void>, success: string) => Promise<void>;
+}) {
+  return (
+    <details className="card">
+      <summary>新しい種目を登録</summary>
+      <MenuItemForm
+        submitLabel="種目一覧へ登録"
+        disabled={disabled}
+        onSubmit={(value) => onRun(() => createTrainingMenuItem(value).then(() => undefined), '新しい種目を登録しました。')}
+      />
+    </details>
+  );
+}
+
+function MenuItemEditor({
+  item,
+  disabled,
+  onRun
+}: {
+  item: TrainingMenuItem;
+  disabled: boolean;
+  onRun: (action: () => Promise<void>, success: string) => Promise<void>;
+}) {
+  return (
+    <details className="card menu-item-library-card">
+      <summary>
+        <span>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</span>
+        <small>{item.usageCount}セットで使用</small>
+      </summary>
+      <MenuItemForm
+        initial={item}
+        submitLabel="種目情報を保存"
+        disabled={disabled}
+        onSubmit={(value) => onRun(
+          () => updateTrainingMenuItem(item.id, value).then(() => undefined),
+          '種目情報を保存しました。'
+        )}
+      />
+      <button
+        type="button"
+        className="btn danger"
+        disabled={disabled}
+        onClick={() => {
+          const text = item.usageCount > 0
+            ? `${item.usageCount}個のセットからも外れます。種目を削除しますか？`
+            : 'この種目を削除しますか？';
+          if (window.confirm(text)) {
+            void onRun(() => deleteTrainingMenuItem(item.id), '種目を削除しました。実施履歴は残ります。');
+          }
+        }}
+      >
+        種目自体を削除
+      </button>
+    </details>
+  );
+}
+
+function MenuItemForm({
+  initial,
+  submitLabel,
+  disabled,
+  onSubmit
+}: {
+  initial?: TrainingMenuItem;
+  submitLabel: string;
+  disabled: boolean;
+  onSubmit: (value: {
+    trainingName: string;
+    bodyPart: string;
+    equipment: TrainingEquipment;
+    description: string;
+    weightInputMode: WeightInputMode;
+    loadMultiplier: 1 | 2;
+    fixedWeightKg: number;
+  }) => Promise<void>;
+}) {
+  return (
+    <form
+      className="stack-md menu-library-form"
+      onSubmit={(event: FormEvent<HTMLFormElement>) => {
+        event.preventDefault();
+        const form = new FormData(event.currentTarget);
+        const mode = form.get('weightInputMode') === 'perSide' ? 'perSide' : 'direct';
+        void onSubmit({
+          trainingName: String(form.get('trainingName') ?? '').trim(),
+          bodyPart: String(form.get('bodyPart') ?? '').trim(),
+          equipment: String(form.get('equipment') ?? 'その他') as TrainingEquipment,
+          description: String(form.get('description') ?? '').trim(),
+          weightInputMode: mode,
+          loadMultiplier: mode === 'perSide' ? 2 : 1,
+          fixedWeightKg: mode === 'perSide' ? Number(form.get('fixedWeightKg') ?? 0) : 0
+        });
+      }}
+    >
+      <div className="menu-three-fields-row">
+        <label>
+          種目名
+          <input name="trainingName" defaultValue={initial?.trainingName} required />
+        </label>
+        <label>
+          鍛える部位
+          <input name="bodyPart" defaultValue={initial?.bodyPart} />
+        </label>
+        <label>
+          用具
+          <select name="equipment" defaultValue={initial?.equipment ?? 'その他'}>
+            {equipmentOptions.map((value) => <option value={value} key={value}>{value}</option>)}
+          </select>
         </label>
       </div>
-    </article>
+      <div className="menu-three-fields-row">
+        <label>
+          重量入力方式
+          <select name="weightInputMode" defaultValue={initial?.weightInputMode === 'perSide' ? 'perSide' : 'direct'}>
+            <option value="direct">入力値が総重量</option>
+            <option value="perSide">片側重量 × 2</option>
+          </select>
+        </label>
+        <label>
+          バーなどの固定重量
+          <input name="fixedWeightKg" type="number" min={0} step={0.01} defaultValue={initial?.fixedWeightKg ?? 0} />
+        </label>
+      </div>
+      <label>
+        種目の説明
+        <textarea name="description" rows={2} maxLength={500} defaultValue={initial?.description} />
+      </label>
+      <button className="btn primary" type="submit" disabled={disabled}>{submitLabel}</button>
+    </form>
   );
 }

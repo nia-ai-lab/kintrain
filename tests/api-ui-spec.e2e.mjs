@@ -307,10 +307,10 @@ async function run() {
           trainingName: "チェストプレス",
           bodyPart: "胸",
           description: "肩をすくめず、胸を張って押す。",
-          defaultWeightKg: 25.25,
-          defaultRepsMin: 8,
-          defaultRepsMax: 12,
-          defaultSets: 3
+          equipment: "マシン",
+          weightInputMode: "direct",
+          loadMultiplier: 1,
+          fixedWeightKg: 0
         }
       });
       assert.equal(res.status, 201);
@@ -320,7 +320,7 @@ async function run() {
       state.menuItemA = res.json.trainingMenuItemId;
     });
 
-    await testCase("TrainingMenu: POST /training-menu-items accepts zero weight for bodyweight training", async () => {
+    await testCase("TrainingMenu: POST /training-menu-items creates a bodyweight exercise master", async () => {
       const res = await apiRequest({
         coreApiEndpoint: authContext.coreApiEndpoint,
         accessToken: authContext.accessToken,
@@ -330,16 +330,14 @@ async function run() {
           trainingName: "プッシュアップ",
           bodyPart: "胸",
           equipment: "自重",
-          defaultWeightKg: 0,
-          defaultRepsMin: 8,
-          defaultRepsMax: 10,
-          defaultSets: 3
+          weightInputMode: "direct",
+          loadMultiplier: 1,
+          fixedWeightKg: 0
         }
       });
       assert.equal(res.status, 201);
       assert.ok(res.json.trainingMenuItemId);
       assert.equal(res.json.equipment, "自重");
-      assert.equal(res.json.defaultWeightKg, 0);
       state.menuItemB = res.json.trainingMenuItemId;
     });
 
@@ -352,6 +350,8 @@ async function run() {
         pathWithQuery: "/training-menu-sets",
         body: {
           setName: "APIテストメニュー",
+          setType: "reusable",
+          source: "manual",
           isDefault: true
         }
       });
@@ -359,31 +359,39 @@ async function run() {
       assert.ok(setRes.json.trainingMenuSetId);
       state.menuSetId = setRes.json.trainingMenuSetId;
 
-      for (const trainingMenuItemId of [state.menuItemA, state.menuItemB]) {
+      const prescriptions = [
+        { trainingMenuItemId: state.menuItemA, targetWeightKg: 25.25, targetRepsMin: 8, targetRepsMax: 12, targetSets: 3 },
+        { trainingMenuItemId: state.menuItemB, targetWeightKg: 0, targetRepsMin: 8, targetRepsMax: 10, targetSets: 3 }
+      ];
+      for (const prescription of prescriptions) {
         const addRes = await apiRequest({
           coreApiEndpoint: authContext.coreApiEndpoint,
           accessToken: authContext.accessToken,
           method: "POST",
           pathWithQuery: `/training-menu-sets/${state.menuSetId}/items`,
-          body: { trainingMenuItemId }
+          body: {
+            ...prescription,
+            recommendedIntervalDays: 3,
+            instruction: ""
+          }
         });
         assert.equal(addRes.status, 201);
       }
     });
 
-    await testCase("TrainingMenu: POST /training-menu-items rejects negative weight", async () => {
+    await testCase("TrainingMenuSet: rejects a negative target weight", async () => {
       const res = await apiRequest({
         coreApiEndpoint: authContext.coreApiEndpoint,
         accessToken: authContext.accessToken,
         method: "POST",
-        pathWithQuery: "/training-menu-items",
+        pathWithQuery: `/training-menu-sets/${state.menuSetId}/items`,
         body: {
-          trainingName: "負数重量テスト",
-          equipment: "自重",
-          defaultWeightKg: -0.01,
-          defaultRepsMin: 8,
-          defaultRepsMax: 10,
-          defaultSets: 3
+          trainingMenuItemId: state.menuItemA,
+          targetWeightKg: -0.01,
+          targetRepsMin: 8,
+          targetRepsMax: 10,
+          targetSets: 3,
+          recommendedIntervalDays: 3
         }
       });
       assert.equal(res.status, 400);
@@ -412,10 +420,7 @@ async function run() {
           trainingName: "チェストプレス改",
           bodyPart: "胸",
           description: "肩甲骨を寄せたまま、ゆっくり戻す。",
-          defaultWeightKg: 26.5,
-          defaultRepsMin: 8,
-          defaultRepsMax: 11,
-          defaultSets: 4
+          equipment: "マシン"
         }
       });
       assert.equal(res.status, 200);
@@ -424,7 +429,7 @@ async function run() {
       assert.equal(res.json.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
     });
 
-    await testCase("TrainingMenu: PUT /training-menu-items/{id} keeps zero weight", async () => {
+    await testCase("TrainingMenu: PUT /training-menu-items/{id} updates weight input metadata", async () => {
       assert.ok(state.menuItemB);
       const res = await apiRequest({
         coreApiEndpoint: authContext.coreApiEndpoint,
@@ -433,30 +438,28 @@ async function run() {
         pathWithQuery: `/training-menu-items/${state.menuItemB}`,
         body: {
           equipment: "自重",
-          defaultWeightKg: 0
+          weightInputMode: "direct",
+          fixedWeightKg: 0
         }
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.equipment, "自重");
-      assert.equal(res.json.defaultWeightKg, 0);
+      assert.equal(res.json.fixedWeightKg, 0);
     });
 
-    await testCase("TrainingMenu: PUT /training-menu-items/reorder updates order", async () => {
-      assert.ok(state.menuItemA && state.menuItemB);
+    await testCase("DailyTrainingPlan: PUT assigns today's menu", async () => {
       const res = await apiRequest({
         coreApiEndpoint: authContext.coreApiEndpoint,
         accessToken: authContext.accessToken,
         method: "PUT",
-        pathWithQuery: "/training-menu-items/reorder",
+        pathWithQuery: `/daily-training-plans/${state.date}`,
         body: {
-          items: [
-            { trainingMenuItemId: state.menuItemA, displayOrder: 2 },
-            { trainingMenuItemId: state.menuItemB, displayOrder: 1 }
-          ]
+          trainingMenuSetId: state.menuSetId,
+          source: "manual"
         }
       });
-      assert.equal(res.status, 200);
-      assert.equal(res.json.updatedCount, 2);
+      assert.ok(res.status === 200 || res.status === 201);
+      assert.equal(res.json.trainingMenuSetId, state.menuSetId);
     });
 
     // /training-session (API)
@@ -470,8 +473,11 @@ async function run() {
       assert.equal(res.status, 200);
       assert.ok(Array.isArray(res.json.items));
       assert.ok(Array.isArray(res.json.todayDoneTrainingMenuItemIds));
+      assert.equal(res.json.resolvedMenuSet?.trainingMenuSetId, state.menuSetId);
+      assert.equal(res.json.resolvedFromDailyPlan, true);
       const chestPress = res.json.items.find((item) => item.trainingMenuItemId === state.menuItemA);
       assert.equal(chestPress?.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
+      assert.equal(chestPress?.targetWeightKg, 25.25);
       assert.equal(Object.prototype.hasOwnProperty.call(chestPress ?? {}, "memo"), false);
     });
 

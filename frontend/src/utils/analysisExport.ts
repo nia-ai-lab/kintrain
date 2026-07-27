@@ -109,15 +109,10 @@ function normalizeTrainingMenu(item: TrainingMenuItemDto) {
     equipment: nullableString(item.equipment),
     isAiGenerated: item.isAiGenerated === true,
     description: nullableString(item.description),
-    frequencyDays: nullableNumber(item.frequency),
-    defaultWeightKg: item.defaultWeightKg,
     weightInputMode,
     loadMultiplier: weightInputMode === 'legacyUnspecified' ? null : nullableNumber(item.loadMultiplier),
     fixedWeightKg: weightInputMode === 'legacyUnspecified' ? null : nullableNumber(item.fixedWeightKg),
-    defaultRepsMin: item.defaultRepsMin,
-    defaultRepsMax: item.defaultRepsMax,
-    defaultSets: item.defaultSets,
-    displayOrder: item.displayOrder,
+    usageCount: item.usageCount,
     isActive: item.isActive,
     createdAtUtc: nullableString(item.createdAt),
     updatedAtUtc: nullableString(item.updatedAt)
@@ -205,16 +200,28 @@ export async function createAnalysisExport(
               comment: nullableString(goal.comment),
               updatedAtUtc: nullableString(goal.updatedAt)
             },
-      trainingMenus: trainingMenus.map(normalizeTrainingMenu).sort((a, b) => a.displayOrder - b.displayOrder),
+      trainingMenus: trainingMenus.map(normalizeTrainingMenu).sort((a, b) => a.trainingName.localeCompare(b.trainingName)),
       trainingMenuSets: menuSetsResponse.items
         .map((item) => ({
           trainingMenuSetId: item.trainingMenuSetId,
           setName: item.setName,
           displayOrder: item.menuSetOrder,
           isDefault: item.isDefault,
-          isAiGenerated: item.isAiGenerated === true,
+          setType: item.setType,
+          source: item.source,
+          scheduledDate: nullableString(item.scheduledDate),
           isActive: item.isActive,
-          trainingMenuItemIds: item.itemIds,
+          items: item.items.map((setItem) => ({
+            trainingMenuSetItemId: setItem.trainingMenuSetItemId,
+            trainingMenuItemId: setItem.trainingMenuItemId,
+            displayOrder: setItem.displayOrder,
+            targetWeightKg: setItem.targetWeightKg,
+            targetRepsMin: setItem.targetRepsMin,
+            targetRepsMax: setItem.targetRepsMax,
+            targetSets: setItem.targetSets,
+            recommendedIntervalDays: setItem.recommendedIntervalDays,
+            instruction: setItem.instruction
+          })),
           createdAtUtc: nullableString(item.createdAt),
           updatedAtUtc: nullableString(item.updatedAt)
         }))

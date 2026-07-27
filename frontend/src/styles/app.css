@@ -432,6 +432,90 @@ a {
   gap: 10px;
 }
 
+.menu-management-tabs {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.menu-management-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 0.32fr) minmax(0, 1fr);
+  gap: 1rem;
+  align-items: start;
+}
+
+.menu-set-sidebar {
+  position: sticky;
+  top: 1rem;
+}
+
+.menu-set-list-button {
+  width: 100%;
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+}
+
+.menu-set-list-button.active {
+  border-color: var(--primary);
+  background: var(--primary-soft);
+}
+
+.menu-set-list-button small,
+.menu-item-library-card summary small {
+  color: var(--muted);
+}
+
+.menu-set-create-panel {
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
+.menu-set-prescription-card h3 {
+  margin: 0.3rem 0 0;
+}
+
+.menu-prescription-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(100px, 1fr));
+  gap: 0.75rem;
+}
+
+.menu-item-library-card summary {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.menu-library-form {
+  margin-top: 1rem;
+}
+
+@media (max-width: 760px) {
+  .menu-management-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .menu-set-sidebar {
+    position: static;
+  }
+
+  .menu-prescription-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .menu-management-tabs .btn {
+    flex: 1;
+  }
+}
+
 .menu-set-config {
   display: grid;
   gap: 8px;

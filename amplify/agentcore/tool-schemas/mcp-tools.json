@@ -347,71 +347,102 @@
     }
   },
   {
-    "name": "create_training_menu_set_from_ai",
-    "description": "AI提案から新規トレーニングメニューセットと新規トレーニングメニュー項目を登録する。既存セットや既存項目は変更しない。",
+    "name": "list_training_menu_items",
+    "description": "ユーザーが登録済みのトレーニング種目マスタを一覧取得する。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "list_training_menu_sets",
+    "description": "ユーザーのメニューセットとセット固有の目標値を一覧取得する。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {}
+    }
+  },
+  {
+    "name": "create_daily_training_plan_from_ai",
+    "description": "既存種目と新規種目を組み合わせたAI作成の一時メニューセットを登録し、対象日の今日のメニューに設定する。",
     "inputSchema": {
       "type": "object",
       "properties": {
+        "idempotencyKey": {
+          "type": "string",
+          "description": "同じ登録要求の重複作成を防ぐ一意なキー"
+        },
+        "planDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "利用するローカル日付"
+        },
         "setName": {
           "type": "string",
-          "description": "新規作成するメニューセット名"
+          "description": "一時メニューセット名"
         },
-        "makeDefault": {
+        "replaceExistingPlan": {
           "type": "boolean",
-          "description": "既定セットにするか。既定セットが既に存在する場合は false で使う。"
+          "description": "対象日に既存計画がある場合、ユーザー確認後に置き換えるか"
         },
         "items": {
           "type": "array",
-          "description": "新規作成するトレーニングメニュー項目一覧",
+          "minItems": 1,
+          "maxItems": 12,
           "items": {
             "type": "object",
             "properties": {
-              "trainingName": {
-                "type": "string"
-              },
-              "bodyPart": {
-                "type": "string"
-              },
-              "equipment": {
+              "existingTrainingMenuItemId": {
                 "type": "string",
-                "enum": ["マシン", "フリー", "自重", "その他"]
+                "description": "既存種目を利用する場合の種目ID"
               },
-              "frequency": {
-                "type": "integer",
-                "minimum": 1,
-                "maximum": 8
+              "newTrainingMenuItem": {
+                "type": "object",
+                "description": "新規種目を作成する場合の種目マスタ定義",
+                "properties": {
+                  "trainingName": { "type": "string" },
+                  "bodyPart": { "type": "string" },
+                  "equipment": {
+                    "type": "string",
+                    "enum": ["マシン", "フリー", "自重", "その他"]
+                  },
+                  "description": { "type": "string", "maxLength": 500 },
+                  "weightInputMode": {
+                    "type": "string",
+                    "enum": ["direct", "perSide"]
+                  },
+                  "fixedWeightKg": { "type": "number", "minimum": 0 }
+                },
+                "required": ["trainingName", "equipment"]
               },
-              "defaultWeightKg": {
-                "type": "number",
-                "minimum": 0
-              },
-              "defaultRepsMin": {
-                "type": "integer"
-              },
-              "defaultRepsMax": {
-                "type": "integer"
-              },
-              "defaultSets": {
-                "type": "integer"
-              },
-              "description": {
-                "type": "string",
-                "maxLength": 500
+              "prescription": {
+                "type": "object",
+                "properties": {
+                  "targetWeightKg": { "type": "number", "minimum": 0 },
+                  "targetRepsMin": { "type": "integer", "minimum": 1 },
+                  "targetRepsMax": { "type": "integer", "minimum": 1 },
+                  "targetSets": { "type": "integer", "minimum": 1 },
+                  "recommendedIntervalDays": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 8
+                  },
+                  "instruction": { "type": "string", "maxLength": 500 }
+                },
+                "required": [
+                  "targetWeightKg",
+                  "targetRepsMin",
+                  "targetRepsMax",
+                  "targetSets",
+                  "recommendedIntervalDays"
+                ]
               }
             },
-            "required": [
-              "trainingName",
-              "equipment",
-              "frequency",
-              "defaultWeightKg",
-              "defaultRepsMin",
-              "defaultRepsMax",
-              "defaultSets"
-            ]
+            "required": ["prescription"]
           }
         }
       },
-      "required": ["setName", "items"]
+      "required": ["idempotencyKey", "planDate", "setName", "items"]
     }
   }
 ]
