@@ -596,8 +596,8 @@ async function listActiveMenuItemsForSet(
     });
 }
 
-function exceedsTransactionLimit(existingPerformanceCount: number, newEntryCount: number): boolean {
-  return existingPerformanceCount + newEntryCount + 1 > 25;
+function exceedsTransactionLimit(stalePerformanceCount: number, newEntryCount: number): boolean {
+  return stalePerformanceCount + newEntryCount + 1 > 25;
 }
 
 async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
@@ -882,9 +882,6 @@ async function putGymVisit(
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
   const existingPerformanceItems = await listTrainingPerformanceItemsByVisitId(userId, visitId);
-  if (exceedsTransactionLimit(existingPerformanceItems.length, normalizedEntries.length)) {
-    return response(400, { message: `1回の記録で更新できる種目数は最大${maxVisitEntryCount}件です。` });
-  }
   const createdAt = typeof existing.Item.createdAt === "string" ? existing.Item.createdAt : ts;
   const visitItem = buildVisitItem({
     userId,
@@ -907,6 +904,13 @@ async function putGymVisit(
     createdAt,
     updatedAt: ts
   });
+  const nextPerformanceIds = new Set(performanceItems.map((item) => item.trainingPerformanceId));
+  const stalePerformanceItems = existingPerformanceItems.filter(
+    (item) => !nextPerformanceIds.has(item.trainingPerformanceId)
+  );
+  if (exceedsTransactionLimit(stalePerformanceItems.length, performanceItems.length)) {
+    return response(400, { message: `1回の記録で更新できる種目数は最大${maxVisitEntryCount}件です。` });
+  }
 
   await ddb.send(
     new TransactWriteCommand({
@@ -917,7 +921,7 @@ async function putGymVisit(
             Item: visitItem
           }
         },
-        ...existingPerformanceItems.map((item) => ({
+        ...stalePerformanceItems.map((item) => ({
           Delete: {
             TableName: trainingPerformanceTableName,
             Key: {

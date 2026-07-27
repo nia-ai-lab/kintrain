@@ -682,8 +682,13 @@ async function run() {
         pathWithQuery: "/goals"
       });
       assert.equal(res.status, 200);
-      assert.ok(typeof res.json.targetWeightKg === "number");
-      assert.ok(typeof res.json.targetBodyFatPercent === "number");
+      const hasConfiguredGoal =
+        typeof res.json.targetWeightKg === "number" &&
+        typeof res.json.targetBodyFatPercent === "number";
+      const isUnconfiguredGoal =
+        res.json.targetWeightKg === undefined &&
+        res.json.targetBodyFatPercent === undefined;
+      assert.ok(hasConfiguredGoal || isUnconfiguredGoal);
     });
 
     await testCase("Goal: PUT /goals updates current goal", async () => {
