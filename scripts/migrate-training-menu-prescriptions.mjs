@@ -1,5 +1,5 @@
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 
 function readArg(name) {
   const index = process.argv.indexOf(name);
@@ -35,7 +35,7 @@ async function queryAll(input) {
   return items;
 }
 
-const [sets, links] = await Promise.all([
+const [sets, links, allMenuItems] = await Promise.all([
   queryAll({
     TableName: trainingMenuSetTableName,
     IndexName: "UserMenuSetByOrderIndex",
@@ -47,24 +47,24 @@ const [sets, links] = await Promise.all([
     IndexName: "UserSetItemsBySetOrderIndex",
     KeyConditionExpression: "userId = :userId",
     ExpressionAttributeValues: { ":userId": userId }
+  }),
+  queryAll({
+    TableName: trainingMenuTableName,
+    IndexName: "UserDisplayOrderIndex",
+    KeyConditionExpression: "userId = :userId",
+    ExpressionAttributeValues: { ":userId": userId }
   })
 ]);
 
-const menuItemIds = Array.from(
-  new Set(links.map((link) => link.trainingMenuItemId).filter((value) => typeof value === "string"))
+const menuItems = new Map(
+  allMenuItems
+    .filter((item) => typeof item.trainingMenuItemId === "string")
+    .map((item) => [item.trainingMenuItemId, item])
 );
-const menuItems = new Map();
-for (const trainingMenuItemId of menuItemIds) {
-  const result = await ddb.send(
-    new GetCommand({
-      TableName: trainingMenuTableName,
-      Key: { userId, trainingMenuItemId }
-    })
-  );
-  if (!result.Item) {
-    throw new Error(`TrainingMenuItem not found: ${trainingMenuItemId}`);
+for (const link of links) {
+  if (!menuItems.has(link.trainingMenuItemId)) {
+    throw new Error(`TrainingMenuItem not found: ${link.trainingMenuItemId}`);
   }
-  menuItems.set(trainingMenuItemId, result.Item);
 }
 
 let migratedSets = 0;
