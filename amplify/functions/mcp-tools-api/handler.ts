@@ -6,6 +6,7 @@ import { decodePageToken, encodePageToken } from "../shared/pagination";
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
 const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
 const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NAME ?? "";
+const dailyTrainingPlanTableName = process.env.DAILY_TRAINING_PLAN_TABLE_NAME ?? "";
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
 const trainingPerformanceTableName = process.env.TRAINING_PERFORMANCE_TABLE_NAME ?? "";
 const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
@@ -79,25 +80,29 @@ export type SaveBodyMetricsBatchOptions = {
   logger?: (entry: Record<string, unknown>) => void;
 };
 type AiMenuItemInput = {
-  trainingName?: unknown;
-  bodyPart?: unknown;
-  equipment?: unknown;
-  frequency?: unknown;
-  defaultWeightKg?: unknown;
-  defaultRepsMin?: unknown;
-  defaultRepsMax?: unknown;
-  defaultSets?: unknown;
-  description?: unknown;
+  existingTrainingMenuItemId?: unknown;
+  newTrainingMenuItem?: {
+    trainingName?: unknown;
+    bodyPart?: unknown;
+    equipment?: unknown;
+    description?: unknown;
+    weightInputMode?: unknown;
+    fixedWeightKg?: unknown;
+  };
+  prescription?: {
+    targetWeightKg?: unknown;
+    targetRepsMin?: unknown;
+    targetRepsMax?: unknown;
+    targetSets?: unknown;
+    recommendedIntervalDays?: unknown;
+    instruction?: unknown;
+  };
 };
 
 const allowedEquipments = new Set(["マシン", "フリー", "自重", "その他"]);
-const defaultEquipment = "マシン";
-const defaultFrequency = 3;
 const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
-const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
 const trainingNameIndex = "UserTrainingNameIndex";
-const defaultSetMarker = "DEFAULT";
 const trainingPerformanceByMenuItemIndex = "UserTrainingMenuItemPerformedAtIndex";
 const trainingMenuByOrderIndex = "UserDisplayOrderIndex";
 const trainingHistoryByStartedAtIndex = "UserStartedAtIndex";
@@ -975,6 +980,7 @@ function requireConfiguredTables(): string | null {
     !trainingMenuTableName ||
     !trainingMenuSetTableName ||
     !trainingMenuSetItemTableName ||
+    !dailyTrainingPlanTableName ||
     !trainingHistoryTableName ||
     !dailyRecordTableName ||
     !goalTableName ||
@@ -1002,23 +1008,6 @@ async function getMaxMenuSetOrder(userId: string): Promise<number> {
   );
   const max = Number(result.Items?.[0]?.menuSetOrder ?? 0);
   return Number.isFinite(max) ? max : 0;
-}
-
-async function getCurrentDefaultSetId(userId: string): Promise<string | null> {
-  const result = await ddb.send(
-    new QueryCommand({
-      TableName: trainingMenuSetTableName,
-      IndexName: defaultMenuSetIndex,
-      KeyConditionExpression: "userId = :userId AND defaultSetMarker = :defaultSetMarker",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-        ":defaultSetMarker": defaultSetMarker
-      },
-      Limit: 1
-    })
-  );
-  const item = result.Items?.[0];
-  return typeof item?.trainingMenuSetId === "string" ? item.trainingMenuSetId : null;
 }
 
 async function getMaxDisplayOrder(userId: string): Promise<number> {
@@ -2107,123 +2096,225 @@ async function saveAdviceLog(args: ToolArgs, userId: string): Promise<McpToolRes
   });
 }
 
-async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
-  const setName = toNonEmptyString(args.setName);
-  if (!setName) {
-    return mcpToolResponse(400, { message: "setName is required." });
-  }
+async function listTrainingMenuItemsForAi(userId: string): Promise<McpToolResponse> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuTableName,
+      IndexName: "UserDisplayOrderIndex",
+      KeyConditionExpression: "userId = :userId",
+      ExpressionAttributeValues: { ":userId": userId }
+    })
+  );
+  return mcpToolResponse(200, {
+    tool: "list_training_menu_items",
+    items: (result.Items ?? [])
+      .filter((item) => item.isActive !== false)
+      .map((item) => ({
+        trainingMenuItemId: item.trainingMenuItemId,
+        trainingName: item.trainingName,
+        bodyPart: item.bodyPart ?? "",
+        equipment: item.equipment ?? "その他",
+        description: item.description ?? "",
+        weightInputMode: item.weightInputMode ?? "legacyUnspecified",
+        loadMultiplier: item.loadMultiplier,
+        fixedWeightKg: item.fixedWeightKg,
+        isAiGenerated: item.isAiGenerated === true
+      }))
+  });
+}
 
-  const rawItems = Array.isArray(args.items) ? (args.items as AiMenuItemInput[]) : null;
-  if (!rawItems || rawItems.length === 0) {
-    return mcpToolResponse(400, { message: "items is required." });
-  }
-  if (rawItems.length > 20) {
-    return mcpToolResponse(400, { message: "items cannot exceed 20." });
-  }
-
-  let normalizedItems: Array<{
-    trainingName: string;
-    normalizedTrainingName: string;
-    bodyPart: string;
-    equipment: string;
-    frequency: number;
-    defaultWeightKg: number;
-    defaultRepsMin: number;
-    defaultRepsMax: number;
-    defaultSets: number;
-    description: string;
-  }>;
-  try {
-    normalizedItems = rawItems.map((item, index) => {
-      const trainingName = toNonEmptyString(item.trainingName);
-      const equipment = normalizeEquipment(item.equipment) ?? defaultEquipment;
-      const frequency = normalizeFrequency(item.frequency) ?? defaultFrequency;
-      const defaultWeightKg = normalizeNonNegativeDecimal(item.defaultWeightKg);
-      const defaultRepsMin = normalizePositiveInteger(item.defaultRepsMin);
-      const defaultRepsMax = normalizePositiveInteger(item.defaultRepsMax);
-      const defaultSets = normalizePositiveInteger(item.defaultSets);
-      const description = normalizeDescription(item.description);
-      const bodyPart = toNonEmptyString(item.bodyPart) ?? "";
-
-      if (!trainingName) {
-        throw new Error(`items[${index}].trainingName is required.`);
-      }
-      if (!normalizeEquipment(item.equipment)) {
-        throw new Error(`items[${index}].equipment must be one of マシン/フリー/自重/その他.`);
-      }
-      if (!normalizeFrequency(item.frequency)) {
-        throw new Error(`items[${index}].frequency must be one of 1..8.`);
-      }
-      if (defaultWeightKg === undefined || !defaultRepsMin || !defaultRepsMax || !defaultSets) {
-        throw new Error(`items[${index}] must include non-negative weight and positive reps/sets.`);
-      }
-      if (defaultRepsMin > defaultRepsMax) {
-        throw new Error(`items[${index}].defaultRepsMin must be <= defaultRepsMax.`);
-      }
-      if (description === undefined) {
-        throw new Error(`items[${index}].description must be a string up to 500 characters.`);
-      }
-
-      return {
-        trainingName,
-        normalizedTrainingName: normalizeTrainingName(trainingName),
-        bodyPart,
-        equipment,
-        frequency,
-        defaultWeightKg,
-        defaultRepsMin,
-        defaultRepsMax,
-        defaultSets,
-        description
-      };
-    });
-  } catch (error) {
-    return mcpToolResponse(400, {
-      message: error instanceof Error ? error.message : "invalid items."
-    });
-  }
-
-  const duplicateNamesInRequest = Array.from(
-    new Set(
-      normalizedItems
-        .map((item) => item.normalizedTrainingName)
-        .filter((name, index, list) => list.indexOf(name) !== index)
+async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolResponse> {
+  const [sets, links] = await Promise.all([
+    ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetTableName,
+        IndexName: menuSetByOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: { ":userId": userId }
+      })
+    ),
+    ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetItemTableName,
+        IndexName: setItemsBySetOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: { ":userId": userId }
+      })
     )
-  );
-  if (duplicateNamesInRequest.length > 0) {
-    return mcpToolResponse(409, {
-      message: "duplicate training names exist in items.",
-      duplicateTrainingNames: duplicateNamesInRequest
-    });
-  }
-
-  const duplicateChecks = await Promise.all(
-    normalizedItems.map(async (item) => ({
-      trainingName: item.trainingName,
-      exists: await existsByTrainingName(userId, item.normalizedTrainingName)
+  ]);
+  return mcpToolResponse(200, {
+    tool: "list_training_menu_sets",
+    items: (sets.Items ?? []).map((set) => ({
+      trainingMenuSetId: set.trainingMenuSetId,
+      setName: set.setName,
+      setType: set.setType ?? "reusable",
+      source: set.source ?? "manual",
+      isDefault: set.isDefault === true,
+      items: (links.Items ?? [])
+        .filter((item) => item.trainingMenuSetId === set.trainingMenuSetId)
+        .map((item) => ({
+          trainingMenuItemId: item.trainingMenuItemId,
+          targetWeightKg: item.targetWeightKg,
+          targetRepsMin: item.targetRepsMin,
+          targetRepsMax: item.targetRepsMax,
+          targetSets: item.targetSets,
+          recommendedIntervalDays: item.recommendedIntervalDays,
+          instruction: item.instruction ?? ""
+        }))
     }))
+  });
+}
+
+async function createDailyTrainingPlanFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const setName = toNonEmptyString(args.setName);
+  const planDate = toNonEmptyString(args.planDate);
+  const idempotencyKey = toNonEmptyString(args.idempotencyKey);
+  const rawItems = Array.isArray(args.items) ? (args.items as AiMenuItemInput[]) : null;
+  if (!setName || !planDate || !/^\d{4}-\d{2}-\d{2}$/.test(planDate) || !idempotencyKey || !rawItems?.length) {
+    return mcpToolResponse(400, { message: "idempotencyKey, planDate, setName and items are required." });
+  }
+  if (rawItems.length > 12) {
+    return mcpToolResponse(400, { message: "items cannot exceed 12." });
+  }
+
+  const currentPlan = await ddb.send(
+    new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } })
   );
-  const duplicateTrainingNames = duplicateChecks.filter((item) => item.exists).map((item) => item.trainingName);
-  if (duplicateTrainingNames.length > 0) {
+  if (currentPlan.Item?.idempotencyKey === idempotencyKey) {
+    return mcpToolResponse(200, {
+      tool: "create_daily_training_plan_from_ai",
+      trainingMenuSetId: currentPlan.Item.trainingMenuSetId,
+      planDate,
+      idempotentReplay: true
+    });
+  }
+  if (currentPlan.Item && args.replaceExistingPlan !== true) {
     return mcpToolResponse(409, {
-      message: "trainingName already exists.",
-      duplicateTrainingNames
+      message: "a daily training plan already exists. ask the user before replacing it.",
+      existingTrainingMenuSetId: currentPlan.Item.trainingMenuSetId,
+      planDate
     });
   }
 
-  const currentDefaultSetId = await getCurrentDefaultSetId(userId);
-  if (args.makeDefault === true && currentDefaultSetId) {
-    return mcpToolResponse(400, {
-      message: "makeDefault cannot be true because a default set already exists."
-    });
-  }
+  type NormalizedAiItem = {
+    trainingMenuItemId: string;
+    newItem?: Record<string, unknown>;
+    prescription: {
+      targetWeightKg: number;
+      targetRepsMin: number;
+      targetRepsMax: number;
+      targetSets: number;
+      recommendedIntervalDays: number;
+      instruction: string;
+    };
+  };
 
-  const shouldBeDefault = !currentDefaultSetId;
-  const menuSetOrder = (await getMaxMenuSetOrder(userId)) + 1;
   const startingDisplayOrder = (await getMaxDisplayOrder(userId)) + 1;
+  const normalizedItems: NormalizedAiItem[] = [];
+  const newNames = new Set<string>();
+  try {
+    for (let index = 0; index < rawItems.length; index += 1) {
+      const raw = rawItems[index];
+      const existingId = toNonEmptyString(raw.existingTrainingMenuItemId);
+      const newDefinition = raw.newTrainingMenuItem;
+      if (Boolean(existingId) === Boolean(newDefinition)) {
+        throw new Error(`items[${index}] must specify exactly one existing item or new item.`);
+      }
+      const prescriptionInput = raw.prescription;
+      const targetWeightKg = normalizeNonNegativeDecimal(prescriptionInput?.targetWeightKg);
+      const targetRepsMin = normalizePositiveInteger(prescriptionInput?.targetRepsMin);
+      const targetRepsMax = normalizePositiveInteger(prescriptionInput?.targetRepsMax);
+      const targetSets = normalizePositiveInteger(prescriptionInput?.targetSets);
+      const recommendedIntervalDays = normalizeFrequency(prescriptionInput?.recommendedIntervalDays);
+      const instruction = normalizeDescription(prescriptionInput?.instruction);
+      if (
+        targetWeightKg === undefined ||
+        !targetRepsMin ||
+        !targetRepsMax ||
+        targetRepsMin > targetRepsMax ||
+        !targetSets ||
+        !recommendedIntervalDays ||
+        instruction === undefined
+      ) {
+        throw new Error(`items[${index}].prescription is invalid.`);
+      }
+
+      if (existingId) {
+        const existing = await ddb.send(
+          new GetCommand({
+            TableName: trainingMenuTableName,
+            Key: { userId, trainingMenuItemId: existingId }
+          })
+        );
+        if (!existing.Item || existing.Item.isActive === false) {
+          throw new Error(`items[${index}].existingTrainingMenuItemId was not found.`);
+        }
+        normalizedItems.push({
+          trainingMenuItemId: existingId,
+          prescription: {
+            targetWeightKg,
+            targetRepsMin,
+            targetRepsMax,
+            targetSets,
+            recommendedIntervalDays,
+            instruction
+          }
+        });
+        continue;
+      }
+
+      const trainingName = toNonEmptyString(newDefinition?.trainingName);
+      const equipment = normalizeEquipment(newDefinition?.equipment);
+      const description = normalizeDescription(newDefinition?.description);
+      const normalizedTrainingName = trainingName ? normalizeTrainingName(trainingName) : "";
+      if (!trainingName || !equipment || description === undefined) {
+        throw new Error(`items[${index}].newTrainingMenuItem is invalid.`);
+      }
+      if (newNames.has(normalizedTrainingName) || await existsByTrainingName(userId, normalizedTrainingName)) {
+        throw new Error(`items[${index}].newTrainingMenuItem.trainingName already exists.`);
+      }
+      newNames.add(normalizedTrainingName);
+      const weightInputMode = newDefinition?.weightInputMode === "perSide" ? "perSide" : "direct";
+      const fixedWeightKg = normalizeNonNegativeDecimal(newDefinition?.fixedWeightKg) ?? 0;
+      const trainingMenuItemId = randomUUID();
+      normalizedItems.push({
+        trainingMenuItemId,
+        newItem: {
+          userId,
+          trainingMenuItemId,
+          trainingName,
+          normalizedTrainingName,
+          bodyPart: toNonEmptyString(newDefinition?.bodyPart) ?? "",
+          equipment,
+          description,
+          weightInputMode,
+          loadMultiplier: weightInputMode === "perSide" ? 2 : 1,
+          fixedWeightKg: weightInputMode === "perSide" ? fixedWeightKg : 0,
+          isAiGenerated: true,
+          isActive: true,
+          displayOrder: startingDisplayOrder + index
+        },
+        prescription: {
+          targetWeightKg,
+          targetRepsMin,
+          targetRepsMax,
+          targetSets,
+          recommendedIntervalDays,
+          instruction
+        }
+      });
+    }
+  } catch (error) {
+    return mcpToolResponse(400, { message: error instanceof Error ? error.message : "invalid items." });
+  }
+
+  if (new Set(normalizedItems.map((item) => item.trainingMenuItemId)).size !== normalizedItems.length) {
+    return mcpToolResponse(409, { message: "the same training item cannot appear twice." });
+  }
+
+  const menuSetOrder = (await getMaxMenuSetOrder(userId)) + 1;
   const trainingMenuSetId = randomUUID();
   const ts = nowIsoSeconds();
-
   const transactItems = [
     {
       Put: {
@@ -2233,10 +2324,11 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
           trainingMenuSetId,
           setName,
           menuSetOrder,
-          isDefault: shouldBeDefault,
-          isAiGenerated: true,
+          setType: "temporary",
+          source: "ai",
+          scheduledDate: planDate,
+          isDefault: false,
           isActive: true,
-          ...(shouldBeDefault ? { defaultSetMarker } : {}),
           createdAt: ts,
           updatedAt: ts
         },
@@ -2244,52 +2336,31 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
       }
     },
     ...normalizedItems.flatMap((item, index) => {
-      const trainingMenuItemId = randomUUID();
-      const displayOrder = startingDisplayOrder + index;
-      const trainingMenuSetItemId = randomUUID();
-      const setDisplayOrder = index + 1;
-
+      const displayOrder = index + 1;
+      const newItemWrite = item.newItem
+        ? [{
+            Put: {
+              TableName: trainingMenuTableName,
+              Item: { ...item.newItem, createdAt: ts, updatedAt: ts },
+              ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuItemId)"
+            }
+          }]
+        : [];
       return [
-        {
-          Put: {
-            TableName: trainingMenuTableName,
-            Item: {
-              userId,
-              trainingMenuItemId,
-              trainingName: item.trainingName,
-              normalizedTrainingName: item.normalizedTrainingName,
-              bodyPart: item.bodyPart,
-              equipment: item.equipment,
-              isAiGenerated: true,
-              description: item.description,
-              frequency: item.frequency,
-              defaultWeightKg: item.defaultWeightKg,
-              weightInputMode: "direct",
-              loadMultiplier: 1,
-              fixedWeightKg: 0,
-              defaultRepsMin: item.defaultRepsMin,
-              defaultRepsMax: item.defaultRepsMax,
-              defaultReps: item.defaultRepsMax,
-              defaultSets: item.defaultSets,
-              displayOrder,
-              isActive: true,
-              createdAt: ts,
-              updatedAt: ts
-            },
-            ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuItemId)"
-          }
-        },
+        ...newItemWrite,
         {
           Put: {
             TableName: trainingMenuSetItemTableName,
             Item: {
               userId,
-              trainingMenuSetItemId,
+              trainingMenuSetItemId: randomUUID(),
               trainingMenuSetId,
-              trainingMenuItemId,
-              displayOrder: setDisplayOrder,
-              menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, setDisplayOrder),
-              menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, trainingMenuItemId),
+              trainingMenuItemId: item.trainingMenuItemId,
+              displayOrder,
+              menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, displayOrder),
+              menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, item.trainingMenuItemId),
+              ...item.prescription,
+              createdBy: "ai",
               createdAt: ts,
               updatedAt: ts
             },
@@ -2297,22 +2368,37 @@ async function createTrainingMenuSetFromAi(args: ToolArgs, userId: string): Prom
           }
         }
       ];
-    })
+    }),
+    {
+      Put: {
+        TableName: dailyTrainingPlanTableName,
+        Item: {
+          userId,
+          planDate,
+          trainingMenuSetId,
+          source: "ai",
+          idempotencyKey,
+          createdAt: ts,
+          updatedAt: ts
+        },
+        ConditionExpression: currentPlan.Item
+          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
+          : "attribute_not_exists(userId)",
+        ...(currentPlan.Item
+          ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": currentPlan.Item.trainingMenuSetId } }
+          : {})
+      }
+    }
   ];
 
-  await ddb.send(
-    new TransactWriteCommand({
-      TransactItems: transactItems
-    })
-  );
-
+  await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
   return mcpToolResponse(200, {
-    tool: "create_training_menu_set_from_ai",
+    tool: "create_daily_training_plan_from_ai",
     trainingMenuSetId,
+    planDate,
     setName,
-    isDefault: shouldBeDefault,
-    isAiGenerated: true,
-    createdCount: normalizedItems.length
+    reusedItemCount: normalizedItems.filter((item) => !item.newItem).length,
+    createdItemCount: normalizedItems.filter((item) => item.newItem).length
   });
 }
 
@@ -2371,8 +2457,14 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     if (toolName === "save_advice_log") {
       return saveAdviceLog(event, userId);
     }
-    if (toolName === "create_training_menu_set_from_ai") {
-      return createTrainingMenuSetFromAi(event, userId);
+    if (toolName === "list_training_menu_items") {
+      return listTrainingMenuItemsForAi(userId);
+    }
+    if (toolName === "list_training_menu_sets") {
+      return listTrainingMenuSetsForAi(userId);
+    }
+    if (toolName === "create_daily_training_plan_from_ai") {
+      return createDailyTrainingPlanFromAi(event, userId);
     }
 
     return mcpToolResponse(404, { message: `Method not found: ${toolName}` });

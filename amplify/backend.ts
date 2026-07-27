@@ -198,6 +198,15 @@ trainingMenuSetItemTable.addGlobalSecondaryIndex({
   sortKey: { name: "trainingMenuItemId", type: dynamodb.AttributeType.STRING }
 });
 
+const dailyTrainingPlanTable = new dynamodb.Table(stack, "DailyTrainingPlanTable", {
+  tableName: tableNameFor("DailyTrainingPlanTable"),
+  partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "planDate", type: dynamodb.AttributeType.STRING },
+  billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+  pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+  removalPolicy: RemovalPolicy.RETAIN
+});
+
 const trainingHistoryTable = new dynamodb.Table(stack, "TrainingHistoryTable", {
   tableName: tableNameFor("TrainingHistoryTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
@@ -326,11 +335,13 @@ avatarImageBucket.grantPut(avatarUploadApiLambda, "users/*");
 trainingMenuTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetTable.grantReadWriteData(trainingMenuApiLambda);
 trainingMenuSetItemTable.grantReadWriteData(trainingMenuApiLambda);
+dailyTrainingPlanTable.grantReadWriteData(trainingMenuApiLambda);
 trainingHistoryTable.grantReadWriteData(trainingHistoryApiLambda);
 trainingPerformanceTable.grantReadWriteData(trainingHistoryApiLambda);
 trainingMenuTable.grantReadData(trainingHistoryApiLambda);
 trainingMenuSetTable.grantReadData(trainingHistoryApiLambda);
 trainingMenuSetItemTable.grantReadData(trainingHistoryApiLambda);
+dailyTrainingPlanTable.grantReadData(trainingHistoryApiLambda);
 dailyRecordTable.grantReadWriteData(dailyRecordApiLambda);
 trainingHistoryTable.grantReadData(dailyRecordApiLambda);
 goalTable.grantReadWriteData(dailyRecordApiLambda);
@@ -344,6 +355,7 @@ trainingPerformanceTable.grantReadData(mcpToolsApiLambda);
 trainingMenuTable.grantReadWriteData(mcpToolsApiLambda);
 trainingMenuSetTable.grantReadWriteData(mcpToolsApiLambda);
 trainingMenuSetItemTable.grantReadWriteData(mcpToolsApiLambda);
+dailyTrainingPlanTable.grantReadWriteData(mcpToolsApiLambda);
 
 profileApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tableName);
 profileApiLambda.addEnvironment("AVATAR_BUCKET_NAME", avatarImageBucket.bucketName);
@@ -353,11 +365,13 @@ avatarUploadApiLambda.addEnvironment("AVATAR_IMAGE_MAX_BYTES", "2097152");
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 trainingMenuApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
+trainingMenuApiLambda.addEnvironment("DAILY_TRAINING_PLAN_TABLE_NAME", dailyTrainingPlanTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerformanceTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 trainingHistoryApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
+trainingHistoryApiLambda.addEnvironment("DAILY_TRAINING_PLAN_TABLE_NAME", dailyTrainingPlanTable.tableName);
 dailyRecordApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.tableName);
 dailyRecordApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 dailyRecordApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
@@ -373,6 +387,7 @@ mcpToolsApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tab
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_ITEM_TABLE_NAME", trainingMenuSetItemTable.tableName);
+mcpToolsApiLambda.addEnvironment("DAILY_TRAINING_PLAN_TABLE_NAME", dailyTrainingPlanTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_PERFORMANCE_TABLE_NAME", trainingPerformanceTable.tableName);
 mcpIdentityInterceptorLambda.addEnvironment("USER_POOL_ID", backend.auth.resources.userPool.userPoolId);
 mcpIdentityInterceptorLambda.addEnvironment(
@@ -454,14 +469,24 @@ const trainingMenuSetsResource = coreApi.root.addResource("training-menu-sets");
 trainingMenuSetsResource.addMethod("GET", trainingMenuIntegration, authMethodOptions);
 trainingMenuSetsResource.addMethod("POST", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetResource = trainingMenuSetsResource.addResource("{trainingMenuSetId}");
+trainingMenuSetResource.addMethod("GET", trainingMenuIntegration, authMethodOptions);
 trainingMenuSetResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
 trainingMenuSetResource.addMethod("DELETE", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetItemsResource = trainingMenuSetResource.addResource("items");
 trainingMenuSetItemsResource.addMethod("POST", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetItemsReorderResource = trainingMenuSetItemsResource.addResource("reorder");
 trainingMenuSetItemsReorderResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
+const trainingMenuSetItemsBulkResource = trainingMenuSetItemsResource.addResource("bulk");
+trainingMenuSetItemsBulkResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
 const trainingMenuSetItemResource = trainingMenuSetItemsResource.addResource("{trainingMenuItemId}");
+trainingMenuSetItemResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
 trainingMenuSetItemResource.addMethod("DELETE", trainingMenuIntegration, authMethodOptions);
+
+const dailyTrainingPlansResource = coreApi.root.addResource("daily-training-plans");
+const dailyTrainingPlanResource = dailyTrainingPlansResource.addResource("{date}");
+dailyTrainingPlanResource.addMethod("GET", trainingMenuIntegration, authMethodOptions);
+dailyTrainingPlanResource.addMethod("PUT", trainingMenuIntegration, authMethodOptions);
+dailyTrainingPlanResource.addMethod("DELETE", trainingMenuIntegration, authMethodOptions);
 
 const trainingSessionViewResource = coreApi.root.addResource("training-session-view");
 trainingSessionViewResource.addMethod("GET", trainingHistoryIntegration, authMethodOptions);
@@ -658,6 +683,7 @@ backend.addOutput({
       trainingMenuTableName: trainingMenuTable.tableName,
       trainingMenuSetTableName: trainingMenuSetTable.tableName,
       trainingMenuSetItemTableName: trainingMenuSetItemTable.tableName,
+      dailyTrainingPlanTableName: dailyTrainingPlanTable.tableName,
       trainingHistoryTableName: trainingHistoryTable.tableName,
       dailyRecordTableName: dailyRecordTable.tableName,
       goalTableName: goalTable.tableName,

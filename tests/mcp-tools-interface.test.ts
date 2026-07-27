@@ -434,10 +434,13 @@ test("AI menu schema declares zero as the minimum weight", async () => {
       };
     };
   }>;
-  const schema = schemas.find((candidate) => candidate.name === "create_training_menu_set_from_ai");
-  assert.ok(schema, "create_training_menu_set_from_ai schema is missing");
-  assert.equal(schema.inputSchema.properties.items?.items?.properties?.defaultWeightKg?.minimum, 0);
-  assert.equal(schema.inputSchema.properties.items?.items?.properties?.description?.type, "string");
+  const schema = schemas.find((candidate) => candidate.name === "create_daily_training_plan_from_ai");
+  assert.ok(schema, "create_daily_training_plan_from_ai schema is missing");
+  const itemProperties = schema.inputSchema.properties.items?.items?.properties as
+    | Record<string, { properties?: Record<string, { minimum?: number; type?: string }> }>
+    | undefined;
+  assert.equal(itemProperties?.prescription?.properties?.targetWeightKg?.minimum, 0);
+  assert.equal(itemProperties?.newTrainingMenuItem?.properties?.description?.type, "string");
   assert.equal(Object.hasOwn(schema.inputSchema.properties.items?.items?.properties ?? {}, "memo"), false);
 });
 
