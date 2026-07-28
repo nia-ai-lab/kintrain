@@ -232,9 +232,10 @@ export function TrainingSessionPage() {
   const prioritized = useMemo(() => {
     return getPrioritizedTrainingSessionItems({
       items: sessionItems,
-      todayYmd: today
+      todayYmd: today,
+      menuSetType: resolvedMenuSet?.setType ?? 'reusable'
     });
-  }, [sessionItems, today]);
+  }, [resolvedMenuSet?.setType, sessionItems, today]);
 
   const menuItemById = useMemo(() => {
     const map = new Map<string, TrainingMenuItem>();

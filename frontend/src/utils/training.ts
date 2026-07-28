@@ -42,66 +42,70 @@ export function getLastPerformance(menuItemId: string, gymVisits: GymVisit[]): L
 }
 
 type PrioritizableTrainingSessionItem = {
-  frequency: TrainingMenuItem['frequency'];
   order: number;
   lastPerformanceSnapshot?: {
     visitDateLocal?: string;
   };
 };
 
-function scoreTrainingSessionItem<T extends PrioritizableTrainingSessionItem>(params: {
-  item: T;
-  todayYmd: string;
-}): {
-  neverDone: boolean;
-  overdueDays: number;
-  daysSinceLast: number;
-} {
-  const { item, todayYmd } = params;
+function getElapsedDaysSinceLastPerformance(
+  item: PrioritizableTrainingSessionItem,
+  todayYmd: string
+): number {
   const lastDate = item.lastPerformanceSnapshot?.visitDateLocal;
   if (!lastDate) {
-    return {
-      neverDone: true,
-      overdueDays: Number.POSITIVE_INFINITY,
-      daysSinceLast: Number.MAX_SAFE_INTEGER
-    };
+    return Number.POSITIVE_INFINITY;
   }
-
-  const daysSinceLast = Math.max(0, diffDays(lastDate, todayYmd));
-  const intervalDays = getFrequencyDays(item.frequency);
-  return {
-    neverDone: false,
-    overdueDays: daysSinceLast - intervalDays,
-    daysSinceLast
-  };
+  return Math.max(0, diffDays(lastDate, todayYmd));
 }
 
 export function getPrioritizedTrainingSessionItems<T extends PrioritizableTrainingSessionItem>(params: {
   items: T[];
   todayYmd: string;
+  menuSetType: 'reusable' | 'temporary';
 }): T[] {
-  const { items, todayYmd } = params;
+  const { items, todayYmd, menuSetType } = params;
+  const bySetOrder = [...items].sort((a, b) => a.order - b.order);
+  if (menuSetType === 'temporary') {
+    return bySetOrder;
+  }
 
-  return [...items].sort((a, b) => {
-    const scoreA = scoreTrainingSessionItem({
-      item: a,
-      todayYmd
-    });
-    const scoreB = scoreTrainingSessionItem({
-      item: b,
-      todayYmd
-    });
+  const setOrderRank = new Map<T, number>();
+  bySetOrder.forEach((item, index) => {
+    setOrderRank.set(item, index + 1);
+  });
 
-    if (scoreA.neverDone !== scoreB.neverDone) {
-      return scoreA.neverDone ? -1 : 1;
+  const byElapsedDays = [...bySetOrder].sort((a, b) => {
+    const elapsedA = getElapsedDaysSinceLastPerformance(a, todayYmd);
+    const elapsedB = getElapsedDaysSinceLastPerformance(b, todayYmd);
+    if (elapsedA !== elapsedB) {
+      return elapsedB - elapsedA;
     }
-    if (scoreA.overdueDays !== scoreB.overdueDays) {
-      return scoreB.overdueDays - scoreA.overdueDays;
+    return (setOrderRank.get(a) ?? 0) - (setOrderRank.get(b) ?? 0);
+  });
+
+  const elapsedDaysRank = new Map<T, number>();
+  let currentElapsedRank = 1;
+  let previousElapsedDays: number | undefined;
+  byElapsedDays.forEach((item, index) => {
+    const elapsedDays = getElapsedDaysSinceLastPerformance(item, todayYmd);
+    if (index > 0 && elapsedDays !== previousElapsedDays) {
+      currentElapsedRank = index + 1;
     }
-    if (scoreA.daysSinceLast !== scoreB.daysSinceLast) {
-      return scoreB.daysSinceLast - scoreA.daysSinceLast;
-    }
-    return a.order - b.order;
+    elapsedDaysRank.set(item, currentElapsedRank);
+    previousElapsedDays = elapsedDays;
+  });
+
+  return [...bySetOrder].sort((a, b) => {
+    const setRankA = setOrderRank.get(a) ?? Number.MAX_SAFE_INTEGER;
+    const setRankB = setOrderRank.get(b) ?? Number.MAX_SAFE_INTEGER;
+    const elapsedRankA = elapsedDaysRank.get(a) ?? Number.MAX_SAFE_INTEGER;
+    const elapsedRankB = elapsedDaysRank.get(b) ?? Number.MAX_SAFE_INTEGER;
+    // Lower scores run first. Set order is intentionally weighted more heavily
+    // so elapsed time can adjust, but not completely replace, the planned order.
+    const scoreA = setRankA * 2 + elapsedRankA;
+    const scoreB = setRankB * 2 + elapsedRankB;
+    return scoreA - scoreB || setRankA - setRankB;
   });
 }
 
