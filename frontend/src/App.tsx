@@ -3,6 +3,7 @@ import { useAuth } from './AuthState';
 import { AppLayout } from './components/AppLayout';
 import { AiChatPage } from './pages/AiChatPage';
 import { CalendarPage } from './pages/CalendarPage';
+import { CoachingContextPage } from './pages/CoachingContextPage';
 import { DailyPage } from './pages/DailyPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { LoginPage } from './pages/LoginPage';
@@ -69,6 +70,7 @@ export function App() {
         <Route path="/history" element={<PlaceholderPage title="履歴" />} />
         <Route path="/progress" element={<PlaceholderPage title="進捗" />} />
         <Route path="/ai-chat" element={<AiChatPage />} />
+        <Route path="/coaching-context" element={<CoachingContextPage />} />
         <Route path="/settings" element={<SettingsPage />} />
       </Route>
       <Route path="*" element={<Navigate to={isAuthenticated ? '/dashboard' : '/login'} replace />} />

@@ -22,6 +22,7 @@
     "amplify:pipeline-deploy": "npx ampx pipeline-deploy",
     "test:mcp": "tsx --test tests/mcp-*.test.ts",
     "test:mcp-identity": "tsx --test tests/mcp-identity-interceptor.test.ts",
+    "test:coaching-context": "tsx --test tests/coaching-context.test.ts",
     "test:training-priority": "tsx --test tests/training-priority.test.ts",
     "test:ui-spec": "playwright test -c playwright.config.mjs"
   },

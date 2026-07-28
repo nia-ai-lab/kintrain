@@ -329,21 +329,135 @@
     }
   },
   {
-    "name": "save_advice_log",
-    "description": "生成したアドバイスの監査ログを保存する",
+    "name": "get_coaching_context",
+    "description": "筋トレ相談の開始時に必ず呼び出し、チャットやAIサービスをまたいで共有する現在の目標・制約・好み・指導方針と、有効な短期引き継ぎメモを取得する。",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "requestId": {
+        "date": {
           "type": "string",
-          "description": "Runtime側要求ID"
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "有効なメモを判定するユーザーのローカル日付。省略時はtimeZoneIdの現在日。"
         },
-        "advice": {
+        "timeZoneId": {
           "type": "string",
-          "description": "保存するアドバイス本文"
+          "description": "IANAタイムゾーンID。既定はAsia/Tokyo。"
+        }
+      }
+    }
+  },
+  {
+    "name": "update_coaching_context",
+    "description": "ユーザーが明示的に承認した場合だけ、チャットをまたいで共有する現在の目標・制約・好み・指導方針を新しい版として更新する。更新前にget_coaching_contextで現在のversionを取得する。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "goalSummary": {
+          "type": "string",
+          "maxLength": 1000,
+          "description": "現在の長期・中期目標の簡潔な要約。未設定は空文字。"
+        },
+        "constraints": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": "怪我、痛み、利用器具、時間などの現在の制約。"
+        },
+        "preferences": {
+          "type": "array",
+          "maxItems": 20,
+          "items": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "description": "種目、頻度、相談スタイルなどの好み。"
+        },
+        "trainingPolicy": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "現在のトレーニング指導方針。未設定は空文字。"
+        },
+        "nextReviewDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "方針を次に見直すユーザーのローカル日付。"
+        },
+        "expectedVersion": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "get_coaching_contextで取得した現在のversion。"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["chatgpt", "claude", "kintrain", "user", "other"],
+          "description": "更新を提案したAIまたはユーザー。"
+        },
+        "changeReason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "以前の方針から変更する理由。"
+        },
+        "userConfirmed": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "内容を提示し、ユーザーが保存を明示的に承認した場合だけtrue。"
         }
       },
-      "required": ["advice"]
+      "required": [
+        "goalSummary",
+        "constraints",
+        "preferences",
+        "trainingPolicy",
+        "expectedVersion",
+        "source",
+        "changeReason",
+        "userConfirmed"
+      ]
+    }
+  },
+  {
+    "name": "append_coaching_note",
+    "description": "ユーザーが明示的に承認した重要な観察・判断・次回確認事項・一時的制約だけを、標準90日で自動削除される短期引き継ぎメモとして保存する。恒久情報はupdate_coaching_contextへ統合する。",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "idempotencyKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "同じ保存要求の重複登録を防ぐ一意なキー。"
+        },
+        "category": {
+          "type": "string",
+          "enum": ["observation", "decision", "follow-up", "temporary-constraint"],
+          "description": "メモの分類。"
+        },
+        "content": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "次のチャットへ引き継ぐ簡潔な内容。AI回答全文は保存しない。"
+        },
+        "validFromDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "メモが有効になるユーザーのローカル日付。"
+        },
+        "validToDate": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "メモの有効終了日。"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["chatgpt", "claude", "kintrain", "user", "other"],
+          "description": "メモを提案したAIまたはユーザー。"
+        },
+        "userConfirmed": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "内容を提示し、ユーザーが保存を明示的に承認した場合だけtrue。"
+        }
+      },
+      "required": ["idempotencyKey", "category", "content", "source", "userConfirmed"]
     }
   },
   {

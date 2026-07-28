@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { auth } from "./auth/resource";
 import { aiSettingsApiFunction } from "./functions/ai-settings-api/resource";
 import { avatarUploadApiFunction } from "./functions/avatar-upload-api/resource";
+import { coachingContextApiFunction } from "./functions/coaching-context-api/resource";
 import { dailyRecordApiFunction } from "./functions/daily-record-api/resource";
 import { mcpIdentityInterceptorFunction } from "./functions/mcp-identity-interceptor/resource";
 import { mcpToolsApiFunction } from "./functions/mcp-tools-api/resource";
@@ -27,6 +28,7 @@ const backend = defineBackend({
   trainingHistoryApiFunction,
   dailyRecordApiFunction,
   aiSettingsApiFunction,
+  coachingContextApiFunction,
   mcpIdentityInterceptorFunction,
   mcpToolsApiFunction
 });
@@ -274,12 +276,13 @@ const aiSettingTable = new dynamodb.Table(stack, "AiSettingTable", {
   removalPolicy: RemovalPolicy.RETAIN
 });
 
-const aiAdviceLogTable = new dynamodb.Table(stack, "AiAdviceLogTable", {
-  tableName: tableNameFor("AiAdviceLogTable"),
+const coachingContextTable = new dynamodb.Table(stack, "CoachingContextTable", {
+  tableName: tableNameFor("CoachingContextTable"),
   partitionKey: { name: "userId", type: dynamodb.AttributeType.STRING },
-  sortKey: { name: "adviceLogId", type: dynamodb.AttributeType.STRING },
+  sortKey: { name: "recordKey", type: dynamodb.AttributeType.STRING },
   billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
   pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: true },
+  timeToLiveAttribute: "expiresAtEpoch",
   removalPolicy: RemovalPolicy.RETAIN
 });
 
@@ -305,6 +308,7 @@ const trainingMenuApiLambda = backend.trainingMenuApiFunction.resources.lambda a
 const trainingHistoryApiLambda = backend.trainingHistoryApiFunction.resources.lambda as lambda.Function;
 const dailyRecordApiLambda = backend.dailyRecordApiFunction.resources.lambda as lambda.Function;
 const aiSettingsApiLambda = backend.aiSettingsApiFunction.resources.lambda as lambda.Function;
+const coachingContextApiLambda = backend.coachingContextApiFunction.resources.lambda as lambda.Function;
 const mcpIdentityInterceptorLambda = backend.mcpIdentityInterceptorFunction.resources.lambda as lambda.Function;
 const mcpToolsApiLambda = backend.mcpToolsApiFunction.resources.lambda as lambda.Function;
 const paginationTokenSecret = new secretsmanager.Secret(stack, "PaginationTokenSigningSecret", {
@@ -346,11 +350,12 @@ dailyRecordTable.grantReadWriteData(dailyRecordApiLambda);
 trainingHistoryTable.grantReadData(dailyRecordApiLambda);
 goalTable.grantReadWriteData(dailyRecordApiLambda);
 aiSettingTable.grantReadWriteData(aiSettingsApiLambda);
+coachingContextTable.grantReadWriteData(coachingContextApiLambda);
 trainingHistoryTable.grantReadData(mcpToolsApiLambda);
 dailyRecordTable.grantReadWriteData(mcpToolsApiLambda);
 goalTable.grantReadData(mcpToolsApiLambda);
 aiSettingTable.grantReadData(mcpToolsApiLambda);
-aiAdviceLogTable.grantWriteData(mcpToolsApiLambda);
+coachingContextTable.grantReadWriteData(mcpToolsApiLambda);
 trainingPerformanceTable.grantReadData(mcpToolsApiLambda);
 trainingMenuTable.grantReadWriteData(mcpToolsApiLambda);
 trainingMenuSetTable.grantReadWriteData(mcpToolsApiLambda);
@@ -378,11 +383,12 @@ dailyRecordApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
 aiSettingsApiLambda.addEnvironment("AI_SETTING_TABLE_NAME", aiSettingTable.tableName);
 aiSettingsApiLambda.addEnvironment("AVATAR_BUCKET_NAME", avatarImageBucket.bucketName);
 aiSettingsApiLambda.addEnvironment("AI_COACH_DEFAULT_AVATAR_URL", "/assets/characters/default.png");
+coachingContextApiLambda.addEnvironment("COACHING_CONTEXT_TABLE_NAME", coachingContextTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_HISTORY_TABLE_NAME", trainingHistoryTable.tableName);
 mcpToolsApiLambda.addEnvironment("DAILY_RECORD_TABLE_NAME", dailyRecordTable.tableName);
 mcpToolsApiLambda.addEnvironment("GOAL_TABLE_NAME", goalTable.tableName);
 mcpToolsApiLambda.addEnvironment("AI_SETTING_TABLE_NAME", aiSettingTable.tableName);
-mcpToolsApiLambda.addEnvironment("AI_ADVICE_LOG_TABLE_NAME", aiAdviceLogTable.tableName);
+mcpToolsApiLambda.addEnvironment("COACHING_CONTEXT_TABLE_NAME", coachingContextTable.tableName);
 mcpToolsApiLambda.addEnvironment("USER_PROFILE_TABLE_NAME", userProfileTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_TABLE_NAME", trainingMenuTable.tableName);
 mcpToolsApiLambda.addEnvironment("TRAINING_MENU_SET_TABLE_NAME", trainingMenuSetTable.tableName);
@@ -443,6 +449,7 @@ const trainingMenuIntegration = new apigateway.LambdaIntegration(trainingMenuApi
 const trainingHistoryIntegration = new apigateway.LambdaIntegration(trainingHistoryApiLambda);
 const dailyRecordIntegration = new apigateway.LambdaIntegration(dailyRecordApiLambda);
 const aiSettingsIntegration = new apigateway.LambdaIntegration(aiSettingsApiLambda);
+const coachingContextIntegration = new apigateway.LambdaIntegration(coachingContextApiLambda);
 const avatarUploadIntegration = new apigateway.LambdaIntegration(avatarUploadApiLambda);
 
 const authMethodOptions: apigateway.MethodOptions = {
@@ -513,6 +520,13 @@ dailyRecordByDateResource.addMethod("PUT", dailyRecordIntegration, authMethodOpt
 const aiCharacterProfileResource = coreApi.root.addResource("ai-character-profile");
 aiCharacterProfileResource.addMethod("GET", aiSettingsIntegration, authMethodOptions);
 aiCharacterProfileResource.addMethod("PUT", aiSettingsIntegration, authMethodOptions);
+const coachingContextResource = coreApi.root.addResource("coaching-context");
+coachingContextResource.addMethod("GET", coachingContextIntegration, authMethodOptions);
+coachingContextResource.addMethod("PUT", coachingContextIntegration, authMethodOptions);
+const coachingNotesResource = coreApi.root.addResource("coaching-notes");
+coachingNotesResource.addMethod("POST", coachingContextIntegration, authMethodOptions);
+const coachingNoteResource = coachingNotesResource.addResource("{noteId}");
+coachingNoteResource.addMethod("DELETE", coachingContextIntegration, authMethodOptions);
 const avatarUploadResource = coreApi.root.addResource("avatar-upload");
 const avatarUploadPresignResource = avatarUploadResource.addResource("presign");
 avatarUploadPresignResource.addMethod("POST", avatarUploadIntegration, authMethodOptions);
@@ -552,7 +566,8 @@ if (enableAgentCoreResources) {
     gatewayName,
     description: "KinTrain AI coach MCP gateway",
     protocolConfiguration: agentcore.GatewayProtocol.mcp({
-      instructions: "Use KinTrain tools to retrieve training records and provide concise coaching advice.",
+      instructions:
+        "Before providing fitness coaching, call get_coaching_context and use the shared goals, constraints, preferences, policy, and active notes. Update coaching context or append a note only after explicit user approval.",
       searchType: agentcore.McpGatewaySearchType.SEMANTIC,
       supportedVersions: [agentcore.MCPProtocolVersion.MCP_2025_03_26]
     }),
@@ -688,7 +703,7 @@ backend.addOutput({
       dailyRecordTableName: dailyRecordTable.tableName,
       goalTableName: goalTable.tableName,
       aiSettingTableName: aiSettingTable.tableName,
-      aiAdviceLogTableName: aiAdviceLogTable.tableName
+      coachingContextTableName: coachingContextTable.tableName
     }
   }
 });

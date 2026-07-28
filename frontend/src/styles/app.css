@@ -2255,6 +2255,161 @@ a {
   line-height: 1.55;
 }
 
+.coaching-context-page {
+  gap: 18px;
+}
+
+.coaching-context-page .card {
+  border-radius: 24px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.92), rgba(255, 249, 243, 0.84));
+}
+
+.coaching-context-hero {
+  border-color: rgba(15, 118, 110, 0.16);
+}
+
+.coaching-context-hero h1 {
+  margin-bottom: 8px;
+}
+
+.coaching-context-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.coaching-context-meta span,
+.coaching-count-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.08);
+  color: var(--primary-strong);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.coaching-context-form,
+.coaching-note-form {
+  display: grid;
+  gap: 14px;
+  margin: 16px 0;
+}
+
+.coaching-context-form label,
+.coaching-note-form label {
+  display: grid;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.coaching-context-form textarea,
+.coaching-note-form textarea {
+  resize: vertical;
+}
+
+.coaching-context-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.coaching-section-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.coaching-note-form {
+  grid-template-columns: minmax(140px, 0.7fr) minmax(280px, 2fr);
+}
+
+.coaching-note-content {
+  grid-row: span 2;
+}
+
+.coaching-note-list,
+.coaching-revision-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.coaching-note-item,
+.coaching-revision-item {
+  padding: 14px;
+  border: 1px solid rgba(24, 32, 40, 0.08);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.coaching-note-item p {
+  margin: 10px 0;
+  white-space: pre-wrap;
+}
+
+.coaching-note-item-heading,
+.coaching-note-dates {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.coaching-note-category {
+  color: var(--primary-strong);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.coaching-note-dates {
+  margin-bottom: 12px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.coaching-note-item .btn {
+  min-height: 36px;
+  padding: 7px 12px;
+}
+
+.coaching-revision-item summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.coaching-revision-item dl {
+  display: grid;
+  grid-template-columns: 64px 1fr;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.coaching-revision-item dt {
+  color: var(--muted);
+  font-weight: 700;
+}
+
+.coaching-revision-item dd {
+  margin: 0;
+  white-space: pre-wrap;
+}
+
+.coaching-context-status {
+  position: sticky;
+  bottom: calc(84px + var(--safe-bottom));
+  z-index: 3;
+  padding: 12px 14px;
+  border: 1px solid rgba(15, 118, 110, 0.18);
+  border-radius: 16px;
+  background: rgba(239, 253, 250, 0.96);
+  box-shadow: 0 12px 30px rgba(18, 28, 35, 0.1);
+}
+
 @media (max-width: 760px) {
   .app-root {
     padding: 16px 12px calc(104px + var(--safe-bottom));
@@ -2357,6 +2512,24 @@ a {
 
   .settings-export-range {
     grid-template-columns: 1fr;
+  }
+
+  .coaching-context-columns,
+  .coaching-note-form {
+    grid-template-columns: 1fr;
+  }
+
+  .coaching-note-content {
+    grid-row: auto;
+  }
+
+  .coaching-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .coaching-count-badge {
+    align-self: flex-start;
   }
 
   .dashboard-hero-actions {

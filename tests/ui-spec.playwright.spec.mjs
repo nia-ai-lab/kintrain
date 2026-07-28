@@ -204,6 +204,43 @@ function buildCoreMockData() {
         updatedAt: now
       }
     ],
+    coaching: {
+      context: {
+        goalSummary: '筋力を維持しながら体脂肪率を下げる',
+        constraints: ['平日は60分以内'],
+        preferences: ['フリーウェイトを優先'],
+        trainingPolicy: 'フォームを崩さず完遂できる重量を優先する',
+        nextReviewDate: state.todayYmd,
+        version: 1,
+        updatedAt: now,
+        updatedBySource: 'user',
+        changeReason: '初期設定'
+      },
+      notes: [],
+      revisions: [
+        {
+          revisionId: 'revision-1',
+          goalSummary: '筋力を維持しながら体脂肪率を下げる',
+          constraints: ['平日は60分以内'],
+          preferences: ['フリーウェイトを優先'],
+          trainingPolicy: 'フォームを崩さず完遂できる重量を優先する',
+          nextReviewDate: state.todayYmd,
+          version: 1,
+          updatedAt: now,
+          updatedBySource: 'user',
+          source: 'user',
+          changeReason: '初期設定',
+          createdAt: now
+        }
+      ],
+      limits: {
+        activeNotes: 50,
+        returnedToAi: 10,
+        noteRetentionDays: 90,
+        revisions: 50,
+        revisionRetentionDays: 365
+      }
+    },
     sequence: 100
   };
 }
@@ -301,6 +338,51 @@ async function attachCoreApiMock(page) {
         ...next,
         updatedAt: now
       });
+    }
+    if (path === '/coaching-context' && method === 'GET') {
+      return json(mock.coaching);
+    }
+    if (path === '/coaching-context' && method === 'PUT') {
+      const next = JSON.parse(req.postData() ?? '{}');
+      const version = mock.coaching.context.version + 1;
+      mock.coaching.context = {
+        goalSummary: next.goalSummary,
+        constraints: next.constraints,
+        preferences: next.preferences,
+        trainingPolicy: next.trainingPolicy,
+        ...(next.nextReviewDate ? { nextReviewDate: next.nextReviewDate } : {}),
+        version,
+        updatedAt: now,
+        updatedBySource: 'user',
+        changeReason: next.changeReason
+      };
+      mock.coaching.revisions.unshift({
+        revisionId: `revision-${version}`,
+        ...mock.coaching.context,
+        source: 'user',
+        createdAt: now
+      });
+      return json(mock.coaching.context);
+    }
+    if (path === '/coaching-notes' && method === 'POST') {
+      const next = JSON.parse(req.postData() ?? '{}');
+      const note = {
+        noteId: `000000000000000000000000000000${mock.sequence++}`.slice(-32),
+        category: next.category,
+        content: next.content,
+        ...(next.validFromDate ? { validFromDate: next.validFromDate } : {}),
+        ...(next.validToDate ? { validToDate: next.validToDate } : {}),
+        source: 'user',
+        createdAt: now,
+        expiresAt: isoUtcNoMillis(new Date(Date.now() + 90 * 24 * 60 * 60 * 1000))
+      };
+      mock.coaching.notes.unshift(note);
+      return json({ note, created: true }, 201);
+    }
+    if (path.startsWith('/coaching-notes/') && method === 'DELETE') {
+      const noteId = path.split('/').pop();
+      mock.coaching.notes = mock.coaching.notes.filter((note) => note.noteId !== noteId);
+      return route.fulfill({ status: 204, body: '' });
     }
     if (path === '/goals' && method === 'GET') {
       return json({});
@@ -998,6 +1080,42 @@ test('設定保存とログアウトができる', async ({ page }) => {
 
   await page.goto('/dashboard');
   await expect(page).toHaveURL(/\/login$/);
+});
+
+test('コーチング方針と短期メモを管理できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/settings');
+  await page.getByRole('link', { name: 'コーチング方針を管理' }).click();
+  await expect(page).toHaveURL(/\/coaching-context$/);
+
+  await page.getByLabel('現在のトレーニング方針').fill('4週間はフォームと回復を優先する');
+  await page.getByLabel('変更理由（必須）').fill('UIテストで方針を更新');
+  await page.getByRole('button', { name: 'この内容で更新' }).click();
+  await expect(page.getByText('コーチング方針を保存しました。次のAI相談から共有されます。')).toBeVisible();
+  await expect(page.getByText('現在の版: 2')).toBeVisible();
+
+  await page.getByLabel('内容').fill('次回は肩の違和感を確認する');
+  await page.getByRole('button', { name: 'メモを追加' }).click();
+  await expect(page.getByText('次回は肩の違和感を確認する')).toBeVisible();
+  await expect(page.getByText('1 / 50件')).toBeVisible();
+});
+
+test('iPhone幅のコーチング方針画面が横にはみ出さない', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/coaching-context');
+  await expect(page.getByRole('heading', { name: 'コーチング方針' })).toBeVisible();
+
+  const dimensions = await page.evaluate(() => ({
+    viewportWidth: document.documentElement.clientWidth,
+    contentWidth: document.documentElement.scrollWidth
+  }));
+  assert.ok(
+    dimensions.contentWidth <= dimensions.viewportWidth,
+    `content width ${dimensions.contentWidth} exceeds viewport ${dimensions.viewportWidth}`
+  );
 });
 
 test('設定画面から全期間の分析用JSONをダウンロードできる', async ({ page }) => {

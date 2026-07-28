@@ -1,5 +1,16 @@
 import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
+import {
+  appendCoachingNoteData,
+  CoachingNoteLimitError,
+  CoachingValidationError,
+  CoachingVersionConflictError,
+  coachingNoteRetentionDays,
+  getCoachingContextData,
+  maxActiveCoachingNotes,
+  maxReturnedCoachingNotes,
+  updateCoachingContextData
+} from "../shared/coaching-context-store";
 import { ddb } from "../shared/ddb";
 import { enumerateYmdRange } from "../shared/date-range";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
@@ -13,7 +24,7 @@ const trainingPerformanceTableName = process.env.TRAINING_PERFORMANCE_TABLE_NAME
 const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
 const goalTableName = process.env.GOAL_TABLE_NAME ?? "";
 const aiSettingTableName = process.env.AI_SETTING_TABLE_NAME ?? "";
-const aiAdviceLogTableName = process.env.AI_ADVICE_LOG_TABLE_NAME ?? "";
+const coachingContextTableName = process.env.COACHING_CONTEXT_TABLE_NAME ?? "";
 const userProfileTableName = process.env.USER_PROFILE_TABLE_NAME ?? "";
 
 export type McpToolResponse = Record<string, unknown>;
@@ -987,7 +998,7 @@ function requireConfiguredTables(): string | null {
     !goalTableName ||
     !userProfileTableName ||
     !aiSettingTableName ||
-    !aiAdviceLogTableName
+    !coachingContextTableName
   ) {
     return "MCP lambda environment is not configured.";
   }
@@ -2068,33 +2079,103 @@ async function getAiCharacterProfile(userId: string): Promise<McpToolResponse> {
   });
 }
 
-async function saveAdviceLog(args: ToolArgs, userId: string): Promise<McpToolResponse> {
-  const advice = toNonEmptyString(args.advice);
-  const requestId = toNonEmptyString(args.requestId);
-  if (!advice) {
-    return mcpToolResponse(400, { message: "advice is required." });
+function coachingErrorResponse(error: unknown): McpToolResponse {
+  if (error instanceof CoachingValidationError) {
+    return mcpToolResponse(400, {
+      code: "INVALID_COACHING_CONTEXT",
+      message: error.message
+    });
   }
+  if (error instanceof CoachingVersionConflictError) {
+    return mcpToolResponse(409, {
+      code: "COACHING_CONTEXT_VERSION_CONFLICT",
+      message: "The coaching context changed. Retrieve it again before updating.",
+      currentVersion: error.currentVersion
+    });
+  }
+  if (error instanceof CoachingNoteLimitError) {
+    return mcpToolResponse(409, {
+      code: "COACHING_NOTE_LIMIT_REACHED",
+      message: error.message,
+      maxActiveNotes: maxActiveCoachingNotes
+    });
+  }
+  throw error;
+}
 
-  const adviceLogId = randomUUID();
-  const ts = nowIsoSeconds();
-  await ddb.send(
-    new PutCommand({
-      TableName: aiAdviceLogTableName,
-      Item: {
-        userId,
-        adviceLogId,
-        requestId: requestId ?? "",
-        advice,
-        createdAt: ts
-      }
-    })
-  );
+async function getCoachingContext(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!timeZoneId) {
+    return mcpToolResponse(400, {
+      code: "INVALID_TIME_ZONE",
+      message: "timeZoneId must be a valid IANA time zone."
+    });
+  }
+  const date = resolveRecordDate(args.date, timeZoneId);
+  if (!date) {
+    return mcpToolResponse(400, {
+      code: "INVALID_DATE",
+      message: "date must be a valid YYYY-MM-DD date."
+    });
+  }
+  const data = await getCoachingContextData(coachingContextTableName, userId);
+  const activeNotes = data.notes
+    .filter(
+      (note) =>
+        (!note.validFromDate || note.validFromDate <= date) &&
+        (!note.validToDate || note.validToDate >= date)
+    )
+    .slice(0, maxReturnedCoachingNotes);
 
   return mcpToolResponse(200, {
-    tool: "save_advice_log",
-    adviceLogId,
-    createdAt: ts
+    tool: "get_coaching_context",
+    asOfDate: date,
+    timeZoneId,
+    context: data.context,
+    activeNotes,
+    limits: {
+      returnedNotes: maxReturnedCoachingNotes,
+      activeNotes: maxActiveCoachingNotes,
+      noteRetentionDays: coachingNoteRetentionDays
+    }
   });
+}
+
+async function updateCoachingContext(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  if (args.userConfirmed !== true) {
+    return mcpToolResponse(400, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Obtain explicit user approval and set userConfirmed to true before updating."
+    });
+  }
+  try {
+    const context = await updateCoachingContextData(coachingContextTableName, userId, args);
+    return mcpToolResponse(200, {
+      tool: "update_coaching_context",
+      context
+    });
+  } catch (error) {
+    return coachingErrorResponse(error);
+  }
+}
+
+async function appendCoachingNote(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  if (args.userConfirmed !== true) {
+    return mcpToolResponse(400, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Obtain explicit user approval and set userConfirmed to true before saving a note."
+    });
+  }
+  try {
+    const result = await appendCoachingNoteData(coachingContextTableName, userId, args);
+    return mcpToolResponse(200, {
+      tool: "append_coaching_note",
+      created: result.created,
+      note: result.note
+    });
+  } catch (error) {
+    return coachingErrorResponse(error);
+  }
 }
 
 async function listTrainingMenuItemsForAi(userId: string): Promise<McpToolResponse> {
@@ -2478,8 +2559,14 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     if (toolName === "get_ai_character_profile") {
       return getAiCharacterProfile(userId);
     }
-    if (toolName === "save_advice_log") {
-      return saveAdviceLog(event, userId);
+    if (toolName === "get_coaching_context") {
+      return getCoachingContext(event, userId);
+    }
+    if (toolName === "update_coaching_context") {
+      return updateCoachingContext(event, userId);
+    }
+    if (toolName === "append_coaching_note") {
+      return appendCoachingNote(event, userId);
     }
     if (toolName === "list_training_menu_items") {
       return listTrainingMenuItemsForAi(userId);

@@ -110,8 +110,20 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
 - backend/frontend両phaseが成功する
 - 未認証のCore APIとAI Runtimeが401になる
 - Cognitoログイン後、プロフィール、メニュー、実施記録、Daily、AI設定を読書きできる
+- Cognitoログイン後、コーチング方針、短期メモ、変更履歴を読書きできる
 - AgentCore有効環境ではAIチャットのSSE応答とMCP参照が動作する
 - ChatGPT / Claude接続環境では、Cognito認可コード取得、Client Secretを使ったtoken交換、MCP `initialize`が成功する
+
+### コーチングコンテキスト導入時の旧テーブル削除
+
+`save_advice_log` 廃止前の `KinTrain-AiAdviceLogTable-{branch}` は `RemovalPolicy.RETAIN` で作成されているため、CloudFormationからリソースを外してもテーブルが残る。
+
+コーチングコンテキスト導入デプロイ後、以下を確認してからdev、mainの順に旧テーブルを明示削除する。
+
+1. 新しい `KinTrain-CoachingContextTable-{branch}` が作成され、TTLが有効である
+2. Core APIとMCPのコーチングコンテキスト読み書きが成功する
+3. `save_advice_log` がMCPの `tools/list` に存在しない
+4. ユーザー判断により旧助言ログのバックアップ・移行・復元は不要
 - CloudWatch LogsへJWT、APIキー、日記本文などの機微情報が出ていない
 
 ## 8. ロールバック

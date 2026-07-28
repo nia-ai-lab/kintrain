@@ -288,6 +288,10 @@
 - `PUT /daily-records/{date}`（`date`: `YYYY-MM-DD`）
 - `GET /ai-character-profile`
 - `PUT /ai-character-profile`
+- `GET /coaching-context`
+- `PUT /coaching-context`
+- `POST /coaching-notes`
+- `DELETE /coaching-notes/{noteId}`
 - `GET /goals`
 - `PUT /goals`
 - `POST /avatar-upload/presign`
@@ -540,11 +544,14 @@
 - 主キー: `userId`（PK）
 - 主な属性: `targetWeightKg`、`targetBodyFatPercent`、`deadlineDate`、`comment`、`createdAt`、`updatedAt`
 
-#### 7.3.10 AiAdviceLogテーブル
+#### 7.3.10 CoachingContextテーブル
 
-- テーブル名: `KinTrain-AiAdviceLogTable-{branch}`
-- 主キー: `userId`（PK）、`adviceLogId`（SK）
-- 主な属性: `advice`、`requestId`、`createdAt`
+- テーブル名: `KinTrain-CoachingContextTable-{branch}`
+- 主キー: `userId`（PK）、`recordKey`（SK）
+- レコード種別: 現在値 `CONTEXT`、短期メモ `NOTE#...`、変更履歴 `REVISION#...`
+- TTL属性: `expiresAtEpoch`（短期メモ90日、変更履歴365日。現在値には設定しない）
+- 現在値はユーザーごとに1件、短期メモは最大50件、変更履歴は最大50版とする
+- 詳細は `docs/coaching-context-requirements.md` を正本とする
 
 #### 7.3.11 AvatarImageBucket
 
@@ -678,11 +685,15 @@
 - `get_daily_record(date)`
 - `get_goal()`
 - `get_ai_character_profile()`
+- `get_coaching_context(date?, timeZoneId?)`
+- `update_coaching_context(goalSummary, constraints, preferences, trainingPolicy, nextReviewDate?, expectedVersion, source, changeReason, userConfirmed)`
+- `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
-- `save_advice_log(advice)`
-- `create_training_menu_set_from_ai(setName, items, makeDefault)`
+- `list_training_menu_items()`
+- `list_training_menu_sets()`
+- `create_temporary_training_menu_set_from_ai(idempotencyKey, validFromDate, validToDate, setName, replaceExistingPlan, items)`
 - `userId` はツール公開引数に含めず、Gateway REQUEST Interceptorが検証済みJWT `sub` から内部注入する。MCP Lambdaは内部専用 `__principalUserId` だけをユーザー識別子として採用する。
 - MCP LambdaはAPI Gatewayプロキシ形式を返さず、ツール結果のJSONオブジェクトを直接返す。失敗は`error.code`、`error.message`、必要に応じて`error.requestId`と`error.details`で表す。
 - DynamoDBの取得行をそのまま返さず、ツールごとの許可フィールドだけをレスポンスへ構築する。内部`userId`や将来追加される内部属性をモデルへ公開しない。
@@ -690,6 +701,7 @@
 - `save_body_metrics_batch` は1回1〜100件を受け付け、正常レコードを日付単位で登録し、入力不正・競合・書き込み失敗をレコード別結果として返すこと。
 - 一括登録の部分成功はHTTP相当200とし、入力と同じ件数・順序の `results` で `success` / `failed`、処理内容または失敗理由を識別可能にすること。
 - 一括登録の確定要件は `docs/mcp-body-metrics-bulk-registration-requirements.md` を正とする。
+- コーチング方針の読み書きは `docs/coaching-context-requirements.md` を正とし、書き込みはユーザーの明示承認を必須とする。
 
 ### 9.3 連携方式
 

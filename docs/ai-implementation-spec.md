@@ -199,8 +199,12 @@
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `get_goal()`
 - `get_ai_character_profile()`
-- `save_advice_log(advice)`
-- `create_training_menu_set_from_ai(setName, items, makeDefault)`
+- `get_coaching_context(date?, timeZoneId?)`
+- `update_coaching_context(goalSummary, constraints, preferences, trainingPolicy, nextReviewDate?, expectedVersion, source, changeReason, userConfirmed)`
+- `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
+- `list_training_menu_items()`
+- `list_training_menu_sets()`
+- `create_temporary_training_menu_set_from_ai(idempotencyKey, validFromDate, validToDate, setName, replaceExistingPlan, items)`
 
 `save_body_metrics_batch`:
 
@@ -213,6 +217,9 @@
 
 注記:
 - ツール引数には `userId` を公開しない。
+- 筋トレ相談の開始時に `get_coaching_context` を呼び出す。
+- コーチングコンテキストと短期メモの書き込みは、ユーザーが保存内容を明示承認した場合だけ行う。
+- 外部AIと共有するコーチングコンテキストはDynamoDBを正本とし、AgentCore Memoryだけに依存しない。
 - RuntimeはCognitoアクセストークンをGatewayへ中継する。
 - Gateway REQUEST Interceptorがアクセストークンを再検証し、JWT `sub` を内部専用 `__principalUserId` として付与する。
 - MCP Lambdaは `__principalUserId` だけをユーザー識別子として採用する。

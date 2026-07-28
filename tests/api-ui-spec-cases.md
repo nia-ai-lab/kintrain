@@ -10,7 +10,7 @@
 ## テストケース一覧
 
 1. 未ログイン時API拒否（401）
-- UI根拠: `ui-spec.md` 4, 14
+- UI根拠: `ui-spec.md` 4, 16
 - API: `GET /me/profile`（Authorizationなし）
 
 2. ユーザ設定の読取/保存
@@ -65,3 +65,14 @@
 - API:
 - `GET /goals`
 - `PUT /goals`
+
+10. コーチング方針管理
+- UI根拠: `ui-spec.md` 13
+- API:
+- `GET /coaching-context`
+- `PUT /coaching-context`
+- `POST /coaching-notes`
+- `DELETE /coaching-notes/{noteId}`
+- 補足:
+- `expectedVersion` の競合を409で拒否すること
+- 短期メモを追加・削除できること

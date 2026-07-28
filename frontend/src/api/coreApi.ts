@@ -221,6 +221,52 @@ type AiCharacterProfileDto = {
 
 type AvatarUploadTarget = 'user' | 'coach';
 
+export type CoachingSourceDto = 'chatgpt' | 'claude' | 'kintrain' | 'user' | 'other';
+export type CoachingNoteCategoryDto = 'observation' | 'decision' | 'follow-up' | 'temporary-constraint';
+
+export type CoachingContextDto = {
+  goalSummary: string;
+  constraints: string[];
+  preferences: string[];
+  trainingPolicy: string;
+  nextReviewDate?: string;
+  version: number;
+  updatedAt?: string;
+  updatedBySource?: CoachingSourceDto;
+  changeReason?: string;
+};
+
+export type CoachingNoteDto = {
+  noteId: string;
+  category: CoachingNoteCategoryDto;
+  content: string;
+  validFromDate?: string;
+  validToDate?: string;
+  source: CoachingSourceDto;
+  createdAt: string;
+  expiresAt: string;
+};
+
+export type CoachingRevisionDto = CoachingContextDto & {
+  revisionId: string;
+  source: CoachingSourceDto;
+  changeReason: string;
+  createdAt: string;
+};
+
+export type CoachingContextResponse = {
+  context: CoachingContextDto;
+  notes: CoachingNoteDto[];
+  revisions: CoachingRevisionDto[];
+  limits: {
+    activeNotes: number;
+    returnedToAi: number;
+    noteRetentionDays: number;
+    revisions: number;
+    revisionRetentionDays: number;
+  };
+};
+
 type AvatarUploadPresignResponse = {
   uploadUrl: string;
   fields: Record<string, string>;
@@ -673,6 +719,46 @@ export async function putAiCharacterProfile(input: {
   return coreApiFetch<AiCharacterProfileDto>('/ai-character-profile', {
     method: 'PUT',
     body: JSON.stringify(input)
+  });
+}
+
+export async function getCoachingContext(): Promise<CoachingContextResponse> {
+  return coreApiFetch<CoachingContextResponse>('/coaching-context', {
+    method: 'GET'
+  });
+}
+
+export async function putCoachingContext(input: {
+  goalSummary: string;
+  constraints: string[];
+  preferences: string[];
+  trainingPolicy: string;
+  nextReviewDate?: string;
+  expectedVersion: number;
+  changeReason: string;
+}): Promise<CoachingContextDto> {
+  return coreApiFetch<CoachingContextDto>('/coaching-context', {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  });
+}
+
+export async function appendCoachingNote(input: {
+  idempotencyKey: string;
+  category: CoachingNoteCategoryDto;
+  content: string;
+  validFromDate?: string;
+  validToDate?: string;
+}): Promise<{ note: CoachingNoteDto; created: boolean }> {
+  return coreApiFetch<{ note: CoachingNoteDto; created: boolean }>('/coaching-notes', {
+    method: 'POST',
+    body: JSON.stringify(input)
+  });
+}
+
+export async function deleteCoachingNote(noteId: string): Promise<void> {
+  await coreApiFetch<void>(`/coaching-notes/${encodeURIComponent(noteId)}`, {
+    method: 'DELETE'
   });
 }
 

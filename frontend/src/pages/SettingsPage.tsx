@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import Cropper, { type Area } from 'react-easy-crop';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { uploadAvatarImage } from '../api/coreApi';
 import { useAppState } from '../AppState';
 import { useAuth } from '../AuthState';
@@ -559,6 +559,16 @@ export function SettingsPage() {
           </button>
           {aiStatus && <p className="status-text">{aiStatus}</p>}
         </div>
+      </section>
+
+      <section className="card settings-section-card settings-coaching-card">
+        <h2>コーチング方針</h2>
+        <p className="muted">
+          ChatGPT、Claude、KinTrain AIで共有する目標・制約・指導方針と、短期の引き継ぎメモを管理します。
+        </p>
+        <Link className="btn subtle" to="/coaching-context">
+          コーチング方針を管理
+        </Link>
       </section>
 
       <section className="card settings-section-card settings-export-card">

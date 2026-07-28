@@ -52,6 +52,7 @@
   - `training-history-api`
   - `daily-record-api`
   - `ai-settings-api`
+  - `coaching-context-api`
   - `avatar-upload-api`
   - `mcp-tools-api`（AgentCore GatewayのLambda target）
 - DynamoDB
@@ -64,7 +65,7 @@
   - `KinTrain-DailyRecordTable-{branch}`
   - `KinTrain-GoalTable-{branch}`
   - `KinTrain-AiSettingTable-{branch}`
-  - `KinTrain-AiAdviceLogTable-{branch}`
+  - `KinTrain-CoachingContextTable-{branch}`
 
 ## ローカル実行
 

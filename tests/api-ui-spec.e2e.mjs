@@ -224,6 +224,7 @@ async function run() {
     menuItemB: null,
     menuSetId: null,
     visitId: null,
+    coachingNoteId: null,
     date: todayYmdUtc(),
     month: monthYmUtc()
   };
@@ -671,6 +672,76 @@ async function run() {
       });
       assert.equal(getRes.status, 200);
       assert.equal(getRes.json.characterName, payload.characterName);
+    });
+
+    await testCase("Coaching: GET /coaching-context returns an empty versioned context", async () => {
+      const res = await apiRequest({
+        coreApiEndpoint: authContext.coreApiEndpoint,
+        accessToken: authContext.accessToken,
+        method: "GET",
+        pathWithQuery: "/coaching-context"
+      });
+      assert.equal(res.status, 200);
+      assert.equal(res.json.context.version, 0);
+      assert.ok(Array.isArray(res.json.notes));
+      assert.ok(Array.isArray(res.json.revisions));
+    });
+
+    await testCase("Coaching: PUT /coaching-context creates a new version", async () => {
+      const payload = {
+        goalSummary: "筋力を維持する",
+        constraints: ["平日は60分以内"],
+        preferences: ["短く具体的な助言"],
+        trainingPolicy: "フォームを崩さず完遂できる重量を優先する",
+        nextReviewDate: state.date,
+        expectedVersion: 0,
+        changeReason: "API仕様テスト"
+      };
+      const putRes = await apiRequest({
+        coreApiEndpoint: authContext.coreApiEndpoint,
+        accessToken: authContext.accessToken,
+        method: "PUT",
+        pathWithQuery: "/coaching-context",
+        body: payload
+      });
+      assert.equal(putRes.status, 200);
+      assert.equal(putRes.json.version, 1);
+
+      const conflictRes = await apiRequest({
+        coreApiEndpoint: authContext.coreApiEndpoint,
+        accessToken: authContext.accessToken,
+        method: "PUT",
+        pathWithQuery: "/coaching-context",
+        body: payload
+      });
+      assert.equal(conflictRes.status, 409);
+    });
+
+    await testCase("Coaching: POST and DELETE /coaching-notes manages a temporary note", async () => {
+      const postRes = await apiRequest({
+        coreApiEndpoint: authContext.coreApiEndpoint,
+        accessToken: authContext.accessToken,
+        method: "POST",
+        pathWithQuery: "/coaching-notes",
+        body: {
+          idempotencyKey: `api-ui-${Date.now()}`,
+          category: "follow-up",
+          content: "次回は肩の違和感を確認する",
+          validFromDate: state.date
+        }
+      });
+      assert.equal(postRes.status, 201);
+      assert.equal(postRes.json.created, true);
+      assert.ok(typeof postRes.json.note.noteId === "string");
+      state.coachingNoteId = postRes.json.note.noteId;
+
+      const deleteRes = await apiRequest({
+        coreApiEndpoint: authContext.coreApiEndpoint,
+        accessToken: authContext.accessToken,
+        method: "DELETE",
+        pathWithQuery: `/coaching-notes/${state.coachingNoteId}`
+      });
+      assert.equal(deleteRes.status, 204);
     });
 
     // goals (spec-required API)
