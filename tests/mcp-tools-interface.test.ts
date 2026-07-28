@@ -327,11 +327,15 @@ test("MCP schemas distinguish single-day lookup and constrain diary save mode", 
   const dailyRecord = schemas.find((candidate) => candidate.name === "get_daily_record");
   const dailyRecords = schemas.find((candidate) => candidate.name === "get_daily_records");
   const saveDiary = schemas.find((candidate) => candidate.name === "save_daily_diary");
+  const saveMealNotes = schemas.find((candidate) => candidate.name === "save_daily_meal_notes");
   assert.ok(history);
   assert.equal(history.inputSchema.required, undefined);
   assert.match(dailyRecord!.description, /1日/);
   assert.match(dailyRecords!.description, /複数日/);
   assert.deepEqual(saveDiary!.inputSchema.properties.mode.enum, ["append", "overwrite"]);
+  assert.ok(saveMealNotes);
+  assert.deepEqual(saveMealNotes.inputSchema.properties.mode.enum, ["append", "overwrite"]);
+  assert.deepEqual(saveMealNotes.inputSchema.required, ["mealNotes"]);
 });
 
 test("analysis export schemas expose manifest and section paging without set details", async () => {
@@ -359,7 +363,7 @@ test("analysis export schemas expose manifest and section paging without set det
   ]);
   assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
   const handlerSource = await readFile("amplify/functions/mcp-tools-api/handler.ts", "utf8");
-  assert.match(handlerSource, /schemaVersion: 2/);
+  assert.match(handlerSource, /schemaVersion: 3/);
   for (const field of [
     "weightInputMode",
     "loadMultiplier",
@@ -368,6 +372,43 @@ test("analysis export schemas expose manifest and section paging without set det
   ]) {
     assert.match(handlerSource, new RegExp(field), `${field} is missing from MCP output`);
   }
+});
+
+test("temporary menu lifecycle schemas expose safe versioned mutations", async () => {
+  const schemas = JSON.parse(
+    await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
+  ) as Array<{
+    name: string;
+    inputSchema: {
+      additionalProperties?: boolean;
+      properties: Record<string, { enum?: string[]; maximum?: number }>;
+      required?: string[];
+    };
+  }>;
+  for (const name of [
+    "get_training_plan_for_date",
+    "reschedule_temporary_training_plan",
+    "cancel_temporary_training_plan",
+    "update_temporary_training_menu_set"
+  ]) {
+    const schema = schemas.find((candidate) => candidate.name === name);
+    assert.ok(schema, `${name} schema is missing`);
+    assert.equal(schema.inputSchema.additionalProperties, false);
+  }
+  const reschedule = schemas.find(
+    (candidate) => candidate.name === "reschedule_temporary_training_plan"
+  )!;
+  assert.deepEqual(reschedule.inputSchema.properties.conflictPolicy.enum, ["reject", "replace"]);
+  assert.ok(reschedule.inputSchema.required?.includes("expectedVersion"));
+  assert.ok(reschedule.inputSchema.required?.includes("idempotencyKey"));
+
+  const update = schemas.find(
+    (candidate) => candidate.name === "update_temporary_training_menu_set"
+  )!;
+  assert.ok(Object.hasOwn(update.inputSchema.properties, "itemUpdates"));
+  assert.ok(Object.hasOwn(update.inputSchema.properties, "itemAdds"));
+  assert.ok(Object.hasOwn(update.inputSchema.properties, "itemRemovals"));
+  assert.ok(Object.hasOwn(update.inputSchema.properties, "itemOrder"));
 });
 
 test("analysis export selection requires a complete range or explicit all-available mode", () => {

@@ -466,6 +466,7 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
     validFromDate: item.validFromDate,
     validToDate: item.validToDate,
     isActive: item.isActive !== false,
+    version: Number(item.version ?? 0),
     itemIds: item.items.map((setItem) => setItem.trainingMenuItemId),
     items: item.items.map((setItem) => ({
       id: setItem.trainingMenuSetItemId,
@@ -585,6 +586,14 @@ function mapRemoteDailyRecord(
     conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     conditionComment?: string;
+    sleepHours?: number;
+    sleepQuality?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    fatigueLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    motivationLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    muscleSorenessLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    painAreas?: DailyRecord['painAreas'];
+    restingHeartRate?: number;
+    mealNotes?: string;
     diary?: string;
     otherActivities?: string[];
   },
@@ -605,6 +614,14 @@ function mapRemoteDailyRecord(
     conditionRating: normalizedConditionRating,
     moodRating: normalizedMoodRating,
     conditionComment: typeof item.conditionComment === 'string' ? item.conditionComment : undefined,
+    sleepHours: typeof item.sleepHours === 'number' ? item.sleepHours : undefined,
+    sleepQuality: isTenPointRating(item.sleepQuality) ? item.sleepQuality : undefined,
+    fatigueLevel: isTenPointRating(item.fatigueLevel) ? item.fatigueLevel : undefined,
+    motivationLevel: isTenPointRating(item.motivationLevel) ? item.motivationLevel : undefined,
+    muscleSorenessLevel: isTenPointRating(item.muscleSorenessLevel) ? item.muscleSorenessLevel : undefined,
+    painAreas: Array.isArray(item.painAreas) ? item.painAreas : [],
+    restingHeartRate: typeof item.restingHeartRate === 'number' ? item.restingHeartRate : undefined,
+    mealNotes: typeof item.mealNotes === 'string' ? item.mealNotes : undefined,
     diary: typeof item.diary === 'string' ? item.diary : undefined,
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : []
   };
@@ -674,6 +691,14 @@ function toDailyRecordPayload(record: DailyRecord): {
   conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   conditionComment?: string;
+  sleepHours?: number;
+  sleepQuality?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  fatigueLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  motivationLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  muscleSorenessLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  painAreas?: DailyRecord['painAreas'];
+  restingHeartRate?: number;
+  mealNotes?: string;
   diary?: string;
   otherActivities: string[];
 } {
@@ -685,6 +710,14 @@ function toDailyRecordPayload(record: DailyRecord): {
     conditionRating: record.conditionRating,
     moodRating: record.moodRating,
     conditionComment: record.conditionComment,
+    sleepHours: record.sleepHours,
+    sleepQuality: record.sleepQuality,
+    fatigueLevel: record.fatigueLevel,
+    motivationLevel: record.motivationLevel,
+    muscleSorenessLevel: record.muscleSorenessLevel,
+    painAreas: record.painAreas ?? [],
+    restingHeartRate: record.restingHeartRate,
+    mealNotes: record.mealNotes,
     diary: record.diary,
     otherActivities: record.otherActivities
   };

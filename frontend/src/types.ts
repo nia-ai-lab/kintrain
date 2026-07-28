@@ -43,6 +43,7 @@ export interface TrainingMenuSet {
   validFromDate?: string;
   validToDate?: string;
   isActive: boolean;
+  version: number;
   itemIds: string[];
   items: TrainingMenuSetItem[];
 }
@@ -129,8 +130,25 @@ export interface DailyRecord {
   conditionRating?: ConditionRating;
   moodRating?: MoodRating;
   conditionComment?: string;
+  sleepHours?: number;
+  sleepQuality?: ConditionRating;
+  fatigueLevel?: ConditionRating;
+  motivationLevel?: ConditionRating;
+  muscleSorenessLevel?: ConditionRating;
+  painAreas?: PainArea[];
+  restingHeartRate?: number;
+  mealNotes?: string;
   diary?: string;
   otherActivities: string[];
+}
+
+export interface PainArea {
+  area: string;
+  severity: ConditionRating;
+  occursAtRest: boolean;
+  occursDuringMovement: boolean;
+  numbness: boolean;
+  weakness: boolean;
 }
 
 export interface Goal {

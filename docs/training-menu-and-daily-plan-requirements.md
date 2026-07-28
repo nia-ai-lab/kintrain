@@ -211,6 +211,9 @@ erDiagram
 - `source`: `manual | ai`
 - `validFromDate`: 一時セットの有効開始日。開始日を含む。
 - `validToDate`: 一時セットの有効終了日。終了日を含む。
+- `version`: 楽観ロック用の非負整数。新規作成時は1、旧レコードの未設定値は0として扱う。
+- `updatedBy`、`updateReason`: 最終更新の監査情報。
+- `canceledAt`、`canceledBy`、`cancelReason`: 論理キャンセル時の監査情報。
 - 一時セットは開始日から31日以内とし、同じ日には原則1セットだけ割り当てる。
 
 既存の `isAiGenerated` は `source` へ置き換える。
@@ -302,11 +305,19 @@ erDiagram
 
 - `list_training_menu_items`
 - `list_training_menu_sets`
+- `get_training_plan_for_date`
+- `get_training_coaching_summary`
 - 既存の履歴・Daily・目標参照ツール
 
 登録ツール:
 
 - `create_temporary_training_menu_set_from_ai`
+- `reschedule_temporary_training_plan`
+- `update_temporary_training_menu_set`
+- `cancel_temporary_training_plan`
+- `save_daily_meal_notes`（Dailyの自由記述の食事内容・栄養メモを追記または上書き）
+
+更新・キャンセルの詳細は`docs/mcp-temporary-menu-lifecycle.md`を正とする。
 
 入力項目の概要:
 

@@ -24,6 +24,7 @@ export function DailyPage() {
   } =
     useAppState();
   const [activityInput, setActivityInput] = useState('');
+  const [painAreaInput, setPainAreaInput] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
 
   const record = data.dailyRecords[targetDate] ?? {
@@ -38,6 +39,7 @@ export function DailyPage() {
   );
   const visitEntries = useMemo(() => visits.flatMap((visit) => visit.entries), [visits]);
   const dailySaveStatus = getDailySaveStatus(targetDate);
+  const painAreas = record.painAreas ?? [];
 
   useEffect(() => {
     void refreshDailyRecord(targetDate);
@@ -146,6 +148,171 @@ export function DailyPage() {
             placeholder="体調や気分のメモ"
           />
         </label>
+      </section>
+
+      <section className="card daily-section-card">
+        <h2>回復・トレーニング準備</h2>
+        <div className="input-grid body-metrics-grid">
+          <label>
+            睡眠時間
+            <input
+              type="number"
+              min={0}
+              max={24}
+              step={0.25}
+              value={record.sleepHours ?? ''}
+              onChange={(e) =>
+                saveDailyRecord(targetDate, {
+                  sleepHours: e.target.value ? Number(e.target.value) : undefined
+                })
+              }
+            />
+          </label>
+          <label>
+            安静時心拍数 (bpm)
+            <input
+              type="number"
+              min={20}
+              max={250}
+              step={1}
+              value={record.restingHeartRate ?? ''}
+              onChange={(e) =>
+                saveDailyRecord(targetDate, {
+                  restingHeartRate: e.target.value ? Number(e.target.value) : undefined
+                })
+              }
+            />
+          </label>
+        </div>
+        <div className="daily-rating-grid">
+          <DailyRatingSlider
+            label="睡眠の質"
+            value={record.sleepQuality}
+            onChange={(sleepQuality) => saveDailyRecord(targetDate, { sleepQuality })}
+          />
+          <DailyRatingSlider
+            label="疲労度"
+            value={record.fatigueLevel}
+            onChange={(fatigueLevel) => saveDailyRecord(targetDate, { fatigueLevel })}
+          />
+          <DailyRatingSlider
+            label="やる気"
+            value={record.motivationLevel}
+            onChange={(motivationLevel) => saveDailyRecord(targetDate, { motivationLevel })}
+          />
+          <DailyRatingSlider
+            label="筋肉痛"
+            value={record.muscleSorenessLevel}
+            onChange={(muscleSorenessLevel) => saveDailyRecord(targetDate, { muscleSorenessLevel })}
+          />
+        </div>
+      </section>
+
+      <section className="card daily-section-card">
+        <h2>食事</h2>
+        <label>
+          食事内容・栄養メモ
+          <textarea
+            rows={5}
+            maxLength={5000}
+            value={record.mealNotes ?? ''}
+            onChange={(e) => saveDailyRecord(targetDate, { mealNotes: e.target.value })}
+            placeholder={'例:\n朝：オートミール、卵、ヨーグルト\nトレーニング前：バナナ\n夜：外食でやや食べ過ぎ。水分は少なめ'}
+          />
+        </label>
+        <p className="muted">食事内容、量、時間、水分、サプリメントなどを自由に記録できます。</p>
+      </section>
+
+      <section className="card daily-section-card">
+        <h2>痛み・違和感</h2>
+        <div className="row-wrap">
+          <input
+            value={painAreaInput}
+            maxLength={100}
+            onChange={(e) => setPainAreaInput(e.target.value)}
+            placeholder="例: 右肩"
+          />
+          <button
+            type="button"
+            className="btn subtle"
+            disabled={!painAreaInput.trim() || painAreas.length >= 20}
+            onClick={() => {
+              const area = painAreaInput.trim();
+              if (!area) return;
+              saveDailyRecord(targetDate, {
+                painAreas: [
+                  ...painAreas,
+                  {
+                    area,
+                    severity: 5,
+                    occursAtRest: false,
+                    occursDuringMovement: true,
+                    numbness: false,
+                    weakness: false
+                  }
+                ]
+              });
+              setPainAreaInput('');
+            }}
+          >
+            部位を追加
+          </button>
+        </div>
+        <div className="stack">
+          {painAreas.map((pain, index) => (
+            <div className="card subtle-card" key={`${pain.area}-${index}`}>
+              <div className="row-between">
+                <strong>{pain.area}</strong>
+                <button
+                  type="button"
+                  className="text-link danger-link"
+                  onClick={() =>
+                    saveDailyRecord(targetDate, {
+                      painAreas: painAreas.filter((_, targetIndex) => targetIndex !== index)
+                    })
+                  }
+                >
+                  削除
+                </button>
+              </div>
+              <DailyRatingSlider
+                label="痛みの強さ"
+                value={pain.severity}
+                onChange={(severity) =>
+                  saveDailyRecord(targetDate, {
+                    painAreas: painAreas.map((item, targetIndex) =>
+                      targetIndex === index ? { ...item, severity } : item
+                    )
+                  })
+                }
+              />
+              <div className="row-wrap">
+                {[
+                  ['occursAtRest', '安静時にも痛む'],
+                  ['occursDuringMovement', '動作時に痛む'],
+                  ['numbness', 'しびれ'],
+                  ['weakness', '筋力低下']
+                ].map(([field, label]) => (
+                  <label className="inline-check" key={field}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(pain[field as keyof typeof pain])}
+                      onChange={(e) =>
+                        saveDailyRecord(targetDate, {
+                          painAreas: painAreas.map((item, targetIndex) =>
+                            targetIndex === index ? { ...item, [field]: e.target.checked } : item
+                          )
+                        })
+                      }
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+          ))}
+          {painAreas.length === 0 && <p className="muted">痛み・違和感の記録はありません。</p>}
+        </div>
       </section>
 
       <section className="card daily-section-card">

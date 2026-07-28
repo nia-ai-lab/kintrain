@@ -174,6 +174,7 @@ function buildCoreMockData() {
         conditionRating: 7,
         moodRating: 8,
         conditionComment: '体調はまずまず',
+        mealNotes: '朝：卵とヨーグルト',
         diary: 'UIテストの日記',
         otherActivities: [],
         createdAt: now,
@@ -1017,11 +1018,14 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
   await page.getByRole('slider', { name: '体調' }).fill('7');
   await page.getByRole('slider', { name: '気分' }).fill('8');
   await page.getByLabel('コメント').fill('体調はまずまず');
+  await page.getByLabel('食事内容・栄養メモ').fill('朝：卵とヨーグルト\n昼：鶏肉とご飯');
   await page.getByPlaceholder('今日の記録や気づき').fill('UIテストでDaily更新を確認');
 
   await page.getByPlaceholder('例: ジョギング 1km').fill('ジョギング 1km');
-  await page.getByRole('button', { name: '追加' }).click();
+  await page.getByRole('button', { name: '追加', exact: true }).click();
   await expect(page.getByText('ジョギング 1km')).toBeVisible();
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  await expect(page.getByText('保存しました。')).toBeVisible();
 
   await page.goto('/calendar');
   const todayCellAfter = page
@@ -1133,11 +1137,12 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 2);
+  assert.equal(exported.schemaVersion, 3);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);
   assert.equal(exported.history.dailyRecords[0].bodyWeightKg, 69.8);
+  assert.equal(exported.history.dailyRecords[0].mealNotes, '朝：卵とヨーグルト');
   assert.equal(exported.history.gymVisits[0].entries[0].trainingName, 'チェストプレス');
   assert.equal(exported.history.gymVisits[0].entries[0].weightInputMode, 'legacyUnspecified');
   assert.equal(exported.history.gymVisits[0].entries[0].calculatedTotalWeightKg, null);

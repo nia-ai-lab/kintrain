@@ -604,12 +604,14 @@ async function run() {
           timeZoneId: "Asia/Tokyo",
           conditionRating: 4,
           conditionComment: "good",
+          mealNotes: "朝：卵とヨーグルト\n昼：鶏肉とご飯",
           diary: "spec test diary",
           otherActivities: ["ジョギング 1km"]
         }
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.conditionRating, 4);
+      assert.equal(res.json.mealNotes, "朝：卵とヨーグルト\n昼：鶏肉とご飯");
     });
 
     await testCase("Daily: GET /daily-records?from&to returns range records", async () => {

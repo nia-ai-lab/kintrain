@@ -41,6 +41,7 @@ export type TrainingMenuSetDto = {
   validFromDate?: string;
   validToDate?: string;
   isActive: boolean;
+  version: number;
   items: TrainingMenuSetItemDto[];
   createdAt?: string;
   updatedAt?: string;
@@ -177,6 +178,21 @@ export type DailyRecordDto = {
   conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   conditionComment?: string;
+  sleepHours?: number;
+  sleepQuality?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  fatigueLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  motivationLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  muscleSorenessLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  painAreas?: Array<{
+    area: string;
+    severity: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    occursAtRest: boolean;
+    occursDuringMovement: boolean;
+    numbness: boolean;
+    weakness: boolean;
+  }>;
+  restingHeartRate?: number;
+  mealNotes?: string;
   diary?: string;
   otherActivities?: string[];
   createdAt?: string;
@@ -456,6 +472,7 @@ export async function updateTrainingMenuSet(
     validToDate?: string;
     replaceExistingPlan?: boolean;
     isDefault: boolean;
+    expectedVersion: number;
   }>
 ): Promise<TrainingMenuSetDto> {
   return coreApiFetch<TrainingMenuSetDto>(`/training-menu-sets/${trainingMenuSetId}`, {
@@ -617,6 +634,21 @@ export async function putDailyRecord(
     conditionRating: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     moodRating: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     conditionComment: string;
+    sleepHours: number;
+    sleepQuality: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    fatigueLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    motivationLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    muscleSorenessLevel: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    painAreas: Array<{
+      area: string;
+      severity: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+      occursAtRest: boolean;
+      occursDuringMovement: boolean;
+      numbness: boolean;
+      weakness: boolean;
+    }>;
+    restingHeartRate: number;
+    mealNotes: string;
     diary: string;
     otherActivities: string[];
   }>

@@ -1,5 +1,13 @@
-import { GetCommand, PutCommand, QueryCommand, TransactWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
-import { randomUUID } from "node:crypto";
+import {
+  BatchGetCommand,
+  GetCommand,
+  PutCommand,
+  QueryCommand,
+  TransactWriteCommand,
+  UpdateCommand
+} from "@aws-sdk/lib-dynamodb";
+import type { TransactWriteCommandInput } from "@aws-sdk/lib-dynamodb";
+import { createHash, randomUUID } from "node:crypto";
 import {
   appendCoachingNoteData,
   CoachingNoteLimitError,
@@ -49,7 +57,7 @@ type LambdaToolContext = {
 };
 
 type ToolArgs = Record<string, unknown>;
-type DiarySaveMode = "append" | "overwrite";
+type DailyTextSaveMode = "append" | "overwrite";
 type BodyMetricsConflictPolicy = "reject" | "overwrite";
 type BodyMetricWritableField =
   | "bodyWeightKg"
@@ -111,6 +119,23 @@ type AiMenuItemInput = {
   };
 };
 
+type TemporaryPlanConflictPolicy = "reject" | "replace";
+type MenuSetPrescriptionInput = {
+  targetWeightKg?: unknown;
+  targetRepsMin?: unknown;
+  targetRepsMax?: unknown;
+  targetSets?: unknown;
+  recommendedIntervalDays?: unknown;
+  instruction?: unknown;
+};
+type MenuSetItemUpdateInput = MenuSetPrescriptionInput & {
+  trainingMenuSetItemId?: unknown;
+};
+type MenuSetItemAddInput = {
+  trainingMenuItemId?: unknown;
+  prescription?: MenuSetPrescriptionInput;
+};
+
 const allowedEquipments = new Set(["マシン", "フリー", "自重", "その他"]);
 const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
@@ -133,6 +158,60 @@ const bodyMetricBatchTopLevelFields = new Set([
   "dryRun",
   "__principalUserId"
 ]);
+
+function menuSetVersion(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function stableJsonValue(value: unknown): unknown {
+  if (Array.isArray(value)) {
+    return value.map(stableJsonValue);
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([, entry]) => entry !== undefined)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, entry]) => [key, stableJsonValue(entry)])
+    );
+  }
+  return value;
+}
+
+function mutationRequestHash(value: Record<string, unknown>): string {
+  return createHash("sha256").update(JSON.stringify(stableJsonValue(value))).digest("hex");
+}
+
+function parseExpectedVersion(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : undefined;
+}
+
+function parseDryRun(value: unknown): boolean | undefined {
+  return value === undefined || typeof value === "boolean" ? value === true : undefined;
+}
+
+function parseBoundedText(value: unknown, maximum: number, optional = false): string | undefined {
+  if (value === undefined && optional) {
+    return undefined;
+  }
+  const normalized = toNonEmptyString(value);
+  return normalized && normalized.length <= maximum ? normalized : undefined;
+}
+
+function versionCondition(expectedVersion: number): {
+  condition: string;
+  values: Record<string, unknown>;
+} {
+  return expectedVersion === 0
+    ? {
+        condition: "(attribute_not_exists(#version) OR #version = :expectedVersion)",
+        values: { ":expectedVersion": 0 }
+      }
+    : {
+        condition: "#version = :expectedVersion",
+        values: { ":expectedVersion": expectedVersion }
+      };
+}
 
 function normalizeTrainingName(name: string): string {
   return name.trim().toLowerCase();
@@ -490,6 +569,14 @@ function normalizeAnalysisDailyRecord(item: Record<string, unknown>): Record<str
     conditionRating: nullableNumber(item.conditionRating),
     moodRating: nullableNumber(item.moodRating),
     conditionComment: nullableString(item.conditionComment),
+    sleepHours: nullableNumber(item.sleepHours),
+    sleepQuality: nullableNumber(item.sleepQuality),
+    fatigueLevel: nullableNumber(item.fatigueLevel),
+    motivationLevel: nullableNumber(item.motivationLevel),
+    muscleSorenessLevel: nullableNumber(item.muscleSorenessLevel),
+    painAreas: Array.isArray(item.painAreas) ? item.painAreas : [],
+    restingHeartRate: nullableNumber(item.restingHeartRate),
+    mealNotes: nullableString(item.mealNotes),
     diary: nullableString(item.diary),
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
     createdAtUtc: nullableString(item.createdAt),
@@ -614,6 +701,14 @@ export function normalizeDailyRecordForMcp(item: Record<string, unknown>): Recor
     conditionRating: nullableNumber(item.conditionRating),
     moodRating: nullableNumber(item.moodRating),
     conditionComment: nullableString(item.conditionComment),
+    sleepHours: nullableNumber(item.sleepHours),
+    sleepQuality: nullableNumber(item.sleepQuality),
+    fatigueLevel: nullableNumber(item.fatigueLevel),
+    motivationLevel: nullableNumber(item.motivationLevel),
+    muscleSorenessLevel: nullableNumber(item.muscleSorenessLevel),
+    painAreas: Array.isArray(item.painAreas) ? item.painAreas : [],
+    restingHeartRate: nullableNumber(item.restingHeartRate),
+    mealNotes: nullableString(item.mealNotes),
     diary: nullableString(item.diary),
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
     createdAt: nullableString(item.createdAt),
@@ -697,7 +792,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   return mcpToolResponse(200, {
     tool: "get_analysis_export_manifest",
     schema: "kintrain.analysis-export",
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtUtc: new Date().toISOString(),
     selection: analysisExportSelectionResponse(selection),
     currentContext: {
@@ -763,7 +858,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
 
   const tokenContext = JSON.stringify([
     "analysis-export",
-    2,
+    3,
     typedSection,
     selection.rangeMode,
     selection.from ?? null,
@@ -897,7 +992,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   return mcpToolResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
-    schemaVersion: 2,
+    schemaVersion: 3,
     selection: analysisExportSelectionResponse(selection),
     section: typedSection,
     items,
@@ -910,7 +1005,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   });
 }
 
-function resolveDiarySaveMode(value: unknown): DiarySaveMode | undefined {
+function resolveDailyTextSaveMode(value: unknown): DailyTextSaveMode | undefined {
   if (typeof value !== "string") {
     return undefined;
   }
@@ -1100,6 +1195,287 @@ async function getGymVisits(args: ToolArgs, userId: string): Promise<McpToolResp
         options.nextTokenContext,
         userId
       )) ?? null
+  });
+}
+
+function ymdDayNumber(value: string): number {
+  const [year, month, day] = value.split("-").map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / 86_400_000);
+}
+
+function daysBetweenYmd(from: string, to: string): number {
+  return ymdDayNumber(to) - ymdDayNumber(from);
+}
+
+function startOfIsoWeek(value: string): string {
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  const daysSinceMonday = (date.getUTCDay() + 6) % 7;
+  return addYmdDays(value, -daysSinceMonday);
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function rounded(value: number, digits = 2): number {
+  const multiplier = 10 ** digits;
+  return Math.round(value * multiplier) / multiplier;
+}
+
+function rollingAverage(
+  records: Record<string, unknown>[],
+  field: "bodyWeightKg" | "bodyFatPercent",
+  to: string,
+  days: number
+): Record<string, unknown> {
+  const from = addYmdDays(to, -(days - 1));
+  const values = records
+    .filter((record) => {
+      const date = String(record.recordDate ?? "");
+      return date >= from && date <= to;
+    })
+    .map((record) => finiteNumber(record[field]))
+    .filter((value): value is number => value !== undefined);
+  return {
+    from,
+    to,
+    average: values.length ? rounded(values.reduce((sum, value) => sum + value, 0) / values.length) : null,
+    sampleCount: values.length
+  };
+}
+
+export function buildTrainingCoachingSummary(
+  visits: Record<string, unknown>[],
+  dailyRecords: Record<string, unknown>[],
+  from: string,
+  to: string,
+  timeZoneId: string
+): Record<string, unknown> {
+  const trainingDates = new Set<string>();
+  const weeklySets = new Map<string, number>();
+  const bodyPartSets = new Map<string, number>();
+  const exerciseMap = new Map<
+    string,
+    {
+      trainingMenuItemId: string;
+      trainingName: string | null;
+      lastPerformedDate: string | null;
+      maxWeightKg: number | null;
+      estimated1RmKg: number | null;
+      recommendedIntervalDays: number | null;
+      performances: Array<Record<string, unknown>>;
+    }
+  >();
+  let totalSets = 0;
+  for (const visit of visits) {
+    const date = parseYmd(visit.visitDateLocal) ?? parseYmd(String(visit.startedAtUtc ?? "").slice(0, 10));
+    if (!date || date < from || date > to) {
+      continue;
+    }
+    const entries = Array.isArray(visit.entries) ? visit.entries : [];
+    if (entries.length) {
+      trainingDates.add(date);
+    }
+    for (const rawEntry of entries) {
+      if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
+        continue;
+      }
+      const entry = rawEntry as Record<string, unknown>;
+      const sets = Math.max(0, Math.floor(finiteNumber(entry.sets) ?? 0));
+      totalSets += sets;
+      const week = startOfIsoWeek(date);
+      weeklySets.set(week, (weeklySets.get(week) ?? 0) + sets);
+      const bodyPart = toNonEmptyString(entry.bodyPartSnapshot) ?? "未設定";
+      bodyPartSets.set(bodyPart, (bodyPartSets.get(bodyPart) ?? 0) + sets);
+      const trainingMenuItemId = toNonEmptyString(entry.trainingMenuItemId);
+      if (!trainingMenuItemId) {
+        continue;
+      }
+      const current =
+        exerciseMap.get(trainingMenuItemId) ??
+        {
+          trainingMenuItemId,
+          trainingName: nullableString(entry.trainingNameSnapshot),
+          lastPerformedDate: null,
+          maxWeightKg: null,
+          estimated1RmKg: null,
+          recommendedIntervalDays: null,
+          performances: []
+        };
+      const totalWeight =
+        finiteNumber(entry.calculatedTotalWeightKg) ?? finiteNumber(entry.weightKg) ?? 0;
+      const reps = Math.max(0, Math.floor(finiteNumber(entry.reps) ?? 0));
+      const estimate =
+        totalWeight > 0 && reps >= 1 && reps <= 10
+          ? rounded(totalWeight * (1 + reps / 30))
+          : undefined;
+      current.trainingName = nullableString(entry.trainingNameSnapshot) ?? current.trainingName;
+      current.lastPerformedDate =
+        !current.lastPerformedDate || date > current.lastPerformedDate ? date : current.lastPerformedDate;
+      current.maxWeightKg =
+        current.maxWeightKg === null ? totalWeight : Math.max(current.maxWeightKg, totalWeight);
+      if (estimate !== undefined) {
+        current.estimated1RmKg =
+          current.estimated1RmKg === null ? estimate : Math.max(current.estimated1RmKg, estimate);
+      }
+      const frequency = finiteNumber(entry.frequencySnapshot);
+      if (frequency && Number.isInteger(frequency) && frequency >= 1 && frequency <= 8) {
+        current.recommendedIntervalDays = frequency;
+      }
+      current.performances.push({
+        date,
+        weightKg: rounded(totalWeight),
+        reps,
+        sets
+      });
+      exerciseMap.set(trainingMenuItemId, current);
+    }
+  }
+
+  const sortedTrainingDates = Array.from(trainingDates).sort();
+  let longestTrainingStreak = 0;
+  let runningStreak = 0;
+  let previousDate: string | undefined;
+  for (const date of sortedTrainingDates) {
+    runningStreak = previousDate && daysBetweenYmd(previousDate, date) === 1 ? runningStreak + 1 : 1;
+    longestTrainingStreak = Math.max(longestTrainingStreak, runningStreak);
+    previousDate = date;
+  }
+  let currentTrainingStreak = 0;
+  for (let cursor = to; trainingDates.has(cursor); cursor = addYmdDays(cursor, -1)) {
+    currentTrainingStreak += 1;
+  }
+  const inclusiveDays = daysBetweenYmd(from, to) + 1;
+  const exercises = Array.from(exerciseMap.values())
+    .map((exercise) => ({
+      trainingMenuItemId: exercise.trainingMenuItemId,
+      trainingName: exercise.trainingName,
+      lastPerformedDate: exercise.lastPerformedDate,
+      maxWeightKg: exercise.maxWeightKg,
+      estimated1RmKg: exercise.estimated1RmKg,
+      recentPerformanceTrend: exercise.performances
+        .sort((left, right) => String(left.date).localeCompare(String(right.date)))
+        .slice(-5),
+      recommendedIntervalDays: exercise.recommendedIntervalDays,
+      elapsedDaysSinceLastPerformance: exercise.lastPerformedDate
+        ? daysBetweenYmd(exercise.lastPerformedDate, to)
+        : null
+    }))
+    .sort((left, right) =>
+      String(left.trainingName ?? left.trainingMenuItemId).localeCompare(
+        String(right.trainingName ?? right.trainingMenuItemId),
+        "ja"
+      )
+    );
+  const readinessFields = [
+    "sleepHours",
+    "sleepQuality",
+    "fatigueLevel",
+    "motivationLevel",
+    "muscleSorenessLevel",
+    "painAreas",
+    "restingHeartRate",
+    "mealNotes",
+    "conditionRating",
+    "moodRating",
+    "conditionComment"
+  ];
+  const recentReadiness = dailyRecords
+    .filter((record) => readinessFields.some((field) => record[field] !== undefined))
+    .sort((left, right) => String(right.recordDate ?? "").localeCompare(String(left.recordDate ?? "")))
+    .slice(0, 7)
+    .map((record) => ({
+      recordDate: record.recordDate,
+      ...Object.fromEntries(readinessFields.map((field) => [field, record[field] ?? null]))
+    }));
+  return {
+    range: { from, to, timeZoneId, inclusive: true },
+    trainingDays: trainingDates.size,
+    restDays: Math.max(0, inclusiveDays - trainingDates.size),
+    totalSets,
+    longestTrainingStreak,
+    currentTrainingStreakThroughEndDate: currentTrainingStreak,
+    weeklySets: Array.from(weeklySets.entries())
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([weekStartDate, sets]) => ({ weekStartDate, sets })),
+    bodyPartSets: Array.from(bodyPartSets.entries())
+      .sort(([left], [right]) => left.localeCompare(right, "ja"))
+      .map(([bodyPart, sets]) => ({ bodyPart, sets })),
+    exercises,
+    bodyMetrics: {
+      bodyWeightKg: {
+        sevenDay: rollingAverage(dailyRecords, "bodyWeightKg", to, 7),
+        twentyEightDay: rollingAverage(dailyRecords, "bodyWeightKg", to, 28)
+      },
+      bodyFatPercent: {
+        sevenDay: rollingAverage(dailyRecords, "bodyFatPercent", to, 7),
+        twentyEightDay: rollingAverage(dailyRecords, "bodyFatPercent", to, 28)
+      }
+    },
+    recentReadiness
+  };
+}
+
+async function getTrainingCoachingSummary(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const from = parseYmd(args.from);
+  const to = parseYmd(args.to);
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!from || !to || from > to || daysBetweenYmd(from, to) > 365 || !timeZoneId) {
+    return mcpToolResponse(400, {
+      code: "INVALID_DATE_RANGE",
+      message: "from and to must be valid ordered YYYY-MM-DD dates spanning at most 366 days."
+    });
+  }
+  const visits: Record<string, unknown>[] = [];
+  let visitCursor: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(
+      new QueryCommand({
+        TableName: trainingHistoryTableName,
+        IndexName: trainingHistoryByStartedAtIndex,
+        KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":fromUtc": localDateStartUtc(from, timeZoneId),
+          ":toUtc": localDateInclusiveUpperKey(to, timeZoneId)
+        },
+        ExclusiveStartKey: visitCursor
+      })
+    );
+    visits.push(...((result.Items ?? []) as Record<string, unknown>[]));
+    visitCursor = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (visitCursor);
+
+  const dailyRecords: Record<string, unknown>[] = [];
+  const bodyAverageFrom = addYmdDays(to, -27);
+  const dailyFrom = bodyAverageFrom < from ? bodyAverageFrom : from;
+  let dailyCursor: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(
+      new QueryCommand({
+        TableName: dailyRecordTableName,
+        KeyConditionExpression: "userId = :userId AND recordDate BETWEEN :from AND :to",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":from": dailyFrom,
+          ":to": to
+        },
+        ExclusiveStartKey: dailyCursor
+      })
+    );
+    dailyRecords.push(...((result.Items ?? []) as Record<string, unknown>[]));
+    dailyCursor = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (dailyCursor);
+  return mcpToolResponse(200, {
+    tool: "get_training_coaching_summary",
+    summary: buildTrainingCoachingSummary(visits, dailyRecords, from, to, timeZoneId),
+    definitions: {
+      weekStartsOn: "Monday",
+      restDay: "A local date in the requested range without a gym visit containing entries.",
+      estimated1Rm: "Epley formula, calculated only for positive loads and 1-10 repetitions.",
+      bodyMetricAverage: "Average of recorded samples only; missing dates are not counted."
+    }
   });
 }
 
@@ -1351,7 +1727,7 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<McpToolRe
   if (!diary) {
     return mcpToolResponse(400, { message: "diary is required." });
   }
-  const mode = resolveDiarySaveMode(args.mode);
+  const mode = resolveDailyTextSaveMode(args.mode);
   if (args.mode !== undefined && !mode) {
     return mcpToolResponse(400, { message: "mode must be append or overwrite." });
   }
@@ -1417,6 +1793,91 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<McpToolRe
     mode: mode ?? "overwrite",
     diary: nextDiary,
     updatedAt: ts,
+  });
+}
+
+export async function saveDailyMealNotes(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  if (typeof args.mealNotes !== "string" || args.mealNotes.length > 5000) {
+    return mcpToolResponse(400, {
+      message: "mealNotes is required as a string with at most 5000 characters."
+    });
+  }
+  const mealNotes = args.mealNotes;
+  const mode = resolveDailyTextSaveMode(args.mode);
+  if (args.mode !== undefined && !mode) {
+    return mcpToolResponse(400, { message: "mode must be append or overwrite." });
+  }
+  if (mode === "append" && mealNotes.trim().length === 0) {
+    return mcpToolResponse(400, { message: "mealNotes must not be empty when mode is append." });
+  }
+
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!timeZoneId) {
+    return mcpToolResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
+  }
+  const date = resolveRecordDate(args.date, timeZoneId);
+  if (!date) {
+    return mcpToolResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
+  }
+
+  const current = await ddb.send(
+    new GetCommand({
+      TableName: dailyRecordTableName,
+      Key: {
+        userId,
+        recordDate: date
+      }
+    })
+  );
+
+  const currentItem = (current.Item as Record<string, unknown> | undefined) ?? {};
+  const existingMealNotes =
+    typeof currentItem.mealNotes === "string" ? currentItem.mealNotes : "";
+  if (existingMealNotes.trim().length > 0 && !mode) {
+    return mcpToolResponse(409, {
+      message: "Meal notes already exist. Specify mode=append or mode=overwrite.",
+      existingMealNotes,
+      recordDate: date,
+      timeZoneId
+    });
+  }
+
+  const nextMealNotes =
+    mode === "append" && existingMealNotes.trim().length > 0
+      ? `${existingMealNotes}\n${mealNotes}`
+      : mealNotes;
+  if (nextMealNotes.length > 5000) {
+    return mcpToolResponse(400, {
+      message: "The saved mealNotes value must be at most 5000 characters."
+    });
+  }
+
+  const ts = nowIsoSeconds();
+  const item = {
+    userId,
+    recordDate: date,
+    timeZoneId,
+    otherActivities: [],
+    ...currentItem,
+    mealNotes: nextMealNotes,
+    updatedAt: ts,
+    createdAt: (currentItem.createdAt as string | undefined) ?? ts
+  };
+
+  await ddb.send(
+    new PutCommand({
+      TableName: dailyRecordTableName,
+      Item: item
+    })
+  );
+
+  return mcpToolResponse(200, {
+    tool: "save_daily_meal_notes",
+    recordDate: date,
+    timeZoneId,
+    mode: mode ?? "overwrite",
+    mealNotes: nextMealNotes,
+    updatedAt: ts
   });
 }
 
@@ -2178,6 +2639,162 @@ async function appendCoachingNote(args: ToolArgs, userId: string): Promise<McpTo
   }
 }
 
+async function getTrainingMenuSetRecord(
+  userId: string,
+  trainingMenuSetId: string
+): Promise<Record<string, unknown> | undefined> {
+  const result = await ddb.send(
+    new GetCommand({
+      TableName: trainingMenuSetTableName,
+      Key: { userId, trainingMenuSetId }
+    })
+  );
+  return result.Item as Record<string, unknown> | undefined;
+}
+
+async function listTrainingMenuSetLinks(
+  userId: string,
+  trainingMenuSetId: string
+): Promise<Record<string, unknown>[]> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingMenuSetItemTableName,
+      IndexName: setItemsBySetOrderIndex,
+      KeyConditionExpression: "userId = :userId AND begins_with(menuSetOrderKey, :prefix)",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":prefix": `${trainingMenuSetId}#`
+      }
+    })
+  );
+  return (result.Items ?? []) as Record<string, unknown>[];
+}
+
+async function getTrainingMenuItemsById(
+  userId: string,
+  trainingMenuItemIds: string[]
+): Promise<Map<string, Record<string, unknown>>> {
+  const uniqueIds = Array.from(new Set(trainingMenuItemIds.filter(Boolean)));
+  const result = new Map<string, Record<string, unknown>>();
+  for (let index = 0; index < uniqueIds.length; index += 100) {
+    const chunk = uniqueIds.slice(index, index + 100);
+    const response = await ddb.send(
+      new BatchGetCommand({
+        RequestItems: {
+          [trainingMenuTableName]: {
+            Keys: chunk.map((trainingMenuItemId) => ({ userId, trainingMenuItemId }))
+          }
+        }
+      })
+    );
+    for (const item of response.Responses?.[trainingMenuTableName] ?? []) {
+      if (typeof item.trainingMenuItemId === "string") {
+        result.set(item.trainingMenuItemId, item as Record<string, unknown>);
+      }
+    }
+  }
+  return result;
+}
+
+function temporaryMenuSetSummary(set: Record<string, unknown>): Record<string, unknown> {
+  return {
+    trainingMenuSetId: set.trainingMenuSetId,
+    setName: set.setName ?? "",
+    setType: set.setType === "temporary" ? "temporary" : "reusable",
+    source: set.source === "ai" ? "ai" : "manual",
+    validFromDate: set.validFromDate ?? set.scheduledDate ?? null,
+    validToDate: set.validToDate ?? set.scheduledDate ?? null,
+    version: menuSetVersion(set.version),
+    isActive: set.isActive !== false,
+    updatedAt: set.updatedAt ?? null
+  };
+}
+
+async function hydrateTrainingMenuSet(
+  userId: string,
+  set: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  const trainingMenuSetId = String(set.trainingMenuSetId ?? "");
+  const links = await listTrainingMenuSetLinks(userId, trainingMenuSetId);
+  const menuItems = await getTrainingMenuItemsById(
+    userId,
+    links.map((item) => String(item.trainingMenuItemId ?? ""))
+  );
+  return {
+    ...temporaryMenuSetSummary(set),
+    items: links.map((link) => {
+      const menu = menuItems.get(String(link.trainingMenuItemId ?? ""));
+      return {
+        trainingMenuSetItemId: link.trainingMenuSetItemId,
+        trainingMenuItemId: link.trainingMenuItemId,
+        trainingName: menu?.trainingName ?? null,
+        bodyPart: menu?.bodyPart ?? "",
+        equipment: menu?.equipment ?? "その他",
+        description: menu?.description ?? "",
+        weightInputMode: menu?.weightInputMode ?? "legacyUnspecified",
+        loadMultiplier: menu?.loadMultiplier ?? null,
+        fixedWeightKg: menu?.fixedWeightKg ?? null,
+        displayOrder: link.displayOrder,
+        targetWeightKg: link.targetWeightKg,
+        targetRepsMin: link.targetRepsMin,
+        targetRepsMax: link.targetRepsMax,
+        targetSets: link.targetSets,
+        recommendedIntervalDays: link.recommendedIntervalDays,
+        instruction: link.instruction ?? ""
+      };
+    })
+  };
+}
+
+export async function getTrainingPlanForDate(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const date = parseYmd(args.date);
+  if (!date) {
+    return mcpToolResponse(400, {
+      code: "VALIDATION_ERROR",
+      message: "date is required in YYYY-MM-DD format."
+    });
+  }
+  if (args.timeZoneId !== undefined && !resolveTimeZoneId(args)) {
+    return mcpToolResponse(400, {
+      code: "VALIDATION_ERROR",
+      message: "timeZoneId must be a valid IANA time zone ID."
+    });
+  }
+  const planResult = await ddb.send(
+    new GetCommand({
+      TableName: dailyTrainingPlanTableName,
+      Key: { userId, planDate: date }
+    })
+  );
+  const plan = planResult.Item as Record<string, unknown> | undefined;
+  if (!plan || typeof plan.trainingMenuSetId !== "string") {
+    return mcpToolResponse(200, {
+      tool: "get_training_plan_for_date",
+      date,
+      plan: null
+    });
+  }
+  const set = await getTrainingMenuSetRecord(userId, plan.trainingMenuSetId);
+  if (!set || set.isActive === false) {
+    return mcpToolResponse(200, {
+      tool: "get_training_plan_for_date",
+      date,
+      plan: null
+    });
+  }
+  return mcpToolResponse(200, {
+    tool: "get_training_plan_for_date",
+    date,
+    plan: {
+      planDate: date,
+      planSource: plan.source === "ai" ? "ai" : "manual",
+      assignedAt: plan.createdAt ?? null,
+      assignmentUpdatedAt: plan.updatedAt ?? null,
+      ...(await hydrateTrainingMenuSet(userId, set))
+    }
+  });
+}
+
 async function listTrainingMenuItemsForAi(userId: string): Promise<McpToolResponse> {
   const result = await ddb.send(
     new QueryCommand({
@@ -2226,18 +2843,21 @@ async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolRespons
   ]);
   return mcpToolResponse(200, {
     tool: "list_training_menu_sets",
-    items: (sets.Items ?? []).map((set) => ({
+    items: (sets.Items ?? []).filter((set) => set.isActive !== false).map((set) => ({
       trainingMenuSetId: set.trainingMenuSetId,
       setName: set.setName,
       setType: set.setType ?? "reusable",
       source: set.source ?? "manual",
       validFromDate: set.validFromDate ?? set.scheduledDate,
       validToDate: set.validToDate ?? set.scheduledDate,
+      version: menuSetVersion(set.version),
       isDefault: set.isDefault === true,
       items: (links.Items ?? [])
         .filter((item) => item.trainingMenuSetId === set.trainingMenuSetId)
         .map((item) => ({
+          trainingMenuSetItemId: item.trainingMenuSetItemId,
           trainingMenuItemId: item.trainingMenuItemId,
+          displayOrder: item.displayOrder,
           targetWeightKg: item.targetWeightKg,
           targetRepsMin: item.targetRepsMin,
           targetRepsMax: item.targetRepsMax,
@@ -2246,6 +2866,877 @@ async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolRespons
           instruction: item.instruction ?? ""
         }))
     }))
+  });
+}
+
+async function listAllDailyPlansForUser(userId: string): Promise<Record<string, unknown>[]> {
+  const items: Record<string, unknown>[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(
+      new QueryCommand({
+        TableName: dailyTrainingPlanTableName,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: { ":userId": userId },
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    items.push(...((result.Items ?? []) as Record<string, unknown>[]));
+    exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+  return items;
+}
+
+function mutationValidationError(message: string): McpToolResponse {
+  return mcpToolResponse(400, { code: "VALIDATION_ERROR", message });
+}
+
+function idempotentMutationReplay(
+  set: Record<string, unknown>,
+  idempotencyKey: string,
+  requestHash: string,
+  tool: string
+): McpToolResponse | undefined {
+  if (set.lastMutationKey !== idempotencyKey) {
+    return undefined;
+  }
+  if (set.lastMutationHash !== requestHash) {
+    return mcpToolResponse(409, {
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "idempotencyKey was already used for a different request."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool,
+    trainingMenuSetId: set.trainingMenuSetId,
+    version: menuSetVersion(set.version),
+    changes: set.lastMutationChanges ?? {},
+    ...(set.cancellationSnapshot ? { cancellationSnapshot: set.cancellationSnapshot } : {}),
+    idempotentReplay: true
+  });
+}
+
+async function dateConflictDetails(
+  userId: string,
+  conflicts: Record<string, unknown>[]
+): Promise<Record<string, unknown>[]> {
+  const setIds = Array.from(
+    new Set(conflicts.map((plan) => String(plan.trainingMenuSetId ?? "")).filter(Boolean))
+  );
+  const sets = await Promise.all(setIds.map((setId) => getTrainingMenuSetRecord(userId, setId)));
+  const summaries = new Map(
+    sets
+      .filter((set): set is Record<string, unknown> => Boolean(set))
+      .map((set) => [String(set.trainingMenuSetId), temporaryMenuSetSummary(set)])
+  );
+  return conflicts.map((plan) => ({
+    date: plan.planDate,
+    trainingMenuSetId: plan.trainingMenuSetId,
+    menuSet: summaries.get(String(plan.trainingMenuSetId ?? "")) ?? null
+  }));
+}
+
+export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const trainingMenuSetId = parseBoundedText(args.trainingMenuSetId, 100);
+  const validFromDate = parseYmd(args.newValidFromDate);
+  const validToDate = parseYmd(args.newValidToDate);
+  const validityDates =
+    validFromDate && validToDate ? enumerateYmdRange(validFromDate, validToDate) : undefined;
+  const expectedVersion = parseExpectedVersion(args.expectedVersion);
+  const idempotencyKey = parseBoundedText(args.idempotencyKey, 100);
+  const updateReason = parseBoundedText(args.updateReason, 500, true) ?? "Rescheduled by AI";
+  const conflictPolicy: TemporaryPlanConflictPolicy =
+    args.conflictPolicy === "replace" ? "replace" : "reject";
+  if (
+    !trainingMenuSetId ||
+    !validityDates ||
+    expectedVersion === undefined ||
+    !idempotencyKey ||
+    (args.conflictPolicy !== undefined && args.conflictPolicy !== "reject" && args.conflictPolicy !== "replace") ||
+    (args.dryRun !== undefined && typeof args.dryRun !== "boolean")
+  ) {
+    return mutationValidationError(
+      "trainingMenuSetId, valid dates within 31 days, expectedVersion, and idempotencyKey are required."
+    );
+  }
+  const dryRun = parseDryRun(args.dryRun) === true;
+  const requestHash = mutationRequestHash({
+    tool: "reschedule_temporary_training_plan",
+    trainingMenuSetId,
+    validFromDate,
+    validToDate,
+    expectedVersion,
+    conflictPolicy,
+    updateReason
+  });
+  const set = await getTrainingMenuSetRecord(userId, trainingMenuSetId);
+  if (!set || set.setType !== "temporary") {
+    return mcpToolResponse(404, {
+      code: "NOT_FOUND",
+      message: "The temporary training menu set was not found."
+    });
+  }
+  const replay = idempotentMutationReplay(
+    set,
+    idempotencyKey,
+    requestHash,
+    "reschedule_temporary_training_plan"
+  );
+  if (replay) {
+    return replay;
+  }
+  if (set.isActive === false) {
+    return mcpToolResponse(404, {
+      code: "NOT_FOUND",
+      message: "The temporary training menu set is inactive."
+    });
+  }
+  if (menuSetVersion(set.version) !== expectedVersion) {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The training menu set was updated after it was read.",
+      currentVersion: menuSetVersion(set.version),
+      current: temporaryMenuSetSummary(set)
+    });
+  }
+
+  const currentFrom = parseYmd(set.validFromDate ?? set.scheduledDate);
+  const currentTo = parseYmd(set.validToDate ?? set.scheduledDate);
+  const currentDates = currentFrom && currentTo ? enumerateYmdRange(currentFrom, currentTo) ?? [] : [];
+  const planResults = await Promise.all(
+    validityDates.map((planDate) =>
+      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
+    )
+  );
+  const conflicts = planResults
+    .map((result) => result.Item as Record<string, unknown> | undefined)
+    .filter(
+      (plan): plan is Record<string, unknown> =>
+        plan !== undefined && plan.trainingMenuSetId !== trainingMenuSetId
+    );
+  const conflictDetails = await dateConflictDetails(userId, conflicts);
+  if (conflicts.length && conflictPolicy === "reject") {
+    return mcpToolResponse(409, {
+      code: "DATE_CONFLICT",
+      message: "One or more dates are assigned to another training menu set.",
+      conflicts: conflictDetails
+    });
+  }
+  if (conflicts.length && conflictPolicy === "replace" && args.userConfirmed !== true) {
+    return mcpToolResponse(409, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Show the conflicts to the user and obtain explicit approval before replacement.",
+      conflicts: conflictDetails
+    });
+  }
+
+  const allPlans = conflicts.length ? await listAllDailyPlansForUser(userId) : [];
+  const nextDateSet = new Set(validityDates);
+  const conflictingSetIds = Array.from(
+    new Set(conflicts.map((plan) => String(plan.trainingMenuSetId ?? "")).filter(Boolean))
+  );
+  const partialReplacement = conflictingSetIds.flatMap((setId) => {
+    const assignedDates = allPlans
+      .filter((plan) => plan.trainingMenuSetId === setId)
+      .map((plan) => String(plan.planDate ?? ""));
+    return assignedDates.some((date) => !nextDateSet.has(date))
+      ? [{ trainingMenuSetId: setId, assignedDates }]
+      : [];
+  });
+  if (partialReplacement.length) {
+    return mcpToolResponse(409, {
+      code: "DATE_CONFLICT",
+      message: "Replacement would only partially displace another menu set. Resolve that set separately.",
+      conflicts: conflictDetails,
+      partialReplacement
+    });
+  }
+  const conflictingSets = (
+    await Promise.all(conflictingSetIds.map((setId) => getTrainingMenuSetRecord(userId, setId)))
+  ).filter(
+    (value): value is Record<string, unknown> =>
+      value !== undefined && value.isActive !== false
+  );
+
+  const currentDateSet = new Set(currentDates);
+  const removedDates = currentDates.filter((date) => !nextDateSet.has(date));
+  const addedDates = validityDates.filter((date) => !currentDateSet.has(date));
+  const retainedDates = validityDates.filter((date) => currentDateSet.has(date));
+  const changes = {
+    validFromDate: { before: currentFrom ?? null, after: validFromDate },
+    validToDate: { before: currentTo ?? null, after: validToDate },
+    planDates: { added: addedDates, removed: removedDates, retained: retainedDates },
+    replacedMenuSetIds: conflictingSetIds
+  };
+  if (dryRun) {
+    return mcpToolResponse(200, {
+      tool: "reschedule_temporary_training_plan",
+      dryRun: true,
+      trainingMenuSetId,
+      currentVersion: expectedVersion,
+      nextVersion: expectedVersion + 1,
+      changes,
+      unchanged: [
+        "trainingMenuSetId",
+        "setName",
+        "items",
+        "prescriptions",
+        "trainingMenuSetItemIds",
+        "trainingMenuItemIds"
+      ],
+      conflicts: conflictDetails
+    });
+  }
+
+  const ts = nowIsoSeconds();
+  const condition = versionCondition(expectedVersion);
+  const transactItems: NonNullable<TransactWriteCommandInput["TransactItems"]> = [
+    {
+      Update: {
+        TableName: trainingMenuSetTableName,
+        Key: { userId, trainingMenuSetId },
+        UpdateExpression:
+          "SET validFromDate=:validFromDate, validToDate=:validToDate, #version=:nextVersion, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges REMOVE scheduledDate",
+        ConditionExpression: `${condition.condition} AND (attribute_not_exists(isActive) OR isActive = :true) AND setType = :temporary`,
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ...condition.values,
+          ":validFromDate": validFromDate,
+          ":validToDate": validToDate,
+          ":nextVersion": expectedVersion + 1,
+          ":updatedAt": ts,
+          ":updatedBy": "mcp",
+          ":updateReason": updateReason,
+          ":lastMutationKey": idempotencyKey,
+          ":lastMutationHash": requestHash,
+          ":lastMutationChanges": changes,
+          ":true": true,
+          ":temporary": "temporary"
+        }
+      }
+    }
+  ];
+  for (const conflictSet of conflictingSets) {
+    const conflictVersion = menuSetVersion(conflictSet.version);
+    const conflictCondition = versionCondition(conflictVersion);
+    transactItems.push({
+      Update: {
+        TableName: trainingMenuSetTableName,
+        Key: { userId, trainingMenuSetId: conflictSet.trainingMenuSetId },
+        UpdateExpression:
+          "SET isActive=:false, #version=:nextVersion, canceledAt=:canceledAt, canceledBy=:canceledBy, cancelReason=:cancelReason, updatedAt=:updatedAt",
+        ConditionExpression: `${conflictCondition.condition} AND (attribute_not_exists(isActive) OR isActive = :true)`,
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ...conflictCondition.values,
+          ":false": false,
+          ":true": true,
+          ":nextVersion": conflictVersion + 1,
+          ":canceledAt": ts,
+          ":canceledBy": "mcp",
+          ":cancelReason": `Replaced by ${trainingMenuSetId}`,
+          ":updatedAt": ts
+        }
+      }
+    });
+  }
+  for (const planDate of removedDates) {
+    transactItems.push({
+      Delete: {
+        TableName: dailyTrainingPlanTableName,
+        Key: { userId, planDate },
+        ConditionExpression: "trainingMenuSetId = :trainingMenuSetId",
+        ExpressionAttributeValues: { ":trainingMenuSetId": trainingMenuSetId }
+      }
+    });
+  }
+  validityDates.forEach((planDate, index) => {
+    const existing = planResults[index].Item;
+    transactItems.push({
+      Put: {
+        TableName: dailyTrainingPlanTableName,
+        Item: {
+          userId,
+          planDate,
+          trainingMenuSetId,
+          source: set.source === "ai" ? "ai" : "manual",
+          idempotencyKey,
+          createdAt: existing?.createdAt ?? ts,
+          updatedAt: ts
+        },
+        ConditionExpression: existing
+          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
+          : "attribute_not_exists(userId)",
+        ...(existing
+          ? {
+              ExpressionAttributeValues: {
+                ":expectedTrainingMenuSetId": existing.trainingMenuSetId
+              }
+            }
+          : {})
+      }
+    });
+  });
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  } catch {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The plan changed while the reschedule was being applied. No changes were committed."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool: "reschedule_temporary_training_plan",
+    trainingMenuSetId,
+    version: expectedVersion + 1,
+    changes,
+    unchanged: [
+      "trainingMenuSetId",
+      "setName",
+      "items",
+      "prescriptions",
+      "trainingMenuSetItemIds",
+      "trainingMenuItemIds"
+    ],
+    idempotentReplay: false,
+    updatedAt: ts
+  });
+}
+
+export async function cancelTemporaryTrainingPlan(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const trainingMenuSetId = parseBoundedText(args.trainingMenuSetId, 100);
+  const expectedVersion = parseExpectedVersion(args.expectedVersion);
+  const idempotencyKey = parseBoundedText(args.idempotencyKey, 100);
+  const reason = parseBoundedText(args.reason, 500, true) ?? "Canceled by user request";
+  if (
+    !trainingMenuSetId ||
+    expectedVersion === undefined ||
+    !idempotencyKey ||
+    (args.dryRun !== undefined && typeof args.dryRun !== "boolean")
+  ) {
+    return mutationValidationError("trainingMenuSetId, expectedVersion, and idempotencyKey are required.");
+  }
+  const dryRun = parseDryRun(args.dryRun) === true;
+  const requestHash = mutationRequestHash({
+    tool: "cancel_temporary_training_plan",
+    trainingMenuSetId,
+    expectedVersion,
+    reason
+  });
+  const set = await getTrainingMenuSetRecord(userId, trainingMenuSetId);
+  if (!set || set.setType !== "temporary") {
+    return mcpToolResponse(404, {
+      code: "NOT_FOUND",
+      message: "The temporary training menu set was not found."
+    });
+  }
+  const replay = idempotentMutationReplay(
+    set,
+    idempotencyKey,
+    requestHash,
+    "cancel_temporary_training_plan"
+  );
+  if (replay) {
+    return replay;
+  }
+  if (set.isActive === false) {
+    return mcpToolResponse(409, {
+      code: "PLAN_ALREADY_CANCELED",
+      message: "The temporary training menu set is already inactive."
+    });
+  }
+  if (menuSetVersion(set.version) !== expectedVersion) {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The training menu set was updated after it was read.",
+      currentVersion: menuSetVersion(set.version)
+    });
+  }
+  const plans = (await listAllDailyPlansForUser(userId)).filter(
+    (plan) => plan.trainingMenuSetId === trainingMenuSetId
+  );
+  const cancellationSnapshot = await hydrateTrainingMenuSet(userId, set);
+  const changes = {
+    isActive: { before: true, after: false },
+    canceledPlanDates: plans.map((plan) => plan.planDate),
+    reason
+  };
+  if (dryRun) {
+    return mcpToolResponse(200, {
+      tool: "cancel_temporary_training_plan",
+      dryRun: true,
+      trainingMenuSetId,
+      currentVersion: expectedVersion,
+      nextVersion: expectedVersion + 1,
+      changes,
+      cancellationSnapshot,
+      preserved: ["menuSet", "items", "prescriptions", "trainingMenuItemIds"]
+    });
+  }
+  if (args.userConfirmed !== true) {
+    return mcpToolResponse(409, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Obtain explicit user approval before canceling the temporary plan.",
+      changes
+    });
+  }
+  const ts = nowIsoSeconds();
+  const condition = versionCondition(expectedVersion);
+  const transactItems: NonNullable<TransactWriteCommandInput["TransactItems"]> = [
+    {
+      Update: {
+        TableName: trainingMenuSetTableName,
+        Key: { userId, trainingMenuSetId },
+        UpdateExpression:
+          "SET isActive=:false, #version=:nextVersion, canceledAt=:canceledAt, canceledBy=:canceledBy, cancelReason=:cancelReason, cancellationSnapshot=:cancellationSnapshot, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges",
+        ConditionExpression: `${condition.condition} AND (attribute_not_exists(isActive) OR isActive = :true) AND setType = :temporary`,
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ...condition.values,
+          ":false": false,
+          ":true": true,
+          ":temporary": "temporary",
+          ":nextVersion": expectedVersion + 1,
+          ":canceledAt": ts,
+          ":canceledBy": "mcp",
+          ":cancelReason": reason,
+          ":cancellationSnapshot": cancellationSnapshot,
+          ":updatedAt": ts,
+          ":updatedBy": "mcp",
+          ":updateReason": reason,
+          ":lastMutationKey": idempotencyKey,
+          ":lastMutationHash": requestHash,
+          ":lastMutationChanges": changes
+        }
+      }
+    },
+    ...plans.map((plan) => ({
+      Delete: {
+        TableName: dailyTrainingPlanTableName,
+        Key: { userId, planDate: plan.planDate },
+        ConditionExpression: "trainingMenuSetId = :trainingMenuSetId",
+        ExpressionAttributeValues: { ":trainingMenuSetId": trainingMenuSetId }
+      }
+    }))
+  ];
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  } catch {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The plan changed while cancellation was being applied. No changes were committed."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool: "cancel_temporary_training_plan",
+    trainingMenuSetId,
+    version: expectedVersion + 1,
+    canceledAt: ts,
+    changes,
+    cancellationSnapshot,
+    preserved: ["menuSet", "items", "prescriptions", "trainingMenuItemIds"],
+    idempotentReplay: false
+  });
+}
+
+function normalizeMenuSetPrescription(
+  input: MenuSetPrescriptionInput,
+  current?: Record<string, unknown>
+): Record<string, unknown> | undefined {
+  const targetWeightKg =
+    input.targetWeightKg === undefined
+      ? normalizeNonNegativeDecimal(current?.targetWeightKg)
+      : normalizeNonNegativeDecimal(input.targetWeightKg);
+  const targetRepsMin =
+    input.targetRepsMin === undefined
+      ? normalizePositiveInteger(current?.targetRepsMin)
+      : normalizePositiveInteger(input.targetRepsMin);
+  const targetRepsMax =
+    input.targetRepsMax === undefined
+      ? normalizePositiveInteger(current?.targetRepsMax)
+      : normalizePositiveInteger(input.targetRepsMax);
+  const targetSets =
+    input.targetSets === undefined
+      ? normalizePositiveInteger(current?.targetSets)
+      : normalizePositiveInteger(input.targetSets);
+  const recommendedIntervalDays =
+    input.recommendedIntervalDays === undefined
+      ? normalizeFrequency(current?.recommendedIntervalDays)
+      : normalizeFrequency(input.recommendedIntervalDays);
+  const instruction =
+    input.instruction === undefined
+      ? normalizeDescription(current?.instruction)
+      : normalizeDescription(input.instruction);
+  if (
+    targetWeightKg === undefined ||
+    !targetRepsMin ||
+    !targetRepsMax ||
+    targetRepsMin > targetRepsMax ||
+    !targetSets ||
+    !recommendedIntervalDays ||
+    instruction === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    targetWeightKg,
+    targetRepsMin,
+    targetRepsMax,
+    targetSets,
+    recommendedIntervalDays,
+    instruction
+  };
+}
+
+function prescriptionSnapshot(item: Record<string, unknown>): Record<string, unknown> {
+  return {
+    targetWeightKg: item.targetWeightKg,
+    targetRepsMin: item.targetRepsMin,
+    targetRepsMax: item.targetRepsMax,
+    targetSets: item.targetSets,
+    recommendedIntervalDays: item.recommendedIntervalDays,
+    instruction: item.instruction ?? ""
+  };
+}
+
+export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const trainingMenuSetId = parseBoundedText(args.trainingMenuSetId, 100);
+  const expectedVersion = parseExpectedVersion(args.expectedVersion);
+  const idempotencyKey = parseBoundedText(args.idempotencyKey, 100);
+  const updateReason = parseBoundedText(args.updateReason, 500, true) ?? "Updated by AI";
+  const requestedSetName =
+    args.setName === undefined ? undefined : parseBoundedText(args.setName, 100);
+  const itemUpdates = Array.isArray(args.itemUpdates)
+    ? (args.itemUpdates as MenuSetItemUpdateInput[])
+    : [];
+  const itemAdds = Array.isArray(args.itemAdds) ? (args.itemAdds as MenuSetItemAddInput[]) : [];
+  const itemRemovals = Array.isArray(args.itemRemovals) ? args.itemRemovals : [];
+  const itemOrder = Array.isArray(args.itemOrder) ? args.itemOrder : undefined;
+  const hasDateChange = args.validFromDate !== undefined || args.validToDate !== undefined;
+  const hasNonDateChange =
+    args.setName !== undefined ||
+    itemUpdates.length > 0 ||
+    itemAdds.length > 0 ||
+    itemRemovals.length > 0 ||
+    itemOrder !== undefined;
+  if (
+    !trainingMenuSetId ||
+    expectedVersion === undefined ||
+    !idempotencyKey ||
+    (args.setName !== undefined && !requestedSetName) ||
+    (args.dryRun !== undefined && typeof args.dryRun !== "boolean") ||
+    itemUpdates.length > 12 ||
+    itemAdds.length > 12 ||
+    itemRemovals.length > 12
+  ) {
+    return mutationValidationError(
+      "trainingMenuSetId, expectedVersion, idempotencyKey, and valid bounded update fields are required."
+    );
+  }
+  if (hasDateChange) {
+    const from = parseYmd(args.validFromDate);
+    const to = parseYmd(args.validToDate);
+    if (!from || !to) {
+      return mutationValidationError("validFromDate and validToDate must both be valid YYYY-MM-DD dates.");
+    }
+    if (hasNonDateChange) {
+      return mutationValidationError(
+        "Date changes cannot be combined with content changes. Use reschedule_temporary_training_plan first."
+      );
+    }
+    const result = await rescheduleTemporaryTrainingPlan(
+      {
+        ...args,
+        newValidFromDate: from,
+        newValidToDate: to
+      },
+      userId
+    );
+    return result.error
+      ? result
+      : { ...result, tool: "update_temporary_training_menu_set", delegatedOperation: "reschedule" };
+  }
+  if (!hasNonDateChange) {
+    return mutationValidationError("At least one update field is required.");
+  }
+  if (
+    (args.itemUpdates !== undefined && !Array.isArray(args.itemUpdates)) ||
+    (args.itemAdds !== undefined && !Array.isArray(args.itemAdds)) ||
+    (args.itemRemovals !== undefined && !Array.isArray(args.itemRemovals)) ||
+    (args.itemOrder !== undefined && !Array.isArray(args.itemOrder))
+  ) {
+    return mutationValidationError("Item mutation fields must be arrays.");
+  }
+  const dryRun = parseDryRun(args.dryRun) === true;
+  const requestHash = mutationRequestHash({
+    tool: "update_temporary_training_menu_set",
+    trainingMenuSetId,
+    expectedVersion,
+    setName: requestedSetName,
+    itemUpdates,
+    itemAdds,
+    itemRemovals,
+    itemOrder,
+    updateReason
+  });
+  const set = await getTrainingMenuSetRecord(userId, trainingMenuSetId);
+  if (!set || set.setType !== "temporary" || set.isActive === false) {
+    return mcpToolResponse(404, {
+      code: "NOT_FOUND",
+      message: "The active temporary training menu set was not found."
+    });
+  }
+  const replay = idempotentMutationReplay(
+    set,
+    idempotencyKey,
+    requestHash,
+    "update_temporary_training_menu_set"
+  );
+  if (replay) {
+    return replay;
+  }
+  if (menuSetVersion(set.version) !== expectedVersion) {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The training menu set was updated after it was read.",
+      currentVersion: menuSetVersion(set.version)
+    });
+  }
+
+  const currentLinks = await listTrainingMenuSetLinks(userId, trainingMenuSetId);
+  const currentById = new Map(
+    currentLinks.map((item) => [String(item.trainingMenuSetItemId ?? ""), item])
+  );
+  const removalIds = itemRemovals.map((value) => toNonEmptyString(value));
+  if (
+    removalIds.some((value) => !value || !currentById.has(value)) ||
+    new Set(removalIds).size !== removalIds.length
+  ) {
+    return mutationValidationError("itemRemovals contains an unknown or duplicate trainingMenuSetItemId.");
+  }
+  const updateIds = itemUpdates.map((value) => toNonEmptyString(value.trainingMenuSetItemId));
+  if (
+    updateIds.some((value) => !value || !currentById.has(value)) ||
+    new Set(updateIds).size !== updateIds.length ||
+    updateIds.some((value) => removalIds.includes(value))
+  ) {
+    return mutationValidationError("itemUpdates contains an unknown, duplicate, or removed item.");
+  }
+  const normalizedUpdates = itemUpdates.map((input, index) => {
+    const current = currentById.get(updateIds[index]!)!;
+    const prescription = normalizeMenuSetPrescription(input, current);
+    return prescription ? { current, prescription } : undefined;
+  });
+  if (normalizedUpdates.some((value) => !value)) {
+    return mutationValidationError("One or more itemUpdates prescriptions are invalid.");
+  }
+  const addMenuItemIds = itemAdds.map((value) => toNonEmptyString(value.trainingMenuItemId));
+  if (
+    addMenuItemIds.some((value) => !value) ||
+    new Set(addMenuItemIds).size !== addMenuItemIds.length
+  ) {
+    return mutationValidationError("itemAdds requires unique existing trainingMenuItemId values.");
+  }
+  const addMenuItems = await getTrainingMenuItemsById(userId, addMenuItemIds as string[]);
+  const normalizedAdds = itemAdds.map((input, index) => {
+    const trainingMenuItemId = addMenuItemIds[index]!;
+    const menu = addMenuItems.get(trainingMenuItemId);
+    const prescription = input.prescription
+      ? normalizeMenuSetPrescription(input.prescription)
+      : undefined;
+    return menu && menu.isActive !== false && prescription
+      ? { trainingMenuItemId, prescription }
+      : undefined;
+  });
+  if (normalizedAdds.some((value) => !value)) {
+    return mutationValidationError("itemAdds references a missing item or contains an invalid prescription.");
+  }
+  const retained = currentLinks.filter(
+    (item) => !removalIds.includes(String(item.trainingMenuSetItemId ?? ""))
+  );
+  const finalTrainingMenuItemIds = [
+    ...retained.map((item) => String(item.trainingMenuItemId ?? "")),
+    ...(addMenuItemIds as string[])
+  ];
+  if (
+    finalTrainingMenuItemIds.length < 1 ||
+    finalTrainingMenuItemIds.length > 12 ||
+    new Set(finalTrainingMenuItemIds).size !== finalTrainingMenuItemIds.length
+  ) {
+    return mutationValidationError("The resulting set must contain 1 to 12 unique training menu items.");
+  }
+  if (itemOrder && itemAdds.length) {
+    return mutationValidationError("itemOrder cannot be combined with itemAdds; add the items first.");
+  }
+  let orderedRetained = [...retained].sort(
+    (left, right) => Number(left.displayOrder ?? 0) - Number(right.displayOrder ?? 0)
+  );
+  if (itemOrder) {
+    const orderIds = itemOrder.map((value) => toNonEmptyString(value));
+    const retainedIds = new Set(
+      retained.map((item) => String(item.trainingMenuSetItemId ?? ""))
+    );
+    if (
+      orderIds.some((value) => !value || !retainedIds.has(value)) ||
+      new Set(orderIds).size !== orderIds.length ||
+      orderIds.length !== retained.length
+    ) {
+      return mutationValidationError("itemOrder must contain every remaining trainingMenuSetItemId exactly once.");
+    }
+    orderedRetained = orderIds.map((id) => currentById.get(id!)!);
+  }
+
+  const normalizedUpdateById = new Map(
+    normalizedUpdates.map((value) => [
+      String(value!.current.trainingMenuSetItemId),
+      value!.prescription
+    ])
+  );
+  const ts = nowIsoSeconds();
+  const nextExisting: Record<string, unknown>[] = orderedRetained.map((current, index) => {
+    const trainingMenuSetItemId = String(current.trainingMenuSetItemId);
+    const prescription = normalizedUpdateById.get(trainingMenuSetItemId) ?? prescriptionSnapshot(current);
+    return {
+      ...current,
+      ...prescription,
+      displayOrder: index + 1,
+      menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, index + 1),
+      updatedAt: ts
+    };
+  });
+  const newLinks: Record<string, unknown>[] = normalizedAdds.map((value, index) => {
+    const trainingMenuSetItemId = randomUUID();
+    const displayOrder = nextExisting.length + index + 1;
+    return {
+      userId,
+      trainingMenuSetItemId,
+      trainingMenuSetId,
+      trainingMenuItemId: value!.trainingMenuItemId,
+      displayOrder,
+      menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, displayOrder),
+      menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, value!.trainingMenuItemId),
+      ...value!.prescription,
+      createdBy: "ai",
+      createdAt: ts,
+      updatedAt: ts
+    };
+  });
+  const nextSetName = requestedSetName ?? String(set.setName ?? "");
+  const itemChanges = {
+    updated: normalizedUpdates.map((value) => ({
+      trainingMenuSetItemId: value!.current.trainingMenuSetItemId,
+      before: prescriptionSnapshot(value!.current),
+      after: value!.prescription
+    })),
+    added: normalizedAdds.map((value) => ({
+      trainingMenuItemId: value!.trainingMenuItemId,
+      prescription: value!.prescription
+    })),
+    removed: removalIds.map((id) => ({
+      trainingMenuSetItemId: id,
+      trainingMenuItemId: currentById.get(id!)?.trainingMenuItemId
+    })),
+    orderBefore: currentLinks.map((item) => item.trainingMenuSetItemId),
+    orderAfter: [...nextExisting, ...newLinks].map((item) => item.trainingMenuSetItemId)
+  };
+  const changes = {
+    ...(nextSetName !== set.setName
+      ? { setName: { before: set.setName ?? "", after: nextSetName } }
+      : {}),
+    items: itemChanges
+  };
+  if (dryRun) {
+    return mcpToolResponse(200, {
+      tool: "update_temporary_training_menu_set",
+      dryRun: true,
+      trainingMenuSetId,
+      currentVersion: expectedVersion,
+      nextVersion: expectedVersion + 1,
+      changes,
+      unchanged: ["trainingMenuSetId", "trainingMenuItemMasterRecords", "validFromDate", "validToDate"]
+    });
+  }
+
+  const condition = versionCondition(expectedVersion);
+  const transactItems: NonNullable<TransactWriteCommandInput["TransactItems"]> = [
+    {
+      Update: {
+        TableName: trainingMenuSetTableName,
+        Key: { userId, trainingMenuSetId },
+        UpdateExpression:
+          "SET setName=:setName, #version=:nextVersion, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges",
+        ConditionExpression: `${condition.condition} AND (attribute_not_exists(isActive) OR isActive = :true) AND setType = :temporary`,
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ...condition.values,
+          ":setName": nextSetName,
+          ":nextVersion": expectedVersion + 1,
+          ":updatedAt": ts,
+          ":updatedBy": "mcp",
+          ":updateReason": updateReason,
+          ":lastMutationKey": idempotencyKey,
+          ":lastMutationHash": requestHash,
+          ":lastMutationChanges": changes,
+          ":true": true,
+          ":temporary": "temporary"
+        }
+      }
+    },
+    ...removalIds.map((trainingMenuSetItemId) => ({
+      Delete: {
+        TableName: trainingMenuSetItemTableName,
+        Key: { userId, trainingMenuSetItemId },
+        ConditionExpression: "trainingMenuSetId = :trainingMenuSetId",
+        ExpressionAttributeValues: { ":trainingMenuSetId": trainingMenuSetId }
+      }
+    })),
+    ...nextExisting
+      .filter((next) => {
+        const current = currentById.get(String(next.trainingMenuSetItemId))!;
+        return JSON.stringify(stableJsonValue(next)) !== JSON.stringify(stableJsonValue({ ...current, updatedAt: ts }));
+      })
+      .map((item) => {
+        const current = currentById.get(String(item.trainingMenuSetItemId))!;
+        const hasUpdatedAt = typeof current.updatedAt === "string";
+        return {
+          Put: {
+            TableName: trainingMenuSetItemTableName,
+            Item: item,
+            ConditionExpression:
+              "trainingMenuSetId = :trainingMenuSetId AND " +
+              (hasUpdatedAt ? "updatedAt = :expectedUpdatedAt" : "attribute_not_exists(updatedAt)"),
+            ExpressionAttributeValues: {
+              ":trainingMenuSetId": trainingMenuSetId,
+              ...(hasUpdatedAt ? { ":expectedUpdatedAt": current.updatedAt } : {})
+            }
+          }
+        };
+      }),
+    ...newLinks.map((item) => ({
+      Put: {
+        TableName: trainingMenuSetItemTableName,
+        Item: item,
+        ConditionExpression:
+          "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetItemId)"
+      }
+    }))
+  ];
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: transactItems }));
+  } catch {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The menu set changed while the update was being applied. No changes were committed."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool: "update_temporary_training_menu_set",
+    trainingMenuSetId,
+    version: expectedVersion + 1,
+    changes,
+    unchanged: ["trainingMenuSetId", "trainingMenuItemMasterRecords", "validFromDate", "validToDate"],
+    updatedAt: ts,
+    idempotentReplay: false
   });
 }
 
@@ -2280,11 +3771,16 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
     replayPlans.every((item) => item.idempotencyKey === idempotencyKey) &&
     replaySetIds.size === 1
   ) {
+    const replayTrainingMenuSetId = String(replayPlans[0].trainingMenuSetId ?? "");
+    const replaySet = replayTrainingMenuSetId
+      ? await getTrainingMenuSetRecord(userId, replayTrainingMenuSetId)
+      : undefined;
     return mcpToolResponse(200, {
       tool: "create_temporary_training_menu_set_from_ai",
-      trainingMenuSetId: replayPlans[0].trainingMenuSetId,
+      trainingMenuSetId: replayTrainingMenuSetId,
       validFromDate,
       validToDate,
+      version: menuSetVersion(replaySet?.version),
       idempotentReplay: true
     });
   }
@@ -2430,6 +3926,9 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
           validToDate,
           isDefault: false,
           isActive: true,
+          version: 1,
+          updatedBy: "mcp",
+          updateReason: "Created by AI",
           createdAt: ts,
           updatedAt: ts
         },
@@ -2502,6 +4001,7 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
     validFromDate,
     validToDate,
     setName,
+    version: 1,
     reusedItemCount: normalizedItems.filter((item) => !item.newItem).length,
     createdItemCount: normalizedItems.filter((item) => item.newItem).length
   });
@@ -2532,6 +4032,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     if (toolName === "get_training_history") {
       return getTrainingHistory(event, userId);
     }
+    if (toolName === "get_training_coaching_summary") {
+      return getTrainingCoachingSummary(event, userId);
+    }
     if (toolName === "get_daily_records") {
       return getDailyRecords(event, userId);
     }
@@ -2546,6 +4049,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "save_daily_diary") {
       return saveDailyDiary(event, userId);
+    }
+    if (toolName === "save_daily_meal_notes") {
+      return saveDailyMealNotes(event, userId);
     }
     if (toolName === "save_body_metrics") {
       return saveBodyMetrics(event, userId);
@@ -2573,6 +4079,18 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "list_training_menu_sets") {
       return listTrainingMenuSetsForAi(userId);
+    }
+    if (toolName === "get_training_plan_for_date" || toolName === "get_temporary_training_plan") {
+      return getTrainingPlanForDate(event, userId);
+    }
+    if (toolName === "reschedule_temporary_training_plan") {
+      return rescheduleTemporaryTrainingPlan(event, userId);
+    }
+    if (toolName === "cancel_temporary_training_plan") {
+      return cancelTemporaryTrainingPlan(event, userId);
+    }
+    if (toolName === "update_temporary_training_menu_set") {
+      return updateTemporaryTrainingMenuSet(event, userId);
     }
     if (toolName === "create_temporary_training_menu_set_from_ai") {
       return createTemporaryTrainingMenuSetFromAi(event, userId);

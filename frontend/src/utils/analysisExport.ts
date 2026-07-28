@@ -63,6 +63,14 @@ function normalizeDailyRecord(item: DailyRecordDto) {
     conditionRating: nullableNumber(item.conditionRating),
     moodRating: nullableNumber(item.moodRating),
     conditionComment: nullableString(item.conditionComment),
+    sleepHours: nullableNumber(item.sleepHours),
+    sleepQuality: nullableNumber(item.sleepQuality),
+    fatigueLevel: nullableNumber(item.fatigueLevel),
+    motivationLevel: nullableNumber(item.motivationLevel),
+    muscleSorenessLevel: nullableNumber(item.muscleSorenessLevel),
+    painAreas: Array.isArray(item.painAreas) ? item.painAreas : [],
+    restingHeartRate: nullableNumber(item.restingHeartRate),
+    mealNotes: nullableString(item.mealNotes),
     diary: nullableString(item.diary),
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
     createdAtUtc: nullableString(item.createdAt),
@@ -167,7 +175,7 @@ export async function createAnalysisExport(
 
   const result = {
     schema: 'kintrain.analysis-export',
-    schemaVersion: 2,
+    schemaVersion: 3,
     generatedAtUtc: new Date().toISOString(),
     selection: {
       rangeMode: range.rangeMode,

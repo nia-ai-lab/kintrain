@@ -32,7 +32,7 @@ Goalは現在値を上書き保存するモデルであるため、過去の目�
 
 - MIME type: `application/json;charset=utf-8`
 - schema: `kintrain.analysis-export`
-- schemaVersion: `2`
+- schemaVersion: `3`
 - ファイル名:
   - 期間指定: `kintrain-analysis_{from}_{to}_{timestamp}.json`
   - 全期間: `kintrain-analysis_all_{timestamp}.json`
@@ -44,7 +44,7 @@ Goalは現在値を上書き保存するモデルであるため、過去の目�
 ```json
 {
   "schema": "kintrain.analysis-export",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "generatedAtUtc": "2026-07-26T00:00:00.000Z",
   "selection": {
     "rangeMode": "dateRange",
@@ -109,7 +109,7 @@ Core APIの`nextToken`は署名付きのversion 2形式とし、内部`userId`�
 ```json
 {
   "schema": "kintrain.analysis-export",
-  "schemaVersion": 2,
+  "schemaVersion": 3,
   "selection": {},
   "section": "dailyRecords",
   "items": [],
@@ -126,7 +126,7 @@ Core APIの`nextToken`は署名付きのversion 2形式とし、内部`userId`�
 
 ## 6. 重量の意味
 
-schemaVersion 2では、メニューと実施履歴に重量換算情報を含める。
+schemaVersion 2では、メニューと実施履歴に重量換算情報を含める。schemaVersion 3では、Daily記録へ睡眠、疲労、やる気、筋肉痛、痛み、安静時心拍数、自由記述の食事内容・栄養メモを追加する。
 
 - `weightKg`: ユーザーが入力した値
 - `weightInputMode`: `direct` / `perSide` / `legacyUnspecified`

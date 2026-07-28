@@ -52,6 +52,7 @@ type MenuSetInput = {
   validToDate?: string;
   replaceExistingPlan?: boolean;
   isDefault?: boolean;
+  expectedVersion?: number;
 };
 
 type PrescriptionInput = {
@@ -113,6 +114,41 @@ function normalizeFixedWeightKg(value: unknown, mode: WeightInputMode): number {
 
 function normalizeSetType(value: unknown): MenuSetType {
   return value === "temporary" ? "temporary" : "reusable";
+}
+
+function menuSetVersion(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+function menuSetVersionCondition(version: number): string {
+  return version === 0
+    ? "(attribute_not_exists(#version) OR #version = :expectedVersion)"
+    : "#version = :expectedVersion";
+}
+
+function buildMenuSetVersionBump(
+  userId: string,
+  set: Record<string, unknown>,
+  updatedAt: string
+): NonNullable<TransactWriteCommandInput["TransactItems"]>[number] {
+  const currentVersion = menuSetVersion(set.version);
+  return {
+    Update: {
+      TableName: trainingMenuSetTableName,
+      Key: { userId, trainingMenuSetId: set.trainingMenuSetId },
+      UpdateExpression:
+        "SET #version=:nextVersion, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason",
+      ConditionExpression: menuSetVersionCondition(currentVersion),
+      ExpressionAttributeNames: { "#version": "version" },
+      ExpressionAttributeValues: {
+        ":expectedVersion": currentVersion,
+        ":nextVersion": currentVersion + 1,
+        ":updatedAt": updatedAt,
+        ":updatedBy": "user",
+        ":updateReason": "Menu set items updated"
+      }
+    }
+  };
 }
 
 function normalizeSource(value: unknown): DataSource {
@@ -222,6 +258,9 @@ function toMenuSetResponse(set: Record<string, unknown>, items: Record<string, u
     ...validity,
     isDefault: set.isDefault === true,
     isActive: set.isActive !== false,
+    version: menuSetVersion(set.version),
+    updatedBy: set.updatedBy,
+    updateReason: set.updateReason,
     items: items.map(toSetItemResponse),
     createdAt: set.createdAt,
     updatedAt: set.updatedAt
@@ -535,6 +574,9 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     isDefault,
     ...(isDefault ? { defaultSetMarker } : {}),
     isActive: true,
+    version: 1,
+    updatedBy: "user",
+    updateReason: "Menu set created",
     createdAt: ts,
     updatedAt: ts
   };
@@ -544,8 +586,17 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
       Update: {
         TableName: trainingMenuSetTableName,
         Key: { userId, trainingMenuSetId: currentDefaultId },
-        UpdateExpression: "SET isDefault=:false, updatedAt=:updatedAt REMOVE defaultSetMarker",
-        ExpressionAttributeValues: { ":false": false, ":updatedAt": ts }
+        UpdateExpression:
+          "SET isDefault=:false, #version=if_not_exists(#version, :zero)+:one, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason REMOVE defaultSetMarker",
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ":false": false,
+          ":zero": 0,
+          ":one": 1,
+          ":updatedAt": ts,
+          ":updatedBy": "user",
+          ":updateReason": "Default menu set changed"
+        }
       }
     });
   }
@@ -585,6 +636,17 @@ async function updateMenuSet(
   const current = await getMenuSet(userId, trainingMenuSetId);
   if (!body || !current) {
     return response(current ? 400 : 404, { message: current ? "Invalid JSON body." : "training menu set not found." });
+  }
+  const currentVersion = menuSetVersion(current.version);
+  if (
+    body.expectedVersion !== undefined &&
+    (!Number.isInteger(body.expectedVersion) || body.expectedVersion < 0 || body.expectedVersion !== currentVersion)
+  ) {
+    return response(409, {
+      code: "VERSION_CONFLICT",
+      message: "training menu set version does not match.",
+      currentVersion
+    });
   }
   const setName = body.setName !== undefined ? toNonEmptyString(body.setName) : String(current.setName);
   const setType = body.setType !== undefined ? normalizeSetType(body.setType) : normalizeSetType(current.setType);
@@ -646,8 +708,17 @@ async function updateMenuSet(
       Update: {
         TableName: trainingMenuSetTableName,
         Key: { userId, trainingMenuSetId: currentDefaultId },
-        UpdateExpression: "SET isDefault=:false, updatedAt=:updatedAt REMOVE defaultSetMarker",
-        ExpressionAttributeValues: { ":false": false, ":updatedAt": ts }
+        UpdateExpression:
+          "SET isDefault=:false, #version=if_not_exists(#version, :zero)+:one, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason REMOVE defaultSetMarker",
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ":false": false,
+          ":zero": 0,
+          ":one": 1,
+          ":updatedAt": ts,
+          ":updatedBy": "user",
+          ":updateReason": "Default menu set changed"
+        }
       }
     });
   }
@@ -657,6 +728,9 @@ async function updateMenuSet(
     "setType=:setType",
     "#source=:source",
     "isDefault=:isDefault",
+    "#version=:nextVersion",
+    "updatedBy=:updatedBy",
+    "updateReason=:updateReason",
     "updatedAt=:updatedAt"
   ];
   const removeParts: string[] = [];
@@ -676,12 +750,17 @@ async function updateMenuSet(
       TableName: trainingMenuSetTableName,
       Key: { userId, trainingMenuSetId },
       UpdateExpression: `SET ${setParts.join(", ")}${removeParts.length ? ` REMOVE ${removeParts.join(", ")}` : ""}`,
-      ExpressionAttributeNames: { "#source": "source" },
+      ExpressionAttributeNames: { "#source": "source", "#version": "version" },
+      ConditionExpression: menuSetVersionCondition(currentVersion),
       ExpressionAttributeValues: {
         ":setName": setName,
         ":setType": setType,
         ":source": source,
         ":isDefault": isDefault,
+        ":expectedVersion": currentVersion,
+        ":nextVersion": currentVersion + 1,
+        ":updatedBy": "user",
+        ":updateReason": "Menu set updated",
         ":updatedAt": ts,
         ...(validFromDate && validToDate
           ? { ":validFromDate": validFromDate, ":validToDate": validToDate }
@@ -724,7 +803,14 @@ async function updateMenuSet(
       }
     });
   });
-  await ddb.send(new TransactWriteCommand({ TransactItems: writes }));
+  try {
+    await ddb.send(new TransactWriteCommand({ TransactItems: writes }));
+  } catch {
+    return response(409, {
+      code: "VERSION_CONFLICT",
+      message: "training menu set changed while the update was being applied."
+    });
+  }
   return response(200, toMenuSetResponse({
     ...current,
     setName,
@@ -733,6 +819,9 @@ async function updateMenuSet(
     validFromDate,
     validToDate,
     isDefault,
+    version: currentVersion + 1,
+    updatedBy: "user",
+    updateReason: "Menu set updated",
     updatedAt: ts
   }, await listSetItems(userId, trainingMenuSetId)));
 }
@@ -811,7 +900,23 @@ async function addSetItem(
     createdAt: ts,
     updatedAt: ts
   };
-  await ddb.send(new PutCommand({ TableName: trainingMenuSetItemTableName, Item: setItem }));
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Put: {
+            TableName: trainingMenuSetItemTableName,
+            Item: setItem,
+            ConditionExpression:
+              "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuSetItemId)"
+          }
+        },
+        buildMenuSetVersionBump(userId, set, ts)
+      ]
+    }));
+  } catch {
+    return response(409, { code: "VERSION_CONFLICT", message: "training menu set changed." });
+  }
   return response(201, toSetItemResponse(setItem));
 }
 
@@ -822,25 +927,41 @@ async function updateSetItem(
   trainingMenuSetItemId: string
 ): Promise<APIGatewayProxyResult> {
   const body = parseBody<PrescriptionInput>(event);
-  const current = await getSetItem(userId, trainingMenuSetItemId);
+  const [current, set] = await Promise.all([
+    getSetItem(userId, trainingMenuSetItemId),
+    getMenuSet(userId, trainingMenuSetId)
+  ]);
   const prescription = body && current ? parsePrescription(body, current) : null;
-  if (!current || current.trainingMenuSetId !== trainingMenuSetId) {
+  if (!current || !set || current.trainingMenuSetId !== trainingMenuSetId) {
     return response(404, { message: "training menu set item not found." });
   }
   if (!body || !prescription) {
     return response(400, { message: "invalid prescription." });
   }
   const updatedAt = nowIsoSeconds();
-  await ddb.send(new UpdateCommand({
-    TableName: trainingMenuSetItemTableName,
-    Key: { userId, trainingMenuSetItemId },
-    UpdateExpression:
-      "SET targetWeightKg=:targetWeightKg, targetRepsMin=:targetRepsMin, targetRepsMax=:targetRepsMax, targetSets=:targetSets, recommendedIntervalDays=:recommendedIntervalDays, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt",
-    ExpressionAttributeValues: {
-      ...Object.fromEntries(Object.entries(prescription).map(([key, value]) => [`:${key}`, value])),
-      ":updatedAt": updatedAt
-    }
-  }));
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Update: {
+            TableName: trainingMenuSetItemTableName,
+            Key: { userId, trainingMenuSetItemId },
+            UpdateExpression:
+              "SET targetWeightKg=:targetWeightKg, targetRepsMin=:targetRepsMin, targetRepsMax=:targetRepsMax, targetSets=:targetSets, recommendedIntervalDays=:recommendedIntervalDays, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt",
+            ConditionExpression: "trainingMenuSetId=:trainingMenuSetId",
+            ExpressionAttributeValues: {
+              ...Object.fromEntries(Object.entries(prescription).map(([key, value]) => [`:${key}`, value])),
+              ":updatedAt": updatedAt,
+              ":trainingMenuSetId": trainingMenuSetId
+            }
+          }
+        },
+        buildMenuSetVersionBump(userId, set, updatedAt)
+      ]
+    }));
+  } catch {
+    return response(409, { code: "VERSION_CONFLICT", message: "training menu set changed." });
+  }
   return response(200, toSetItemResponse({ ...current, ...prescription, updatedAt }));
 }
 
@@ -849,11 +970,31 @@ async function removeSetItem(
   trainingMenuSetId: string,
   trainingMenuSetItemId: string
 ): Promise<APIGatewayProxyResult> {
-  const current = await getSetItem(userId, trainingMenuSetItemId);
-  if (!current || current.trainingMenuSetId !== trainingMenuSetId) {
+  const [current, set] = await Promise.all([
+    getSetItem(userId, trainingMenuSetItemId),
+    getMenuSet(userId, trainingMenuSetId)
+  ]);
+  if (!current || !set || current.trainingMenuSetId !== trainingMenuSetId) {
     return response(404, { message: "training menu set item not found." });
   }
-  await ddb.send(new DeleteCommand({ TableName: trainingMenuSetItemTableName, Key: { userId, trainingMenuSetItemId } }));
+  const updatedAt = nowIsoSeconds();
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        {
+          Delete: {
+            TableName: trainingMenuSetItemTableName,
+            Key: { userId, trainingMenuSetItemId },
+            ConditionExpression: "trainingMenuSetId=:trainingMenuSetId",
+            ExpressionAttributeValues: { ":trainingMenuSetId": trainingMenuSetId }
+          }
+        },
+        buildMenuSetVersionBump(userId, set, updatedAt)
+      ]
+    }));
+  } catch {
+    return response(409, { code: "VERSION_CONFLICT", message: "training menu set changed." });
+  }
   return response(204, {});
 }
 
@@ -866,13 +1007,22 @@ async function reorderSetItems(
   if (!body?.items?.length || body.items.length > 25) {
     return response(400, { message: "items must contain 1 to 25 entries." });
   }
-  const current = new Map((await listSetItems(userId, trainingMenuSetId)).map((item) => [item.trainingMenuSetItemId, item]));
+  const [set, setItems] = await Promise.all([
+    getMenuSet(userId, trainingMenuSetId),
+    listSetItems(userId, trainingMenuSetId)
+  ]);
+  if (!set) {
+    return response(404, { message: "training menu set not found." });
+  }
+  const current = new Map(setItems.map((item) => [item.trainingMenuSetItemId, item]));
   if (body.items.some((item) => !current.has(item.trainingMenuSetItemId))) {
     return response(404, { message: "one or more training menu set items were not found." });
   }
   const updatedAt = nowIsoSeconds();
-  await ddb.send(new TransactWriteCommand({
-    TransactItems: body.items.map((item) => ({
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        ...body.items.map((item) => ({
       Update: {
         TableName: trainingMenuSetItemTableName,
         Key: { userId, trainingMenuSetItemId: item.trainingMenuSetItemId },
@@ -883,8 +1033,13 @@ async function reorderSetItems(
           ":updatedAt": updatedAt
         }
       }
-    }))
-  }));
+        })),
+        buildMenuSetVersionBump(userId, set, updatedAt)
+      ]
+    }));
+  } catch {
+    return response(409, { code: "VERSION_CONFLICT", message: "training menu set changed." });
+  }
   return response(200, { updatedCount: body.items.length });
 }
 
@@ -896,6 +1051,10 @@ async function bulkUpdateSetItems(
   const body = parseBody<{ items: Array<PrescriptionInput & { trainingMenuSetItemId: string }> }>(event);
   if (!body?.items?.length || body.items.length > 25) {
     return response(400, { message: "items must contain 1 to 25 entries." });
+  }
+  const set = await getMenuSet(userId, trainingMenuSetId);
+  if (!set) {
+    return response(404, { message: "training menu set not found." });
   }
   const currentItems = new Map(
     (await listSetItems(userId, trainingMenuSetId)).map((item) => [String(item.trainingMenuSetItemId), item])
@@ -909,8 +1068,10 @@ async function bulkUpdateSetItems(
     return response(400, { message: "one or more prescriptions are invalid." });
   }
   const updatedAt = nowIsoSeconds();
-  await ddb.send(new TransactWriteCommand({
-    TransactItems: updates.map((update) => {
+  try {
+    await ddb.send(new TransactWriteCommand({
+      TransactItems: [
+        ...updates.map((update) => {
       const value = update!;
       return {
         Update: {
@@ -924,8 +1085,13 @@ async function bulkUpdateSetItems(
           }
         }
       };
-    })
-  }));
+        }),
+        buildMenuSetVersionBump(userId, set, updatedAt)
+      ]
+    }));
+  } catch {
+    return response(409, { code: "VERSION_CONFLICT", message: "training menu set changed." });
+  }
   return response(200, { updatedCount: updates.length });
 }
 

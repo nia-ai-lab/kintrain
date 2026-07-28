@@ -30,7 +30,7 @@
 - AgentCore Runtime 接続（`AiRuntimeEndpoint`）
 - Runtime のプロンプトファイル読込（`SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt`）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
-- AgentCore Gateway（MCP）とDynamoDB参照・日記保存・AIメニューセット登録ツール
+- AgentCore Gateway（MCP）とDynamoDB参照・日記／食事メモ保存・AIメニューセット登録ツール
 - UIからのAIキャラクター設定、ユーザー／AIコーチアバターの永続保存
 - 複数トレーニングメニューセットと実施画面でのセット切替
 - 未実装:
@@ -84,7 +84,7 @@
 - `TrainingPerformance`: 確定済み `ExerciseEntry` を1種目1件で保持する読取最適化モデル
 - `LastPerformanceSnapshot`: 各 `TrainingMenuItem` の直近実績を保持する読取最適化用サマリ
 - `BodyMetric`: 体重・体脂肪率の記録
-- `DailyRecord`: 日付単位の総合記録（体重/体脂肪率、体調、気分、日記、その他トレーニング）
+- `DailyRecord`: 日付単位の総合記録（体重/体脂肪率、体調、気分、回復状態、食事メモ、日記、その他トレーニング）
 - `OtherActivity`: フリー入力のその他トレーニング記録（例: ジョギング1km）
 - `Goal`: 目標体重・目標体脂肪率
 - `Advice`: AI提案結果
@@ -118,7 +118,7 @@
 - `TrainingSession`: ジム滞在中に行う記録作業（未確定状態を含むUI上の作業単位）。
 - `TrainingSessionDraft`: `TrainingSession` の途中保存データ。正式記録前の一時状態。
 - `GymVisit`: `記録して終了` 後に確定した筋トレ実績（永続データ）。
-- `DailyRecord`: 1日単位の総合記録（体組成、体調、気分、日記、その他トレーニング、当日実績サマリ）。
+- `DailyRecord`: 1日単位の総合記録（体組成、体調、気分、回復状態、食事メモ、日記、その他トレーニング、当日実績サマリ）。
 - `BodyMetric`: `DailyRecord` 内の体組成サブ情報（独立永続の主オブジェクトではない）。
 - `Daily` 画面: `DailyRecord` を表示/更新するUI画面。ドメインオブジェクト名ではない。
 - `ConditionRating`: 体調評価の離散値（1〜10）。
@@ -207,6 +207,11 @@
 - 体調10段階評価（1:低い, 10:高い）
 - 気分10段階評価（1:低い, 10:高い）
 - 体調コメント（任意）
+- 睡眠時間（0〜24時間）
+- 睡眠の質、疲労度、やる気、筋肉痛（各1〜10）
+- 痛みの部位、強さ、安静時痛、動作時痛、しびれ、筋力低下（最大20部位）
+- 安静時心拍数（20〜250 bpm）
+- 食事内容・量・時間・水分・サプリメントなどの栄養メモ（自由記述、最大5000文字）
 - 日記（任意）
 - その他トレーニング（フリー入力、複数可）
 - グラデーション付きスライダーで体調・気分を即記録できること（コメント入力なし可）。
@@ -219,7 +224,7 @@
 - 1ヶ月単位カレンダーで「筋トレ実施日」のみ識別できること。
 - カレンダーセルに体調・気分を上下2本の色バーで表示できること。
 - 日付タップで `Daily` 画面へ遷移できること。
-- `Daily` 画面で当日の筋トレ内容、体重・体脂肪率、日記、体調、気分、その他トレーニングを確認/更新できること。
+- `Daily` 画面で当日の筋トレ内容、体重・体脂肪率、日記、食事メモ、体調、気分、その他トレーニングを確認/更新できること。
 - カレンダー上で体調・気分を色で視覚的に確認できること。
 
 ### 5.8 AIアドバイス/チャット
@@ -681,6 +686,7 @@
 - 以下ツールをMCPとして公開すること。
 - `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
 - `get_training_history(trainingMenuItemId?, trainingMenuName?, from, to, timeZoneId, limit, nextToken)`（IDまたは登録名のどちらかを必須指定）
+- `get_training_coaching_summary(from, to, timeZoneId)`
 - `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `get_goal()`
@@ -689,10 +695,15 @@
 - `update_coaching_context(goalSummary, constraints, preferences, trainingPolicy, nextReviewDate?, expectedVersion, source, changeReason, userConfirmed)`
 - `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
+- `save_daily_meal_notes(mealNotes, date?, timeZoneId?, mode?)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `list_training_menu_items()`
 - `list_training_menu_sets()`
+- `get_training_plan_for_date(date, timeZoneId?)`
+- `reschedule_temporary_training_plan(trainingMenuSetId, newValidFromDate, newValidToDate, expectedVersion, idempotencyKey, conflictPolicy?, dryRun?, updateReason?, userConfirmed?)`
+- `update_temporary_training_menu_set(trainingMenuSetId, expectedVersion, idempotencyKey, setName?, validFromDate?, validToDate?, itemUpdates?, itemAdds?, itemRemovals?, itemOrder?, dryRun?, updateReason?)`
+- `cancel_temporary_training_plan(trainingMenuSetId, expectedVersion, idempotencyKey, reason?, dryRun?, userConfirmed?)`
 - `create_temporary_training_menu_set_from_ai(idempotencyKey, validFromDate, validToDate, setName, replaceExistingPlan, items)`
 - `userId` はツール公開引数に含めず、Gateway REQUEST Interceptorが検証済みJWT `sub` から内部注入する。MCP Lambdaは内部専用 `__principalUserId` だけをユーザー識別子として採用する。
 - MCP LambdaはAPI Gatewayプロキシ形式を返さず、ツール結果のJSONオブジェクトを直接返す。失敗は`error.code`、`error.message`、必要に応じて`error.requestId`と`error.details`で表す。
@@ -702,6 +713,7 @@
 - 一括登録の部分成功はHTTP相当200とし、入力と同じ件数・順序の `results` で `success` / `failed`、処理内容または失敗理由を識別可能にすること。
 - 一括登録の確定要件は `docs/mcp-body-metrics-bulk-registration-requirements.md` を正とする。
 - コーチング方針の読み書きは `docs/coaching-context-requirements.md` を正とし、書き込みはユーザーの明示承認を必須とする。
+- 一時メニューの取得・更新・日程変更・キャンセルは `docs/mcp-temporary-menu-lifecycle.md` を正とする。
 
 ### 9.3 連携方式
 
@@ -762,7 +774,7 @@
 - カレンダーで日別の実施内容を確認できること。
 - 体調・気分を10段階+コメントで記録できること。
 - 体調・気分をグラデーションスライダーで記録できること。
-- `Daily` 画面で当日の体重・体脂肪率・日記・体調・気分・その他トレーニングを更新できること。
+- `Daily` 画面で当日の体重・体脂肪率・日記・食事メモ・体調・気分・その他トレーニングを更新できること。
 - 前日実施トレーニングを当日画面で確認できること。
 - 体重/体脂肪率推移を表示できること。
 - AI提案カードとチャット応答が動作すること。

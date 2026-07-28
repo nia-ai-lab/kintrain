@@ -20,6 +20,21 @@ type DailyRecordInput = {
   conditionComment?: string;
   diary?: string;
   otherActivities?: string[];
+  sleepHours?: number;
+  sleepQuality?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  fatigueLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  motivationLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  muscleSorenessLevel?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+  painAreas?: Array<{
+    area: string;
+    severity: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+    occursAtRest: boolean;
+    occursDuringMovement: boolean;
+    numbness: boolean;
+    weakness: boolean;
+  }>;
+  restingHeartRate?: number;
+  mealNotes?: string;
 };
 
 type Goal = {
@@ -42,6 +57,30 @@ function defaultDailyRecord(userId: string, recordDate: string): Record<string, 
 
 function isTenPointRating(value: unknown): value is DailyRecordInput["conditionRating"] {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 10;
+}
+
+function isFiniteNumberBetween(value: unknown, minimum: number, maximum: number): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= minimum && value <= maximum;
+}
+
+export function hasValidPainAreas(value: unknown): value is NonNullable<DailyRecordInput["painAreas"]> {
+  return (
+    Array.isArray(value) &&
+    value.length <= 20 &&
+    value.every(
+      (pain) =>
+        pain &&
+        typeof pain === "object" &&
+        typeof pain.area === "string" &&
+        pain.area.trim().length >= 1 &&
+        pain.area.trim().length <= 100 &&
+        isTenPointRating(pain.severity) &&
+        typeof pain.occursAtRest === "boolean" &&
+        typeof pain.occursDuringMovement === "boolean" &&
+        typeof pain.numbness === "boolean" &&
+        typeof pain.weakness === "boolean"
+    )
+  );
 }
 
 async function getDailyRecord(userId: string, recordDate: string): Promise<APIGatewayProxyResult> {
@@ -77,6 +116,29 @@ async function putDailyRecord(
   }
   if (body.moodRating !== undefined && !isTenPointRating(body.moodRating)) {
     return response(400, { message: "moodRating must be an integer between 1 and 10." });
+  }
+  for (const field of ["sleepQuality", "fatigueLevel", "motivationLevel", "muscleSorenessLevel"] as const) {
+    if (body[field] !== undefined && !isTenPointRating(body[field])) {
+      return response(400, { message: `${field} must be an integer between 1 and 10.` });
+    }
+  }
+  if (body.sleepHours !== undefined && !isFiniteNumberBetween(body.sleepHours, 0, 24)) {
+    return response(400, { message: "sleepHours must be a number between 0 and 24." });
+  }
+  if (
+    body.restingHeartRate !== undefined &&
+    (!Number.isInteger(body.restingHeartRate) || body.restingHeartRate < 20 || body.restingHeartRate > 250)
+  ) {
+    return response(400, { message: "restingHeartRate must be an integer between 20 and 250." });
+  }
+  if (body.painAreas !== undefined && !hasValidPainAreas(body.painAreas)) {
+    return response(400, { message: "painAreas must contain at most 20 valid structured pain records." });
+  }
+  if (
+    body.mealNotes !== undefined &&
+    (typeof body.mealNotes !== "string" || body.mealNotes.length > 5000)
+  ) {
+    return response(400, { message: "mealNotes must be a string with at most 5000 characters." });
   }
   if (body.conditionComment !== undefined && typeof body.conditionComment !== "string") {
     return response(400, { message: "conditionComment must be a string." });
