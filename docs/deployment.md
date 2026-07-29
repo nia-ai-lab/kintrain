@@ -19,6 +19,19 @@ GitHub devへpush
 
 ローカルから `ampx sandbox`、`scripts/deploy-backend.sh`、`scripts/deploy-frontend.sh`、`aws s3 sync` を実行してmain/devへデプロイしない。
 
+### AIエージェント・自動化ツール向けの必須判断
+
+このリポジトリを扱うAIは、ユーザーから「デプロイして」と依頼されてもAWSへ直接デプロイしてはならない。デプロイの実体は次のGitHub pushであり、Amplifyがその後の処理を担当する。
+
+| 反映先 | AIが行うデプロイ操作 | 自動的に行われる処理 |
+|---|---|---|
+| 開発環境 | `git push origin dev` | Amplifyがdevをビルド・デプロイ |
+| 本番環境 | 検証済み変更をmainへ取り込み、`git push origin main` | Amplifyがmainをビルド・デプロイ |
+
+`ampx pipeline-deploy`、`ampx sandbox`、`cdk deploy`、CloudFormationの直接更新、Amplifyジョブの手動開始、Hosting用S3バケットへの直接同期は、このプロジェクトのdev/mainデプロイ手段として使用しない。
+
+AWS CLIを使うこと自体を禁止するルールではない。依頼されたDynamoDBのデータ操作、Cognitoのユーザー操作、ログや設定の参照などと、アプリ・インフラの「デプロイ」は区別する。AWSリソース構成を変更する場合はコードを修正し、GitHubへのpushを経由してAmplifyに反映させる。
+
 ## 2. 実環境で確認した設定
 
 2026-07-12にGitHubとAWS Amplifyを照合し、次を確認した。
