@@ -1,6 +1,6 @@
 # KinTrain AI実装仕様（AgentCore Runtime + Gateway）
 
-最終更新日: 2026-07-12
+最終更新日: 2026-07-29
 対象: MVP
 
 ## 1. 目的
@@ -32,7 +32,7 @@
 - AI用途のAPI Gatewayエンドポイント（例: `/ai/chat`, `/ai/advice`）は作成しない。
 - UIは `AiRuntimeEndpoint` に直接 `InvokeAgentRuntime` を実行する。
 
-### 2.4 実装ステータス（2026-07-12）
+### 2.4 実装ステータス（2026-07-29）
 
 - 実装済み:
 - Core API 側の認証/認可（Cognito access token + scope）
@@ -41,9 +41,9 @@
 - Runtime の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` 読込
 - Runtime の `chatSessionId` 管理（UIと同一IDを `sessionId` に利用）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
-- AgentCore Gateway、MCP Lambda target、全11ツール
+- AgentCore Gateway、MCP Lambda target、全24ツール
 - Gateway REQUEST InterceptorによるJWT再検証、ユーザーID照合、内部identity注入
-- AIメニュー生成画面と `create_training_menu_set_from_ai`
+- AIメニュー生成画面と `create_temporary_training_menu_set_from_ai`
 - AIキャラクター設定・アバターのCore API永続化
 - 未実装:
 - Memoryを使ったドメイン知識検索結果のプロンプト注入最適化
@@ -184,14 +184,17 @@
 - `avatarImageUrl`
 - `tonePreset` はそのまま文字列を渡すだけでなく、Runtime 内で解釈して口調制御用の指示へ変換する。
 - `PERSONA.md` では `tonePreset` の生値ではなく、解釈済みの `toneInstruction` / `styleDos` / `styleDonts` を優先して利用する。
-- AIキャラクターアイコンは `default` 画像を固定利用し、感情別画像切り替えは行わない。
+- AIキャラクターアイコンは保存済み `avatarImageUrl` を利用し、未設定時は `default` 画像へフォールバックする。感情別画像切り替えは行わない。
 
 ## 6. Gateway実装方針（MCP）
 
 ### 6.1 公開ツール
 
+- `get_analysis_export_manifest(rangeMode, from?, to?, timeZoneId?)`
+- `get_analysis_export_page(rangeMode, from?, to?, timeZoneId?, section, limit?, nextToken?)`
 - `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
 - `get_training_history(trainingMenuItemId?, trainingMenuName?, from, to, timeZoneId, limit, nextToken)`（IDまたは登録名のどちらかを指定）
+- `get_training_coaching_summary(from, to, timeZoneId)`
 - `get_daily_records(from, to, timeZoneId, limit, nextToken)`
 - `get_daily_record(date)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
@@ -206,6 +209,10 @@
 - `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
 - `list_training_menu_items()`
 - `list_training_menu_sets()`
+- `get_training_plan_for_date(date, timeZoneId?)`
+- `reschedule_temporary_training_plan(trainingMenuSetId, newValidFromDate, newValidToDate, expectedVersion, idempotencyKey, conflictPolicy?, dryRun?, updateReason?, userConfirmed?)`
+- `cancel_temporary_training_plan(trainingMenuSetId, expectedVersion, idempotencyKey, reason?, dryRun?, userConfirmed?)`
+- `update_temporary_training_menu_set(trainingMenuSetId, expectedVersion, idempotencyKey, setName?, validFromDate?, validToDate?, conflictPolicy?, userConfirmed?, itemUpdates?, itemAdds?, itemRemovals?, itemOrder?, dryRun?, updateReason?)`
 - `create_temporary_training_menu_set_from_ai(idempotencyKey, validFromDate, validToDate, setName, replaceExistingPlan, items)`
 
 `save_body_metrics_batch`:

@@ -1,6 +1,6 @@
 # KinTrain ビルド・デプロイ手順
 
-最終更新日: 2026-07-12
+最終更新日: 2026-07-29
 正本: `amplify.yml`、`amplify/backend.ts`、GitHub `main` / `dev` ブランチ、Amplify Hostingのブランチ設定
 
 ## 1. 結論
@@ -110,8 +110,10 @@ GitHub pushを検知したAmplifyは `amplify.yml` に従って次を実行す�
 - backend/frontend両phaseが成功する
 - 未認証のCore APIとAI Runtimeが401になる
 - Cognitoログイン後、プロフィール、メニュー、実施記録、Daily、AI設定を読書きできる
+- 日付別トレーニング計画、Dailyの回復状態・痛み・食事メモを読書きできる
 - Cognitoログイン後、コーチング方針、短期メモ、変更履歴を読書きできる
 - AgentCore有効環境ではAIチャットのSSE応答とMCP参照が動作する
+- Gateway REQUEST Interceptorがアクセストークンを再検証し、別ユーザーIDや内部identity引数を拒否する
 - ChatGPT / Claude接続環境では、Cognito認可コード取得、Client Secretを使ったtoken交換、MCP `initialize`が成功する
 
 ### コーチングコンテキスト導入時の旧テーブル削除

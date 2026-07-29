@@ -1,10 +1,10 @@
 # KinTrain 要件定義書（MVP）
 
-最終更新日: 2026-07-12
+最終更新日: 2026-07-29
 
 > トレーニング種目、メニューセット、今日の計画、AIメニュー生成に関する再設計後の仕様は
 > `docs/training-menu-and-daily-plan-requirements.md` を正本とする。
-> 本書内の `TrainingMenuItem.default*`、旧AI登録ツール、`itemIds` の記述は移行前仕様である。
+> 種目マスタは種目定義、`TrainingMenuSetItem` はセット固有処方を保持する。
 
 ## 1. 目的
 
@@ -17,12 +17,12 @@
 - 対応端末: スマホ/PC（レスポンシブ）
 - 利用形態: オンライン前提
 
-### 2.1 実装ステータス（2026-07-12）
+### 2.1 実装ステータス（2026-07-29）
 
 - 実装済み:
 - Cognito認証（ログイン/ログアウト/パスワード再設定）
 - Core API（API Gateway + Lambda分割）とDynamoDB CRUD
-- トレーニングメニュー回数レンジ（`defaultRepsMin/defaultRepsMax`）
+- メニューセット固有処方（目標重量、回数レンジ、セット数、推奨間隔）
 - Daily記録の自動保存（3秒デバウンス）+ 明示保存ボタン
 - iPhoneホーム画面追加対応（manifest + standaloneメタタグ）
 - AIチャットUIのSSEストリーミング
@@ -33,6 +33,10 @@
 - AgentCore Gateway（MCP）とDynamoDB参照・日記／食事メモ保存・AIメニューセット登録ツール
 - UIからのAIキャラクター設定、ユーザー／AIコーチアバターの永続保存
 - 複数トレーニングメニューセットと実施画面でのセット切替
+- 有効期間付き一時メニュー、日付別計画、MCPからの日程変更・部分更新・キャンセル
+- Dailyの回復状態・痛み・食事メモとMCP保存
+- 期間指定／全期間の分析エクスポート（UI JSON、MCPセクションページング）
+- ChatGPT／ClaudeからのCognito OAuth経由MCP接続
 - 未実装:
 - `bodyMetricMeasuredAtUtc/bodyMetricMeasuredAtLocal` のサーバー自動生成
 - `/history` `/progress` の本実装（現状プレースホルダ）
@@ -71,6 +75,8 @@
 - `daily-record-api`: `/daily-records`, `/calendar`, `/goals`
 - `ai-settings-api`: `/ai-character-profile`
 - `avatar-upload-api`: `/avatar-upload/presign`
+- `coaching-context-api`: `/coaching-context`, `/coaching-notes`
+- `mcp-identity-interceptor`: Gateway REQUEST Interceptor（HTTP API Gateway外）
 - `mcp-tools-api`: AgentCore Gateway Lambda target（HTTP API Gateway外）
 
 ## 4. ドメイン定義（ユビキタス言語）
@@ -109,7 +115,7 @@
 ### 4.2 用語の明確化（UI仕様整合）
 
 - `TrainingMenu`: 日次固定ではない実施候補リスト。優先順位計算の入力元。
-- `TrainingMenuItem`: メニュー内の1項目（トレーニング名、鍛える部位、既定重量/回数/セット、手動順序）。
+- `TrainingMenuItem`: メニュー内の1項目（トレーニング名、主働筋・補助筋、動作・負荷分類、既定重量/回数/セット、手動順序）。
 - `TrainingMenu` と `TrainingHistory` の違い:
 - `TrainingMenu` は「これから実施する計画値（既定値/順序）」を管理するモデル。
 - `TrainingHistory` は「実際に実施した結果（重量/回数/セット/時刻）」を保持するモデル。
@@ -140,17 +146,21 @@
 - `TrainingMenuItem` は以下を保持すること。
 - `trainingMenuItemId`
 - `trainingName`
-- `bodyPart`（任意、鍛える部位）
-- `defaultWeightKg`
+- `muscleTargets`（主働筋を1つ以上、補助筋は任意）
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
+- `equipment`
+- `description`
 - `weightInputMode`（`direct` / `perSide` / `legacyUnspecified`）
 - `loadMultiplier`（1または2）
 - `fixedWeightKg`（0以上）
-- `defaultRepsMin`
-- `defaultRepsMax`
-- `defaultSets`
 - `displayOrder`
+- `isAiGenerated`
 - `isActive`
 - `trainingName` は同一ユーザー内で一意であること。
+- 重量、回数、セット数、推奨間隔は `TrainingMenuSetItem` のセット固有処方として保持すること。
 
 ### 5.3 トレーニング記録
 
@@ -164,7 +174,11 @@
 - ExerciseEntryは以下を保持すること。
 - `trainingMenuItemId`
 - `trainingNameSnapshot`
-- `bodyPartSnapshot`（任意、保存時点の部位名スナップショット）
+- `muscleTargetsSnapshot`
+- `movementPatternSnapshot`
+- `lateralitySnapshot`
+- `loadModelSnapshot`
+- `classificationVersionSnapshot`
 - `equipmentSnapshot`（任意、保存時点の用具スナップショット）
 - `isAiGeneratedSnapshot`（任意、保存時点のAI生成フラグ）
 - `frequencySnapshot`（任意、保存時点の頻度スナップショット）
@@ -182,7 +196,7 @@
 - 重量 `0` は自重種目などの追加重量なしを表す有効値として扱い、削除マーカーには使用しないこと。
 - 1回の `GymVisit` に保存できる `ExerciseEntry` 数は最大12件とする。
 - 前日実施トレーニングを参照できること。
-- UIの種目表示は `トレーニング名 : 部位` とし、`bodyPart` 未設定時はトレーニング名のみ表示すること。
+- UIの種目表示は `トレーニング名 : 主働筋・補助筋` とすること。
 
 ### 5.4 履歴参照
 
@@ -279,9 +293,15 @@
 - `POST /training-menu-sets`
 - `PUT /training-menu-sets/{trainingMenuSetId}`
 - `DELETE /training-menu-sets/{trainingMenuSetId}`
+- `GET /training-menu-sets/{trainingMenuSetId}`
 - `POST /training-menu-sets/{trainingMenuSetId}/items`
+- `PUT /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
 - `DELETE /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
 - `PUT /training-menu-sets/{trainingMenuSetId}/items/reorder`
+- `PUT /training-menu-sets/{trainingMenuSetId}/items/bulk`
+- `GET /daily-training-plans/{date}`
+- `PUT /daily-training-plans/{date}`
+- `DELETE /daily-training-plans/{date}`
 - `POST /gym-visits`
 - `GET /gym-visits?from=YYYY-MM-DD&to=YYYY-MM-DD&limit=n`（`from/to` は任意）
 - `GET /gym-visits/{visitId}`
@@ -311,53 +331,61 @@
 - `GET /training-menu-items` の `TrainingMenuItem` レスポンスモデル:
 - `trainingMenuItemId: string`
 - `trainingName: string`
-- `bodyPart: string`（任意。未設定時は空文字）
+- `muscleTargets: Array<{ muscleId, role }>`
+- `movementPattern: string`
+- `laterality: bilateral | unilateral | alternating`
+- `loadModel: external_load | bodyweight | assisted_bodyweight`
+- `classificationVersion: number`
 - `description: string`（任意。トレーニングメニュー自体の説明）
-- `defaultWeightKg: number`（0以上、小数2桁まで。自重種目などの追加重量なしは0）
 - `weightInputMode: direct | perSide | legacyUnspecified`
 - `loadMultiplier: 1 | 2`
 - `fixedWeightKg: number`（0以上）
-- `defaultRepsMin: number`
-- `defaultRepsMax: number`
-- `defaultReps: number`（後方互換のため任意で返却される場合あり）
-- `defaultSets: number`
+- `equipment: マシン | フリー | 自重 | その他`
+- `isAiGenerated: boolean`
 - `displayOrder: number`
 - `isActive: boolean`
+- `usageCount: number`
 - `createdAt: RFC3339 UTC`
 - `updatedAt: RFC3339 UTC`
 - `POST /training-menu-items` リクエスト:
 - `trainingName`
-- `bodyPart`（任意）
+- `muscleTargets`（主働筋を1つ以上含む）
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `description`（任意、500文字以内）
-- `defaultWeightKg`
 - `weightInputMode`（任意。新規作成時の既定は`direct`）
 - `loadMultiplier`（任意、1または2）
 - `fixedWeightKg`（任意、0以上）
-- `defaultRepsMin`
-- `defaultRepsMax`
-- `defaultReps`（任意、後方互換）
-- `defaultSets`
+- `equipment`
 - `PUT /training-menu-items/{trainingMenuItemId}` リクエスト:
 - `trainingName`
-- `bodyPart`（任意）
+- `muscleTargets`
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `description`（任意、500文字以内）
-- `defaultWeightKg`
 - `weightInputMode`（任意）
 - `loadMultiplier`（任意、1または2）
 - `fixedWeightKg`（任意、0以上）
-- `defaultRepsMin`
-- `defaultRepsMax`
-- `defaultReps`（任意、後方互換）
-- `defaultSets`
+- `equipment`
 - `isActive`（任意）
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, bodyPart, description, defaultWeightKg, weightInputMode, loadMultiplier, fixedWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `resolvedMenuSet: { trainingMenuSetId, setName, setType, source, isDefault } | null`
+- `resolvedFromDailyPlan: boolean`
+- `items: [{ trainingMenuItemId, trainingName, muscleTargets, movementPattern, laterality, loadModel, classificationVersion, equipment, description, trainingMenuSetItemId, targetWeightKg, targetRepsMin, targetRepsMax, targetSets, recommendedIntervalDays, instruction, createdBy, weightInputMode, loadMultiplier, fixedWeightKg, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`
-- `bodyPartSnapshot: string`（任意）
+- `muscleTargetsSnapshot: Array<{ muscleId, role }>`
+- `movementPatternSnapshot: string`
+- `lateralitySnapshot: string`
+- `loadModelSnapshot: string`
+- `classificationVersionSnapshot: number`
 - `weightKg: number`
 - `weightInputModeSnapshot: direct | perSide | legacyUnspecified`
 - `loadMultiplierSnapshot: 1 | 2`（任意）
@@ -366,7 +394,7 @@
 - `reps: number`
 - `sets: number`
 - `visitDateLocal: YYYY-MM-DD`
-- UI表示で種目名を組み立てる場合は `trainingName` と `bodyPart`（または `bodyPartSnapshot`）を使用し、`トレーニング名 : 部位` 形式で表示すること。
+- UI表示で種目名を組み立てる場合は `trainingName` と `muscleTargets`（または `muscleTargetsSnapshot`）を使用すること。
 
 ### 6.3 UIモック項目名とのマッピング
 
@@ -432,13 +460,19 @@
 - `trainingMenuItemId`（ソートキー）
 - 主な属性:
 - `trainingName`
-- `bodyPart`
+- `muscleTargets`
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `normalizedTrainingName`
-- `defaultWeightKg`
-- `defaultRepsMin`
-- `defaultRepsMax`
-- `defaultSets`
+- `equipment`
+- `description`
+- `weightInputMode`
+- `loadMultiplier`
+- `fixedWeightKg`
 - `displayOrder`
+- `isAiGenerated`
 - `isActive`
 - `createdAt`
 - `updatedAt`
@@ -478,7 +512,11 @@
 - `visitDateLocal`
 - `timeZoneId`
 - `trainingNameSnapshot`
-- `bodyPartSnapshot`
+- `muscleTargetsSnapshot`
+- `movementPatternSnapshot`
+- `lateralitySnapshot`
+- `loadModelSnapshot`
+- `classificationVersionSnapshot`
 - `equipmentSnapshot`
 - `isAiGeneratedSnapshot`
 - `frequencySnapshot`
@@ -509,6 +547,14 @@
 - `conditionRating`
 - `moodRating`
 - `conditionComment`
+- `sleepHours`
+- `sleepQuality`
+- `fatigueLevel`
+- `motivationLevel`
+- `muscleSorenessLevel`
+- `restingHeartRate`
+- `painAreas`
+- `mealNotes`
 - `diary`
 - `otherActivities`
 - `createdAt`
@@ -543,13 +589,20 @@
 - GSI: `UserSetItemsBySetOrderIndex`、`UserSetItemsBySetAndItemIndex`、`UserSetItemsByMenuItemIndex`
 - 主な属性: `trainingMenuSetId`、`trainingMenuItemId`、`displayOrder`、`menuSetOrderKey`、`menuSetItemKey`
 
-#### 7.3.9 Goalテーブル
+#### 7.3.9 DailyTrainingPlanテーブル
+
+- テーブル名: `KinTrain-DailyTrainingPlanTable-{branch}`
+- 主キー: `userId`（PK）、`planDate`（SK、`YYYY-MM-DD`）
+- 主な属性: `trainingMenuSetId`、`source`、`createdAt`、`updatedAt`
+- 1ユーザー・1ローカル日付につき最大1件とする
+
+#### 7.3.10 Goalテーブル
 
 - テーブル名: `KinTrain-GoalTable-{branch}`
 - 主キー: `userId`（PK）
 - 主な属性: `targetWeightKg`、`targetBodyFatPercent`、`deadlineDate`、`comment`、`createdAt`、`updatedAt`
 
-#### 7.3.10 CoachingContextテーブル
+#### 7.3.11 CoachingContextテーブル
 
 - テーブル名: `KinTrain-CoachingContextTable-{branch}`
 - 主キー: `userId`（PK）、`recordKey`（SK）
@@ -558,7 +611,7 @@
 - 現在値はユーザーごとに1件、短期メモは最大50件、変更履歴は最大50版とする
 - 詳細は `docs/coaching-context-requirements.md` を正本とする
 
-#### 7.3.11 AvatarImageBucket
+#### 7.3.12 AvatarImageBucket
 
 - private S3 bucket（Block Public Access、SSE-S3、SSL強制）
 - object key: `users/{userId}/avatars/{user|coach}/...`
@@ -684,6 +737,8 @@
 ### 9.2 Gateway（MCP）
 
 - 以下ツールをMCPとして公開すること。
+- `get_analysis_export_manifest(rangeMode, from?, to?, timeZoneId?)`
+- `get_analysis_export_page(rangeMode, from?, to?, timeZoneId?, section, limit?, nextToken?)`
 - `get_gym_visits(from, to, timeZoneId, limit, nextToken)`
 - `get_training_history(trainingMenuItemId?, trainingMenuName?, from, to, timeZoneId, limit, nextToken)`（IDまたは登録名のどちらかを必須指定）
 - `get_training_coaching_summary(from, to, timeZoneId)`
@@ -744,7 +799,7 @@
 - 一時セットのトレーニング一覧はセット内の登録順で表示すること。
 - 恒常セットのトレーニング一覧は、セット内順位を強めにしつつ、前回実施からの経過日数順位を加味した優先順で表示すること。
 - 推奨実施間隔は優先順の計算には使用しないこと。
-- トレーニング種目名は `トレーニング名 : 部位` 形式で表示すること（部位未設定時はトレーニング名のみ）。
+- トレーニング種目名は `トレーニング名 : 主働筋・補助筋` 形式で表示すること。
 - 一覧行で `重量/回数/セット` を直接入力できること。
 - `前回値を入力` のワンクリック入力を提供すること。
 - 各種目に `入力を消す` を提供し、当該種目を `TrainingSessionDraft` から削除できること。
@@ -765,14 +820,14 @@
 - 要件確定
 - Core API / Lambda / DynamoDB実装
 - 未移行:
-- AgentCore Runtime / Gateway / Memory の本実装（現状は設計段階）
+- AgentCore Runtime / Gateway / Memory の本実装
 
 ## 12. 受け入れ基準
 
 - メールアドレス+パスワードでログインできること（サインアップ画面はMVP対象外）。
 - ログアウト後は保護画面に直接アクセスできず、`/login` へ遷移すること。
 - GymVisit/ExerciseEntryの作成・更新・削除が可能であること。
-- 「トレーニング名・部位・重量・回数・セット」を保存し再参照できること。
+- 「トレーニング名・筋肉ターゲット・動作/負荷分類・重量・回数・セット」を保存し再参照できること。
 - カレンダーで日別の実施内容を確認できること。
 - 体調・気分を10段階+コメントで記録できること。
 - 体調・気分をグラデーションスライダーで記録できること。

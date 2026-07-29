@@ -80,7 +80,11 @@
 - `visitDateLocal`（`YYYY-MM-DD`）
 - `timeZoneId`
 - `trainingNameSnapshot`
-- `bodyPartSnapshot`
+- `muscleTargetsSnapshot`
+- `movementPatternSnapshot`
+- `lateralitySnapshot`
+- `loadModelSnapshot`
+- `classificationVersionSnapshot`
 - `equipmentSnapshot`
 - `isAiGeneratedSnapshot`
 - `frequencySnapshot`

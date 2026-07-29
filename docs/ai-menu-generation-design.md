@@ -1,208 +1,134 @@
 # KinTrain AIメニュー生成 実装設計
 
-最終更新日: 2026-07-12
+最終更新日: 2026-07-29
 対象: 実装正本
 ステータス: 実装済み
 
-> AIによる有効期間付き一時セット作成、既存種目再利用、新規種目混在の設計は
-> `docs/training-menu-and-daily-plan-requirements.md` を正本とする。
-> 本書の旧登録ツール契約は移行前設計である。
+## 1. 構成
 
-## 1. 設計方針
+```text
+TrainingMenuAiGeneratePage
+  -> AgentCore Runtime (SSE)
+  -> AgentCore Gateway (MCP + Cognito)
+  -> REQUEST Interceptor (JWT再検証・本人ID注入)
+  -> mcp-tools-api
+  -> TrainingMenu / TrainingMenuSet / TrainingMenuSetItem / DailyTrainingPlan
+```
 
-- UIは `AiRuntimeEndpoint` に対してメニュー生成専用チャットを行う
-- Runtime は通常チャットと同じ AgentCore Runtime をそのまま利用する
-- Runtime 側ではメニュー生成用のモード切替を持たない
-- メニュー生成かどうかの制御は、UIが組み立てる固定プロンプトと会話文脈で行う
-- 登録処理は Runtime -> Gateway(MCP) -> Lambda -> DynamoDB で行う
-- 登録は必ず新規作成のみとし、既存データ更新を禁止する
+UIは登録APIを直接呼ばない。提案と登録判断は同じAI会話で行い、永続化だけをMCPツールへ委譲する。
 
 ## 2. UI設計
 
-### 2.1 画面構成
+`TrainingMenuAiGeneratePage` は次を保持する。
 
-- 上部: 初回条件フォーム
-- 中央: AIチャット表示領域
-- 下部: 追加入力チャット欄
+- 条件フォーム: 方針、目標、週間頻度、ジム施設、個別要求、有効開始日、有効終了日
+- `sessionId`: 通常AIチャットとは別のRuntimeセッションID
+- `conditionKey`: 条件変更を検出する正規化済みキー
+- `messages`: ユーザー／AIメッセージ
+- Runtime進行状態: thinking、tool calling、完了、失敗
 
-### 2.2 初回条件フォーム
+会話状態は `kintrain-ai-menu-generation-v1` キーで `sessionStorage` に保存する。
+条件変更時は既存会話との不整合を避けるため、新しいセッションを開始する。
 
-- `方針` セレクト
-- `目標` セレクト
-- `週間頻度` 数値入力
-- `ジム施設入力` テキスト入力
-- `個別要求` textarea
-- `AIに提案してもらう` ボタン
+初回送信前に次を検証する。
 
-### 2.3 条件送信後の状態
+- ジム施設が空でない
+- 週間頻度が1〜7の整数
+- 有効開始日が終了日以前
+- 有効期間が開始日を含め31日以内
+- Runtime接続情報が存在する
 
-- フォーム値はチャットセッションの固定コンテキストとして保持する
-- 以後の追加チャットでは、毎回その条件コンテキストも Runtime へ送る
-- ユーザが条件を修正して再送した場合は、新規セッション化する
+## 3. Runtime入力
 
-- 条件変更時は新規セッションを開始する
-- 理由: 会話文脈と生成条件の整合が壊れにくい
-- 条件を変更しない場合は、同一セッションでAIと提案内容をブラッシュアップする
+UIは `inputText` にユーザー入力と次の固定指示を組み込む。
 
-## 3. Runtime設計
+- 既存セット・既存種目を更新しない。
+- 登録前に `list_training_menu_items` で重複を確認する。
+- 既存種目はIDで再利用し、必要な種目だけ新規作成する。
+- ユーザーの明示指示前に書き込みツールを呼ばない。
+- 1回の登録で1つの有効期間付き一時セットを作る。
+- 日付競合を勝手に置き換えない。
+- 登録には `create_temporary_training_menu_set_from_ai` を使う。
 
-### 3.1 Runtime入力メタデータ
+`metadata.userProfile` と `metadata.aiCharacterProfile` は通常AIチャットと共通である。
+Runtime側にメニュー生成専用モードや専用エンドポイントは設けない。
 
-- Runtime payloadの `inputText` に `policy`、`goal`、`daysPerWeek`、`gymInput`、個別要求、既存メニュー名、既存セット名を固定指示として組み込む
-- Runtime payloadの `metadata.userProfile` / `metadata.aiCharacterProfile` は通常AIチャットと共通
-- 専用 `menuGenerationContext` フィールドは使用しない
+## 4. データ変換
 
-### 3.2 UIが付与する固定指示
+AIの提案項目は、登録時に次の構造へ変換する。
 
-- UIは `inputText` に、メニュー生成専用の固定指示を前置して Runtime に送る
-- 固定指示には最低限以下を含める
-- 今回の会話はトレーニングメニュー作成が目的であること
-- 既存メニューや既存メニューセットを変更してはいけないこと
-- 登録は必ず新規メニューセット+新規種目であること
-- ユーザ明示指示があるまで登録してはいけないこと
-- ジム設備情報が不確かな場合は確認すること
+```text
+items[]
+  existingTrainingMenuItemId?
+  newTrainingMenuItem?
+    trainingName
+    muscleTargets[{ muscleId, role }]
+    movementPattern
+    laterality
+    loadModel
+    equipment
+    description?
+    weightInputMode?
+    fixedWeightKg?
+  prescription
+    targetWeightKg
+    targetRepsMin
+    targetRepsMax
+    targetSets
+    recommendedIntervalDays
+    instruction?
+```
 
-### 3.3 システムプロンプトの扱い
+`existingTrainingMenuItemId` と `newTrainingMenuItem` は排他的とする。処方は種目マスタではなく
+`TrainingMenuSetItem` に保存する。新規種目は `isAiGenerated=true`、セット項目は `createdBy=ai` とする。
 
-- 既存の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` はそのまま使う
-- メニュー生成向けの追加指示は Runtime 側のモード分岐ではなく、UIが送る固定プロンプトで与える
-- Runtime は通常チャットと同じく `userProfile` / `aiCharacterProfile` を受け取り、既存のシステムプロンプト合成だけを行う
+## 5. MCP Lambda設計
 
-## 4. 構造化データ設計
+`create_temporary_training_menu_set_from_ai` は以下を検証する。
 
-### 4.1 AIが内部で保持すべき提案モデル
+- `idempotencyKey`、日付、セット名、1〜12件の項目
+- 期間が1〜31日
+- 回数・セット数・推奨間隔の範囲
+- 同一セット内の種目重複
+- 既存種目が有効かつ本人所有であること
+- 新規種目名が本人の既存マスタと重複しないこと
+- 期間内の `DailyTrainingPlan` 競合
 
-- `setName: string`
-- `items: TrainingMenuItemDraft[]`
+正常時は次を一貫して作成する。
 
-`TrainingMenuItemDraft`:
-- `trainingName`
-- `bodyPart`
-- `equipment`
-- `frequency`
-- `defaultWeightKg`
-- `defaultRepsMin`
-- `defaultRepsMax`
-- `defaultSets`
-- `description`
-- `isAiGenerated = true`
+- `TrainingMenuItem`: 新規種目分
+- `TrainingMenuSet`: 1件（`temporary`, `ai`, `version=1`）
+- `TrainingMenuSetItem`: 項目数分
+- `DailyTrainingPlan`: 有効期間の日数分
 
-### 4.2 出力方針
+同じキー・同じ要求の再実行は冪等リプレイとして扱う。同じキーを異なる要求へ再利用した場合は拒否する。
+競合置換はユーザー確認後の `replaceExistingPlan=true` の場合だけ許可する。
 
-- ユーザ向けには自然文で説明
-- Runtime内部では上記構造を保持
-- 登録指示時にその構造を MCP ツール引数へ変換する
+## 6. 本人性境界
 
-## 5. MCP設計
+1. GatewayがCognitoアクセストークンを認可する。
+2. REQUEST Interceptorが署名・issuer・client ID・scope・token useを再検証する。
+3. Interceptorが公開引数のidentity競合を拒否する。
+4. 検証済み `sub` を `__principalUserId` として内部注入する。
+5. MCP Lambdaはこの値だけを全DynamoDBキーに使用する。
 
-### 5.1 追加ツール
+詳細は `docs/mcp-security-design.md` を正本とする。
 
-- `create_training_menu_set_from_ai`
+## 7. 登録後
 
-入力:
-- `setName: string`
-- `items: Array<{
-  trainingName: string,
-  bodyPart?: string,
-  equipment: "マシン" | "フリー" | "自重" | "その他",
-  frequency: number,
-  defaultWeightKg: number,
-  defaultRepsMin: number,
-  defaultRepsMax: number,
-  defaultSets: number,
-  description?: string,
-  isAiGenerated: true
-}>`
-- `makeDefault?: boolean`（現行Lambdaは既定セットが存在するとtrueを拒否し、既定セットがない場合だけ自動で既定化）
+- Runtimeは登録結果をユーザーへ説明する。
+- UIはストリーム完了後に `refreshCoreData()` を呼ぶ。
+- 登録した一時セットは期間内の実施画面で優先表示される。
+- 日程変更、内容更新、キャンセルは
+  `reschedule_temporary_training_plan`、`update_temporary_training_menu_set`、
+  `cancel_temporary_training_plan` を使う。
 
-identity:
-- `userId` / `actorId` は公開schemaへ含めない。
-- Gateway REQUEST Interceptorが検証済みCognitoアクセストークンの `sub` を内部専用 `__principalUserId` として注入する。
-- MCP Lambdaは `__principalUserId` だけをDynamoDBの `userId` として使用する。
-- 詳細は `docs/mcp-security-design.md` を参照する。
+## 8. テスト観点
 
-出力:
-- `trainingMenuSetId`
-- `createdCount`
-
-### 5.2 Lambda実装方針
-
-- 既存 `training-menu-api` のロジックを直接 HTTP 経由で再利用しない
-- MCP専用 Lambda から DynamoDB へ直接書くか、共有モジュール化した登録ロジックを呼ぶ
-
-現行実装:
-- MCP専用Lambdaが検証とDynamoDB書き込みを直接実装している
-- HTTP Lambdaとの検証ロジック共通化は未実施
-
-### 5.3 一括登録トランザクション
-
-- 1回のAI登録で以下を作る
-- `TrainingMenuSet` 1件
-- `TrainingMenuItem` n件
-- `TrainingMenuSetItem` n件
-
-制約:
-- DynamoDB TransactionWrite は 100 アクション制限がある
-- 1メニューセットあたり種目数はMVPでは 20 程度を上限目安とする
-
-設計:
-- 1セットあたり最大20種目を許容
-- 1トランザクションで十分収まる
-
-### 5.4 既存データ非破壊保証
-
-- `trainingMenuSetId` は新規 UUID
-- `trainingMenuItemId` はすべて新規 UUID
-- 既存 item / set の `Put` / `Update` は禁止
-- リクエスト内および既存メニューとの `normalizedTrainingName` 重複は409で拒否する
-
-## 6. ジム設備情報の扱い
-
-### 6.1 入力がURLの場合
-
-- Runtime の web tool で URL を取得する
-- HTML本文から設備情報抽出を行う
-
-### 6.2 入力が名称の場合
-
-- Runtime の web tool で検索または直接取得を試みる
-- 取得できない場合はユーザにURL提示を依頼する
-
-### 6.3 現行ツールとの整合
-
-- 既存 Runtime は `WEB_SEARCH_PROVIDER` により `http_request` / `tavily` / `exa` を切替可能
-- メニュー生成でも同じ仕組みを使う
-- URL直指定の場合は `http_request` だけでも実用上十分なケースが多い
-
-## 7. UI登録フロー
-
-### 7.1 推奨フロー
-
-1. ユーザが条件送信
-2. AIが案を提示
-3. ユーザがブラッシュアップ
-4. ユーザが `この内容で登録して` と明示
-5. Runtime が保持中の構造化案を MCP へ送る
-6. MCP が新規セット + 新規種目を作成
-7. UIへ成功メッセージを返す
-8. UIが Core API を再取得してメニュー画面へ反映
-
-### 7.2 UI更新
-
-- 登録成功後、UI は `refreshCoreData()` を呼ぶ
-- 新規作成されたセットへの自動切替は行わず、再取得後も現在の選択を維持する
-
-## 8. 既存仕様との整合
-
-- 既存 `AIチャット` 画面とは別画面であるため、通常チャットの会話履歴と混在しない
-- `AiChatSession` の概念は再利用できるが、用途別にセッションを分離する
-- 通常AIチャットとAIメニュー生成は別セッションにし、Runtime 側のモード切替は行わない
-- 既存 `TrainingMenuItem.isAiGenerated` フラグを利用できるため、新規テーブル追加は不要
-
-## 9. 実装上の決定事項
-
-- 既定セットがない場合だけ新規セットを既定にし、既存の既定セットは切り替えない
-- 登録後は `refreshCoreData()` で再取得するが、表示対象セットの自動切替はしない
-- 既存メニュー名との重複は拒否する
-- 条件変更時は新規セッション、同条件の追加指示は同一セッションとする
-- 提案は会話文脈に保持し、登録時にモデルがtool inputへ構造化する
+- 既存／新規種目混在、12件上限、31日上限
+- 重複名、重複ID、他ユーザーID、存在しないID
+- 日付競合と確認なし置換の拒否
+- 冪等リプレイとキー再利用拒否
+- 途中失敗時に部分データが残らないこと
+- 登録後のCore API再取得と実施画面反映
+- Interceptorによる別ユーザーidentity拒否

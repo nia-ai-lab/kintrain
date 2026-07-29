@@ -1,6 +1,6 @@
 # メニューセット・種目・今日のトレーニング計画 再設計要件
 
-最終更新日: 2026-07-27
+最終更新日: 2026-07-29
 
 ## 1. 目的
 
@@ -9,8 +9,8 @@ KinTrain のトレーニング関連データを、次の利用方法に適し�
 - 種目をユーザー固有のマスタとして一元管理する。
 - 同じ種目を複数のメニューセットで共有する。
 - 重量、回数、セット数などの目標値をメニューセットごとに設定する。
-- AI が既存種目と新規種目を組み合わせて、今日利用する一時的なメニューセットを作成できるようにする。
-- 実施画面を開いたときに、今日のメニューセットを直ちに取得して利用できるようにする。
+- AI が既存種目と新規種目を組み合わせて、有効期間付きの一時メニューセットを作成できるようにする。
+- 実施画面を開いたときに、対象日のメニューセットを直ちに取得して利用できるようにする。
 - 一時的なメニューセットを実施後に削除できるようにする。
 - 一時セットや種目定義を削除しても、確定済みの実施履歴は失われないようにする。
 - メニューセット管理と種目マスタ管理を分離し、スマートフォンでも直感的に操作できるようにする。
@@ -22,7 +22,10 @@ KinTrain のトレーニング関連データを、次の利用方法に適し�
 トレーニング種目そのものを表す。
 
 - 種目名
-- 鍛える部位
+- 主働筋・補助筋
+- 動作パターン
+- 左右の実施方式
+- 負荷方式
 - 用具
 - 説明
 - 重量入力方式
@@ -79,7 +82,7 @@ erDiagram
 ### 4.1 種目マスタ管理
 
 - ユーザーは全種目をセットに依存しない一覧で参照できること。
-- 種目名、部位、用具、状態で検索または絞り込みできること。
+- 種目名、筋肉ターゲット、用具、状態で検索または絞り込みできること。
 - 種目を新規登録、編集、無効化できること。
 - 各種目について、利用中のメニューセット数を確認できること。
 - 同一ユーザー内で正規化後の種目名を一意とすること。
@@ -168,7 +171,7 @@ erDiagram
   - `targetRepsMaxSnapshot`
   - `targetSetsSnapshot`
   - `targetInstructionSnapshot`
-- 種目名、部位、用具、重量入力方式など、既存の種目スナップショットも継続して保存すること。
+- 種目名、筋肉ターゲット、動作・負荷分類、用具、重量入力方式など、種目スナップショットを保存すること。
 - 元の一時セットまたは種目マスタが削除されても履歴を表示できること。
 - `TrainingPerformance` にも、AI分析や種目別履歴で必要な出所・目標スナップショットを複製すること。
 
@@ -182,7 +185,11 @@ erDiagram
 - `trainingMenuItemId`
 - `trainingName`
 - `normalizedTrainingName`
-- `bodyPart`
+- `muscleTargets`
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `equipment`
 - `description`
 - `weightInputMode`
@@ -273,8 +280,8 @@ erDiagram
 - `PUT /training-menu-sets/{trainingMenuSetId}`
 - `DELETE /training-menu-sets/{trainingMenuSetId}`
 - `POST /training-menu-sets/{trainingMenuSetId}/items`
-- `PUT /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuSetItemId}`
-- `DELETE /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuSetItemId}`
+- `PUT /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
+- `DELETE /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
 - `PUT /training-menu-sets/{trainingMenuSetId}/items/reorder`
 - `PUT /training-menu-sets/{trainingMenuSetId}/items/bulk`
 
@@ -399,7 +406,7 @@ erDiagram
 ### 9.4 種目一覧
 
 - 検索
-- 部位、用具、有効状態による絞り込み
+- 筋肉ターゲット、用具、有効状態による絞り込み
 - 新規登録
 - 編集
 - 無効化
