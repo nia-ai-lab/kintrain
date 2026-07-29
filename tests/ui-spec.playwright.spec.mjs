@@ -818,9 +818,54 @@ async function seedBackendData(authContext) {
   assert.equal(putProfileRes.status, 200);
 
   const menuPayloads = [
-    { trainingName: 'シーテッドロー', defaultWeightKg: 27.5, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 },
-    { trainingName: 'チェストプレス', defaultWeightKg: 25, defaultRepsMin: 8, defaultRepsMax: 12, defaultSets: 3 },
-    { trainingName: 'ラットプルダウン', defaultWeightKg: 30, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 }
+    {
+      trainingName: 'シーテッドロー',
+      exerciseFamilyId: 'seated_row',
+      muscleTargets: [
+        { muscleId: 'latissimus', role: 'primary', effectiveSetFactor: 1 },
+        { muscleId: 'biceps', role: 'secondary', effectiveSetFactor: 0.5 }
+      ],
+      movementFamily: 'pull',
+      jointActions: ['shoulder_horizontal_abduction', 'elbow_flexion'],
+      laterality: 'bilateral',
+      loadModel: 'external_load',
+      classificationVersion: 2,
+      equipmentType: 'selectorized_machine',
+      weightInputMode: 'direct',
+      loadMultiplier: 1
+    },
+    {
+      trainingName: 'チェストプレス',
+      exerciseFamilyId: 'chest_press',
+      muscleTargets: [
+        { muscleId: 'chest_mid', role: 'primary', effectiveSetFactor: 1 },
+        { muscleId: 'triceps', role: 'secondary', effectiveSetFactor: 0.5 }
+      ],
+      movementFamily: 'push',
+      jointActions: ['shoulder_horizontal_adduction', 'elbow_extension'],
+      laterality: 'bilateral',
+      loadModel: 'external_load',
+      classificationVersion: 2,
+      equipmentType: 'selectorized_machine',
+      weightInputMode: 'direct',
+      loadMultiplier: 1
+    },
+    {
+      trainingName: 'ラットプルダウン',
+      exerciseFamilyId: 'lat_pulldown',
+      muscleTargets: [
+        { muscleId: 'latissimus', role: 'primary', effectiveSetFactor: 1 },
+        { muscleId: 'biceps', role: 'secondary', effectiveSetFactor: 0.5 }
+      ],
+      movementFamily: 'pull',
+      jointActions: ['shoulder_adduction', 'elbow_flexion'],
+      laterality: 'bilateral',
+      loadModel: 'external_load',
+      classificationVersion: 2,
+      equipmentType: 'selectorized_machine',
+      weightInputMode: 'direct',
+      loadMultiplier: 1
+    }
   ];
 
   const createdMenuItems = [];
@@ -855,6 +900,13 @@ async function seedBackendData(authContext) {
         {
           trainingMenuItemId: createdMenuItems[0].trainingMenuItemId,
           trainingNameSnapshot: createdMenuItems[0].trainingName,
+          muscleTargetsSnapshot: createdMenuItems[0].muscleTargets,
+          movementFamilySnapshot: createdMenuItems[0].movementFamily,
+          jointActionsSnapshot: createdMenuItems[0].jointActions,
+          lateralitySnapshot: createdMenuItems[0].laterality,
+          loadModelSnapshot: createdMenuItems[0].loadModel,
+          classificationVersionSnapshot: createdMenuItems[0].classificationVersion,
+          equipmentTypeSnapshot: createdMenuItems[0].equipmentType,
           weightKg: 27.5,
           reps: 12,
           sets: 3,
