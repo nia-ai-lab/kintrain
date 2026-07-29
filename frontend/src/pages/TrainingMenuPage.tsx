@@ -771,6 +771,12 @@ function MenuItemForm({
 }) {
   const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>(initial?.muscleTargets ?? []);
   const [formError, setFormError] = useState('');
+  const firstSelectedMuscle = muscles.find((muscle) =>
+    initial?.muscleTargets.some((target) => target.muscleId === muscle.id)
+  );
+  const [activeMuscleGroupId, setActiveMuscleGroupId] = useState<(typeof muscleGroups)[number]['id']>(
+    firstSelectedMuscle?.groupId ?? muscleGroups[0].id
+  );
 
   const setMuscleTarget = (muscleId: MuscleId, enabled: boolean, role?: MuscleRole) => {
     setMuscleTargets((current) => {
@@ -779,6 +785,9 @@ function MenuItemForm({
       return enabled ? [...remaining, { muscleId, role: resolvedRole }] : remaining;
     });
   };
+  const activeMuscles = muscles.filter((muscle) => muscle.groupId === activeMuscleGroupId);
+  const primaryTargets = muscleTargets.filter((target) => target.role === 'primary');
+  const secondaryTargets = muscleTargets.filter((target) => target.role === 'secondary');
 
   return (
     <form
@@ -819,42 +828,90 @@ function MenuItemForm({
         </label>
       </div>
       <fieldset className="muscle-target-fieldset">
-        <legend>鍛える筋群</legend>
-        <p className="muted">主働筋は必須です。複合種目では補助筋も選択してください。</p>
-        <div className="muscle-target-groups">
-          {muscleGroups.map((group) => (
-            <section className="muscle-target-group" key={group.id}>
-              <h4>{group.label}</h4>
-              {muscles.filter((muscle) => muscle.groupId === group.id).map((muscle) => {
-                const target = muscleTargets.find((candidate) => candidate.muscleId === muscle.id);
-                return (
-                  <div className="muscle-target-row" key={muscle.id}>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(target)}
-                        onChange={(event) => setMuscleTarget(muscle.id, event.target.checked)}
-                      />
-                      {muscle.label}
-                    </label>
-                    {target && (
-                      <select
-                        aria-label={`${muscle.label}の役割`}
-                        value={target.role}
-                        onChange={(event) =>
-                          setMuscleTarget(muscle.id, true, event.target.value as MuscleRole)
-                        }
-                      >
-                        <option value="primary">主働筋</option>
-                        <option value="secondary">補助筋</option>
-                      </select>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
-          ))}
+        <legend>鍛える筋肉</legend>
+        <p className="muted muscle-target-help">部位を選び、各筋肉の役割を指定します。主働筋は1つ以上必要です。</p>
+        <div className="muscle-target-summary" aria-live="polite">
+          {muscleTargets.length === 0 ? (
+            <span className="muscle-target-empty">まだ筋肉が選択されていません</span>
+          ) : (
+            <>
+              {primaryTargets.map((target) => (
+                <span className="muscle-target-chip is-primary" key={target.muscleId}>
+                  <strong>主働</strong>
+                  {muscles.find((muscle) => muscle.id === target.muscleId)?.label}
+                </span>
+              ))}
+              {secondaryTargets.map((target) => (
+                <span className="muscle-target-chip is-secondary" key={target.muscleId}>
+                  <strong>補助</strong>
+                  {muscles.find((muscle) => muscle.id === target.muscleId)?.label}
+                </span>
+              ))}
+            </>
+          )}
         </div>
+        <div className="muscle-group-tabs" role="group" aria-label="筋肉の部位">
+          {muscleGroups.map((group) => {
+            const selectedCount = muscleTargets.filter((target) =>
+              muscles.some((muscle) => muscle.id === target.muscleId && muscle.groupId === group.id)
+            ).length;
+            const isActive = activeMuscleGroupId === group.id;
+            return (
+              <button
+                aria-pressed={isActive}
+                className={`muscle-group-tab${isActive ? ' is-active' : ''}`}
+                key={group.id}
+                onClick={() => setActiveMuscleGroupId(group.id)}
+                type="button"
+              >
+                {group.label}
+                {selectedCount > 0 && <span className="muscle-group-count">{selectedCount}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <section
+          aria-label={`${muscleGroups.find((group) => group.id === activeMuscleGroupId)?.label}の筋肉`}
+          className="muscle-target-panel"
+        >
+          {activeMuscles.map((muscle) => {
+            const target = muscleTargets.find((candidate) => candidate.muscleId === muscle.id);
+            return (
+              <div className={`muscle-target-row${target ? ' is-selected' : ''}`} key={muscle.id}>
+                <span className="muscle-target-name">{muscle.label}</span>
+                <div className="muscle-role-options" role="group" aria-label={`${muscle.label}の役割`}>
+                  <button
+                    aria-label={`${muscle.label}を選択解除`}
+                    aria-pressed={!target}
+                    className={!target ? 'is-active is-none' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, false)}
+                    type="button"
+                  >
+                    なし
+                  </button>
+                  <button
+                    aria-label={`${muscle.label}を主働筋にする`}
+                    aria-pressed={target?.role === 'primary'}
+                    className={target?.role === 'primary' ? 'is-active is-primary' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, true, 'primary')}
+                    type="button"
+                  >
+                    主働
+                  </button>
+                  <button
+                    aria-label={`${muscle.label}を補助筋にする`}
+                    aria-pressed={target?.role === 'secondary'}
+                    className={target?.role === 'secondary' ? 'is-active is-secondary' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, true, 'secondary')}
+                    type="button"
+                  >
+                    補助
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </section>
       </fieldset>
       <div className="menu-three-fields-row">
         <label>

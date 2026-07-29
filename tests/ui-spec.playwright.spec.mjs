@@ -1017,9 +1017,9 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
   await createPanel.locator('summary').click();
   await createPanel.getByLabel('種目名').fill(uniqueName);
-  await createPanel.getByLabel('胸（中部）', { exact: true }).check();
-  await createPanel.getByLabel('胸（中部）の役割').selectOption('primary');
-  await createPanel.getByLabel('上腕三頭筋', { exact: true }).check();
+  await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
+  await createPanel.locator('.muscle-group-tabs').getByRole('button', { name: '腕' }).click();
+  await createPanel.getByRole('button', { name: '上腕三頭筋を補助筋にする' }).click();
   await createPanel.getByLabel('用具').selectOption('フリー');
   await createPanel.getByLabel('重量入力方式').selectOption('perSide');
   await createPanel.getByLabel('バーなどの固定重量').fill('20');
@@ -1030,12 +1030,11 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await expect(addedCard).toBeVisible();
   await addedCard.locator('summary').click();
   await expect(addedCard.getByLabel('種目の説明')).toHaveValue('胸を張ってゆっくり動かす。');
-  await addedCard.getByLabel('胸（上部）', { exact: true }).check();
-  await addedCard.getByLabel('胸（上部）の役割').selectOption('primary');
-  await addedCard.getByLabel('胸（中部）', { exact: true }).uncheck();
+  await addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' }).click();
+  await addedCard.getByRole('button', { name: '胸（中部）を選択解除' }).click();
   await addedCard.getByRole('button', { name: '種目情報を保存' }).click();
-  await expect(addedCard.getByLabel('胸（上部）', { exact: true })).toBeChecked();
-  await expect(addedCard.getByLabel('胸（中部）', { exact: true })).not.toBeChecked();
+  await expect(addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(addedCard.getByRole('button', { name: '胸（中部）を選択解除' })).toHaveAttribute('aria-pressed', 'true');
 
   page.once('dialog', (dialog) => dialog.accept());
   await addedCard.getByRole('button', { name: '種目自体を削除' }).click();
@@ -1047,6 +1046,37 @@ test('トレーニングメニューで追加・編集・削除ができる', as
     () => document.documentElement.scrollWidth > window.innerWidth
   );
   assert.equal(hasHorizontalOverflow, false);
+});
+
+test('iPhone幅で筋肉と役割を見やすく選択できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.goto('/training-menu');
+  await page.getByRole('button', { name: '種目一覧' }).click();
+
+  const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
+  await createPanel.locator('summary').click();
+
+  await expect(createPanel.locator('.muscle-group-tab')).toHaveCount(6);
+  await expect(createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' })).toBeVisible();
+  await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
+  await expect(createPanel.getByText('主働胸（中部）', { exact: true })).toBeVisible();
+
+  const layout = await createPanel.locator('.muscle-target-fieldset').evaluate((fieldset) => ({
+    fitsWidth: fieldset.scrollWidth <= fieldset.clientWidth,
+    names: [...fieldset.querySelectorAll('.muscle-target-name')].map((name) => ({
+      text: name.textContent,
+      width: name.getBoundingClientRect().width,
+      height: name.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(name).lineHeight)
+    }))
+  }));
+  assert.equal(layout.fitsWidth, true);
+  assert.ok(layout.names.every((name) => name.width >= 80));
+  assert.ok(layout.names.every((name) => name.height <= name.lineHeight * 1.5));
+
+  await createPanel.screenshot({ path: 'test-results/muscle-target-mobile.png' });
 });
 
 test('カレンダーとDailyで記録の入力・参照ができる', async ({ page }) => {
