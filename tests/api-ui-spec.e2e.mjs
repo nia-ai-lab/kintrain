@@ -306,7 +306,14 @@ async function run() {
         pathWithQuery: "/training-menu-items",
         body: {
           trainingName: "チェストプレス",
-          bodyPart: "胸",
+          muscleTargets: [
+            { muscleId: "chest_mid", role: "primary" },
+            { muscleId: "triceps", role: "secondary" }
+          ],
+          movementPattern: "horizontal_push",
+          laterality: "bilateral",
+          loadModel: "external_load",
+          classificationVersion: 1,
           description: "肩をすくめず、胸を張って押す。",
           equipment: "マシン",
           weightInputMode: "direct",
@@ -316,7 +323,10 @@ async function run() {
       });
       assert.equal(res.status, 201);
       assert.ok(res.json.trainingMenuItemId);
-      assert.equal(res.json.bodyPart, "胸");
+      assert.deepEqual(res.json.muscleTargets, [
+        { muscleId: "chest_mid", role: "primary" },
+        { muscleId: "triceps", role: "secondary" }
+      ]);
       assert.equal(res.json.description, "肩をすくめず、胸を張って押す。");
       state.menuItemA = res.json.trainingMenuItemId;
     });
@@ -329,7 +339,14 @@ async function run() {
         pathWithQuery: "/training-menu-items",
         body: {
           trainingName: "プッシュアップ",
-          bodyPart: "胸",
+          muscleTargets: [
+            { muscleId: "chest_mid", role: "primary" },
+            { muscleId: "triceps", role: "secondary" }
+          ],
+          movementPattern: "horizontal_push",
+          laterality: "bilateral",
+          loadModel: "bodyweight",
+          classificationVersion: 1,
           equipment: "自重",
           weightInputMode: "direct",
           loadMultiplier: 1,
@@ -419,14 +436,21 @@ async function run() {
         pathWithQuery: `/training-menu-items/${state.menuItemA}`,
         body: {
           trainingName: "チェストプレス改",
-          bodyPart: "胸",
+          muscleTargets: [
+            { muscleId: "chest_mid", role: "primary" },
+            { muscleId: "triceps", role: "secondary" }
+          ],
+          movementPattern: "horizontal_push",
+          laterality: "bilateral",
+          loadModel: "external_load",
+          classificationVersion: 1,
           description: "肩甲骨を寄せたまま、ゆっくり戻す。",
           equipment: "マシン"
         }
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.trainingName, "チェストプレス改");
-      assert.equal(res.json.bodyPart, "胸");
+      assert.equal(res.json.muscleTargets?.[0]?.muscleId, "chest_mid");
       assert.equal(res.json.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
     });
 
@@ -500,7 +524,14 @@ async function run() {
             {
               trainingMenuItemId: state.menuItemB,
               trainingNameSnapshot: "プッシュアップ",
-              bodyPartSnapshot: "胸",
+              muscleTargetsSnapshot: [
+                { muscleId: "chest_mid", role: "primary" },
+                { muscleId: "triceps", role: "secondary" }
+              ],
+              movementPatternSnapshot: "horizontal_push",
+              lateralitySnapshot: "bilateral",
+              loadModelSnapshot: "bodyweight",
+              classificationVersionSnapshot: 1,
               equipmentSnapshot: "自重",
               weightKg: 0,
               reps: 10,
@@ -513,7 +544,7 @@ async function run() {
       });
       assert.equal(res.status, 201);
       assert.ok(res.json.visitId);
-      assert.equal(res.json.entries?.[0]?.bodyPartSnapshot, "胸");
+      assert.equal(res.json.entries?.[0]?.muscleTargetsSnapshot?.[0]?.muscleId, "chest_mid");
       assert.equal(res.json.entries?.[0]?.equipmentSnapshot, "自重");
       assert.equal(res.json.entries?.[0]?.weightKg, 0);
       state.visitId = res.json.visitId;
@@ -562,7 +593,14 @@ async function run() {
             {
               trainingMenuItemId: state.menuItemA,
               trainingNameSnapshot: "チェストプレス改",
-              bodyPartSnapshot: "胸",
+              muscleTargetsSnapshot: [
+                { muscleId: "chest_mid", role: "primary" },
+                { muscleId: "triceps", role: "secondary" }
+              ],
+              movementPatternSnapshot: "horizontal_push",
+              lateralitySnapshot: "bilateral",
+              loadModelSnapshot: "external_load",
+              classificationVersionSnapshot: 1,
               weightKg: 27.5,
               reps: 10,
               sets: 3,
@@ -574,7 +612,7 @@ async function run() {
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.note, "updated");
-      assert.equal(res.json.entries?.[0]?.bodyPartSnapshot, "胸");
+      assert.equal(res.json.entries?.[0]?.muscleTargetsSnapshot?.[0]?.muscleId, "chest_mid");
     });
 
     // /daily

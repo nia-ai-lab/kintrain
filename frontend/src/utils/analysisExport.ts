@@ -89,7 +89,12 @@ function normalizeGymVisit(item: GymVisitDto) {
     entries: (item.entries ?? []).map((entry) => ({
       trainingMenuItemId: entry.trainingMenuItemId,
       trainingName: entry.trainingNameSnapshot,
-      bodyPart: nullableString(entry.bodyPartSnapshot),
+      muscleTargets: entry.muscleTargetsSnapshot,
+      movementPattern: entry.movementPatternSnapshot,
+      laterality: entry.lateralitySnapshot,
+      loadModel: entry.loadModelSnapshot,
+      classificationVersion: entry.classificationVersionSnapshot,
+      bodyWeightKgSnapshot: nullableNumber(entry.bodyWeightKgSnapshot),
       equipment: nullableString(entry.equipmentSnapshot),
       isAiGenerated: entry.isAiGeneratedSnapshot === true,
       frequencyDays: nullableNumber(entry.frequencySnapshot),
@@ -113,7 +118,11 @@ function normalizeTrainingMenu(item: TrainingMenuItemDto) {
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: item.trainingName,
-    bodyPart: nullableString(item.bodyPart),
+    muscleTargets: item.muscleTargets,
+    movementPattern: item.movementPattern,
+    laterality: item.laterality,
+    loadModel: item.loadModel,
+    classificationVersion: item.classificationVersion,
     equipment: nullableString(item.equipment),
     isAiGenerated: item.isAiGenerated === true,
     description: nullableString(item.description),
@@ -175,7 +184,7 @@ export async function createAnalysisExport(
 
   const result = {
     schema: 'kintrain.analysis-export',
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedAtUtc: new Date().toISOString(),
     selection: {
       rangeMode: range.rangeMode,

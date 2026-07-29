@@ -6,6 +6,14 @@ function entry(overrides: Record<string, unknown> = {}) {
   return {
     trainingMenuItemId: "menu-1",
     trainingNameSnapshot: "ベンチプレス",
+    muscleTargetsSnapshot: [
+      { muscleId: "chest_mid", role: "primary" },
+      { muscleId: "triceps", role: "secondary" }
+    ],
+    movementPatternSnapshot: "horizontal_push",
+    lateralitySnapshot: "bilateral",
+    loadModelSnapshot: "external_load",
+    classificationVersionSnapshot: 1,
     weightKg: 20,
     reps: 10,
     sets: 3,

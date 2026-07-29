@@ -15,6 +15,20 @@ import {
   updateTrainingMenuSet,
   updateTrainingMenuSetItem
 } from '../api/coreApi';
+import {
+  formatMuscleTargets,
+  lateralityOptions,
+  loadModelOptions,
+  movementPatternOptions,
+  muscleGroups,
+  muscles,
+  type Laterality,
+  type LoadModel,
+  type MovementPattern,
+  type MuscleId,
+  type MuscleRole,
+  type MuscleTarget
+} from '../muscleTaxonomy';
 import type {
   TrainingEquipment,
   TrainingFrequencyDays,
@@ -463,7 +477,7 @@ function SetEditor({
             <option value="">種目を選択</option>
             {addableItems.map((item) => (
               <option key={item.id} value={item.id}>
-                {formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}
+                {formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}
               </option>
             ))}
           </select>
@@ -500,7 +514,7 @@ function SetEditor({
               <div className="row-between">
                 <div>
                   <p className="priority-chip">#{index + 1}</p>
-                  <h3>{formatTrainingLabel(menuItem.trainingName, menuItem.bodyPart, menuItem.equipment, menuItem.isAiGenerated)}</h3>
+                  <h3>{formatTrainingLabel(menuItem.trainingName, menuItem.muscleTargets, menuItem.equipment, menuItem.isAiGenerated)}</h3>
                 </div>
                 <div className="row-wrap">
                   <button
@@ -643,7 +657,7 @@ function ItemLibrary({
   const [query, setQuery] = useState('');
   const filtered = items.filter((item) => {
     const needle = query.trim().toLowerCase();
-    return !needle || `${item.trainingName} ${item.bodyPart} ${item.equipment}`.toLowerCase().includes(needle);
+    return !needle || `${item.trainingName} ${formatMuscleTargets(item.muscleTargets)} ${item.equipment}`.toLowerCase().includes(needle);
   });
 
   return (
@@ -702,7 +716,7 @@ function MenuItemEditor({
   return (
     <details className="card menu-item-library-card">
       <summary>
-        <span>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</span>
+        <span>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</span>
         <small>{item.usageCount}セットで使用</small>
       </summary>
       <MenuItemForm
@@ -744,7 +758,10 @@ function MenuItemForm({
   disabled: boolean;
   onSubmit: (value: {
     trainingName: string;
-    bodyPart: string;
+    muscleTargets: MuscleTarget[];
+    movementPattern: MovementPattern;
+    laterality: Laterality;
+    loadModel: LoadModel;
     equipment: TrainingEquipment;
     description: string;
     weightInputMode: WeightInputMode;
@@ -752,6 +769,17 @@ function MenuItemForm({
     fixedWeightKg: number;
   }) => Promise<void>;
 }) {
+  const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>(initial?.muscleTargets ?? []);
+  const [formError, setFormError] = useState('');
+
+  const setMuscleTarget = (muscleId: MuscleId, enabled: boolean, role?: MuscleRole) => {
+    setMuscleTargets((current) => {
+      const remaining = current.filter((target) => target.muscleId !== muscleId);
+      const resolvedRole = role ?? (current.some((target) => target.role === 'primary') ? 'secondary' : 'primary');
+      return enabled ? [...remaining, { muscleId, role: resolvedRole }] : remaining;
+    });
+  };
+
   return (
     <form
       className="stack-md menu-library-form"
@@ -759,9 +787,17 @@ function MenuItemForm({
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const mode = form.get('weightInputMode') === 'perSide' ? 'perSide' : 'direct';
+        if (!muscleTargets.some((target) => target.role === 'primary')) {
+          setFormError('主働筋を1つ以上選択してください。');
+          return;
+        }
+        setFormError('');
         void onSubmit({
           trainingName: String(form.get('trainingName') ?? '').trim(),
-          bodyPart: String(form.get('bodyPart') ?? '').trim(),
+          muscleTargets,
+          movementPattern: String(form.get('movementPattern') ?? 'horizontal_push') as MovementPattern,
+          laterality: String(form.get('laterality') ?? 'bilateral') as Laterality,
+          loadModel: String(form.get('loadModel') ?? 'external_load') as LoadModel,
           equipment: String(form.get('equipment') ?? 'その他') as TrainingEquipment,
           description: String(form.get('description') ?? '').trim(),
           weightInputMode: mode,
@@ -776,13 +812,73 @@ function MenuItemForm({
           <input name="trainingName" defaultValue={initial?.trainingName} required />
         </label>
         <label>
-          鍛える部位
-          <input name="bodyPart" defaultValue={initial?.bodyPart} />
-        </label>
-        <label>
           用具
           <select name="equipment" defaultValue={initial?.equipment ?? 'その他'}>
             {equipmentOptions.map((value) => <option value={value} key={value}>{value}</option>)}
+          </select>
+        </label>
+      </div>
+      <fieldset className="muscle-target-fieldset">
+        <legend>鍛える筋群</legend>
+        <p className="muted">主働筋は必須です。複合種目では補助筋も選択してください。</p>
+        <div className="muscle-target-groups">
+          {muscleGroups.map((group) => (
+            <section className="muscle-target-group" key={group.id}>
+              <h4>{group.label}</h4>
+              {muscles.filter((muscle) => muscle.groupId === group.id).map((muscle) => {
+                const target = muscleTargets.find((candidate) => candidate.muscleId === muscle.id);
+                return (
+                  <div className="muscle-target-row" key={muscle.id}>
+                    <label>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(target)}
+                        onChange={(event) => setMuscleTarget(muscle.id, event.target.checked)}
+                      />
+                      {muscle.label}
+                    </label>
+                    {target && (
+                      <select
+                        aria-label={`${muscle.label}の役割`}
+                        value={target.role}
+                        onChange={(event) =>
+                          setMuscleTarget(muscle.id, true, event.target.value as MuscleRole)
+                        }
+                      >
+                        <option value="primary">主働筋</option>
+                        <option value="secondary">補助筋</option>
+                      </select>
+                    )}
+                  </div>
+                );
+              })}
+            </section>
+          ))}
+        </div>
+      </fieldset>
+      <div className="menu-three-fields-row">
+        <label>
+          動作パターン
+          <select name="movementPattern" defaultValue={initial?.movementPattern ?? 'horizontal_push'}>
+            {movementPatternOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          左右の実施方式
+          <select name="laterality" defaultValue={initial?.laterality ?? 'bilateral'}>
+            {lateralityOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
+          </select>
+        </label>
+        <label>
+          負荷方式
+          <select name="loadModel" defaultValue={initial?.loadModel ?? 'external_load'}>
+            {loadModelOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
         </label>
       </div>
@@ -803,6 +899,7 @@ function MenuItemForm({
         種目の説明
         <textarea name="description" rows={2} maxLength={500} defaultValue={initial?.description} />
       </label>
+      {formError && <p className="form-error">{formError}</p>}
       <button className="btn primary" type="submit" disabled={disabled}>{submitLabel}</button>
     </form>
   );

@@ -109,7 +109,7 @@
 ### 4.2 用語の明確化（UI仕様整合）
 
 - `TrainingMenu`: 日次固定ではない実施候補リスト。優先順位計算の入力元。
-- `TrainingMenuItem`: メニュー内の1項目（トレーニング名、鍛える部位、既定重量/回数/セット、手動順序）。
+- `TrainingMenuItem`: メニュー内の1項目（トレーニング名、主働筋・補助筋、動作・負荷分類、既定重量/回数/セット、手動順序）。
 - `TrainingMenu` と `TrainingHistory` の違い:
 - `TrainingMenu` は「これから実施する計画値（既定値/順序）」を管理するモデル。
 - `TrainingHistory` は「実際に実施した結果（重量/回数/セット/時刻）」を保持するモデル。
@@ -140,7 +140,11 @@
 - `TrainingMenuItem` は以下を保持すること。
 - `trainingMenuItemId`
 - `trainingName`
-- `bodyPart`（任意、鍛える部位）
+- `muscleTargets`（主働筋を1つ以上、補助筋は任意）
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `defaultWeightKg`
 - `weightInputMode`（`direct` / `perSide` / `legacyUnspecified`）
 - `loadMultiplier`（1または2）
@@ -164,7 +168,11 @@
 - ExerciseEntryは以下を保持すること。
 - `trainingMenuItemId`
 - `trainingNameSnapshot`
-- `bodyPartSnapshot`（任意、保存時点の部位名スナップショット）
+- `muscleTargetsSnapshot`
+- `movementPatternSnapshot`
+- `lateralitySnapshot`
+- `loadModelSnapshot`
+- `classificationVersionSnapshot`
 - `equipmentSnapshot`（任意、保存時点の用具スナップショット）
 - `isAiGeneratedSnapshot`（任意、保存時点のAI生成フラグ）
 - `frequencySnapshot`（任意、保存時点の頻度スナップショット）
@@ -182,7 +190,7 @@
 - 重量 `0` は自重種目などの追加重量なしを表す有効値として扱い、削除マーカーには使用しないこと。
 - 1回の `GymVisit` に保存できる `ExerciseEntry` 数は最大12件とする。
 - 前日実施トレーニングを参照できること。
-- UIの種目表示は `トレーニング名 : 部位` とし、`bodyPart` 未設定時はトレーニング名のみ表示すること。
+- UIの種目表示は `トレーニング名 : 主働筋・補助筋` とすること。
 
 ### 5.4 履歴参照
 
@@ -311,7 +319,11 @@
 - `GET /training-menu-items` の `TrainingMenuItem` レスポンスモデル:
 - `trainingMenuItemId: string`
 - `trainingName: string`
-- `bodyPart: string`（任意。未設定時は空文字）
+- `muscleTargets: Array<{ muscleId, role }>`
+- `movementPattern: string`
+- `laterality: bilateral | unilateral | alternating`
+- `loadModel: external_load | bodyweight | assisted_bodyweight`
+- `classificationVersion: number`
 - `description: string`（任意。トレーニングメニュー自体の説明）
 - `defaultWeightKg: number`（0以上、小数2桁まで。自重種目などの追加重量なしは0）
 - `weightInputMode: direct | perSide | legacyUnspecified`
@@ -327,7 +339,11 @@
 - `updatedAt: RFC3339 UTC`
 - `POST /training-menu-items` リクエスト:
 - `trainingName`
-- `bodyPart`（任意）
+- `muscleTargets`（主働筋を1つ以上含む）
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `description`（任意、500文字以内）
 - `defaultWeightKg`
 - `weightInputMode`（任意。新規作成時の既定は`direct`）
@@ -339,7 +355,11 @@
 - `defaultSets`
 - `PUT /training-menu-items/{trainingMenuItemId}` リクエスト:
 - `trainingName`
-- `bodyPart`（任意）
+- `muscleTargets`
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `description`（任意、500文字以内）
 - `defaultWeightKg`
 - `weightInputMode`（任意）
@@ -353,11 +373,15 @@
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
-- `items: [{ trainingMenuItemId, trainingName, bodyPart, description, defaultWeightKg, weightInputMode, loadMultiplier, fixedWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, muscleTargets, movementPattern, laterality, loadModel, classificationVersion, description, defaultWeightKg, weightInputMode, loadMultiplier, fixedWeightKg, defaultRepsMin, defaultRepsMax, defaultSets, displayOrder, lastPerformanceSnapshot }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`
-- `bodyPartSnapshot: string`（任意）
+- `muscleTargetsSnapshot: Array<{ muscleId, role }>`
+- `movementPatternSnapshot: string`
+- `lateralitySnapshot: string`
+- `loadModelSnapshot: string`
+- `classificationVersionSnapshot: number`
 - `weightKg: number`
 - `weightInputModeSnapshot: direct | perSide | legacyUnspecified`
 - `loadMultiplierSnapshot: 1 | 2`（任意）
@@ -366,7 +390,7 @@
 - `reps: number`
 - `sets: number`
 - `visitDateLocal: YYYY-MM-DD`
-- UI表示で種目名を組み立てる場合は `trainingName` と `bodyPart`（または `bodyPartSnapshot`）を使用し、`トレーニング名 : 部位` 形式で表示すること。
+- UI表示で種目名を組み立てる場合は `trainingName` と `muscleTargets`（または `muscleTargetsSnapshot`）を使用すること。
 
 ### 6.3 UIモック項目名とのマッピング
 
@@ -432,7 +456,11 @@
 - `trainingMenuItemId`（ソートキー）
 - 主な属性:
 - `trainingName`
-- `bodyPart`
+- `muscleTargets`
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `normalizedTrainingName`
 - `defaultWeightKg`
 - `defaultRepsMin`
@@ -478,7 +506,11 @@
 - `visitDateLocal`
 - `timeZoneId`
 - `trainingNameSnapshot`
-- `bodyPartSnapshot`
+- `muscleTargetsSnapshot`
+- `movementPatternSnapshot`
+- `lateralitySnapshot`
+- `loadModelSnapshot`
+- `classificationVersionSnapshot`
 - `equipmentSnapshot`
 - `isAiGeneratedSnapshot`
 - `frequencySnapshot`
@@ -744,7 +776,7 @@
 - 一時セットのトレーニング一覧はセット内の登録順で表示すること。
 - 恒常セットのトレーニング一覧は、セット内順位を強めにしつつ、前回実施からの経過日数順位を加味した優先順で表示すること。
 - 推奨実施間隔は優先順の計算には使用しないこと。
-- トレーニング種目名は `トレーニング名 : 部位` 形式で表示すること（部位未設定時はトレーニング名のみ）。
+- トレーニング種目名は `トレーニング名 : 主働筋・補助筋` 形式で表示すること。
 - 一覧行で `重量/回数/セット` を直接入力できること。
 - `前回値を入力` のワンクリック入力を提供すること。
 - 各種目に `入力を消す` を提供し、当該種目を `TrainingSessionDraft` から削除できること。
@@ -772,7 +804,7 @@
 - メールアドレス+パスワードでログインできること（サインアップ画面はMVP対象外）。
 - ログアウト後は保護画面に直接アクセスできず、`/login` へ遷移すること。
 - GymVisit/ExerciseEntryの作成・更新・削除が可能であること。
-- 「トレーニング名・部位・重量・回数・セット」を保存し再参照できること。
+- 「トレーニング名・筋肉ターゲット・動作/負荷分類・重量・回数・セット」を保存し再参照できること。
 - カレンダーで日別の実施内容を確認できること。
 - 体調・気分を10段階+コメントで記録できること。
 - 体調・気分をグラデーションスライダーで記録できること。

@@ -1,3 +1,10 @@
+import type {
+  Laterality,
+  LoadModel,
+  MovementPattern,
+  MuscleTarget
+} from './muscleTaxonomy';
+
 export type ConditionRating = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export type MoodRating = ConditionRating;
 
@@ -5,12 +12,17 @@ export interface SetDetail {
   setIndex: number;
   weightKg: number;
   reps: number;
+  side?: 'left' | 'right' | 'bilateral';
 }
 
 export interface TrainingMenuItem {
   id: string;
   trainingName: string;
-  bodyPart: string;
+  muscleTargets: MuscleTarget[];
+  movementPattern: MovementPattern;
+  laterality: Laterality;
+  loadModel: LoadModel;
+  classificationVersion: number;
   equipment: TrainingEquipment;
   isAiGenerated: boolean;
   description: string;
@@ -66,7 +78,12 @@ export interface ExerciseEntry {
   id: string;
   menuItemId: string;
   trainingName: string;
-  bodyPart: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementPatternSnapshot: MovementPattern;
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
   equipment: string;
   note?: string;
   weightKg: number;

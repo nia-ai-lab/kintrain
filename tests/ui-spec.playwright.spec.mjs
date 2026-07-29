@@ -44,7 +44,14 @@ function buildCoreMockData() {
         trainingName: 'チェストプレス',
         description:
           '肩甲骨を軽く寄せて胸を張ります。\nハンドルは胸の高さに合わせ、肘を伸ばし切る直前で止めます。\n戻す動作はゆっくり行ってください。',
-        bodyPart: '胸',
+        muscleTargets: [
+          { muscleId: 'chest_mid', role: 'primary' },
+          { muscleId: 'triceps', role: 'secondary' }
+        ],
+        movementPattern: 'horizontal_push',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -62,7 +69,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-2',
         trainingName: 'ラットプルダウン',
-        bodyPart: '背中',
+        muscleTargets: [
+          { muscleId: 'latissimus', role: 'primary' },
+          { muscleId: 'biceps', role: 'secondary' }
+        ],
+        movementPattern: 'vertical_pull',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -80,7 +94,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-3',
         trainingName: 'レッグプレス',
-        bodyPart: '脚',
+        muscleTargets: [
+          { muscleId: 'quadriceps', role: 'primary' },
+          { muscleId: 'glute_max', role: 'secondary' }
+        ],
+        movementPattern: 'squat',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -98,7 +119,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-4',
         trainingName: 'ショルダープレス',
-        bodyPart: '肩',
+        muscleTargets: [
+          { muscleId: 'anterior_deltoid', role: 'primary' },
+          { muscleId: 'triceps', role: 'secondary' }
+        ],
+        movementPattern: 'vertical_push',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -116,7 +144,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-5',
         trainingName: 'シーテッドロー',
-        bodyPart: '背中',
+        muscleTargets: [
+          { muscleId: 'upper_back', role: 'primary' },
+          { muscleId: 'biceps', role: 'secondary' }
+        ],
+        movementPattern: 'horizontal_pull',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -192,7 +227,14 @@ function buildCoreMockData() {
           {
             trainingMenuItemId: 'm-1',
             trainingNameSnapshot: 'チェストプレス',
-            bodyPartSnapshot: '胸',
+            muscleTargetsSnapshot: [
+              { muscleId: 'chest_mid', role: 'primary' },
+              { muscleId: 'triceps', role: 'secondary' }
+            ],
+            movementPatternSnapshot: 'horizontal_push',
+            lateralitySnapshot: 'bilateral',
+            loadModelSnapshot: 'external_load',
+            classificationVersionSnapshot: 1,
             equipmentSnapshot: 'マシン',
             weightKg: 25,
             reps: 12,
@@ -502,7 +544,11 @@ async function attachCoreApiMock(page) {
       const item = {
         trainingMenuItemId: `mock-${mock.sequence}`,
         trainingName: String(input.trainingName ?? '').trim(),
-        bodyPart: String(input.bodyPart ?? ''),
+        muscleTargets: Array.isArray(input.muscleTargets) ? input.muscleTargets : [],
+        movementPattern: input.movementPattern ?? 'other',
+        laterality: input.laterality ?? 'bilateral',
+        loadModel: input.loadModel ?? 'external_load',
+        classificationVersion: Number(input.classificationVersion ?? 1),
         equipment: input.equipment ?? 'その他',
         description: String(input.description ?? '').trim(),
         weightInputMode: input.weightInputMode ?? 'direct',
@@ -971,7 +1017,9 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
   await createPanel.locator('summary').click();
   await createPanel.getByLabel('種目名').fill(uniqueName);
-  await createPanel.getByLabel('鍛える部位').fill('胸');
+  await createPanel.getByLabel('胸（中部）', { exact: true }).check();
+  await createPanel.getByLabel('胸（中部）の役割').selectOption('primary');
+  await createPanel.getByLabel('上腕三頭筋', { exact: true }).check();
   await createPanel.getByLabel('用具').selectOption('フリー');
   await createPanel.getByLabel('重量入力方式').selectOption('perSide');
   await createPanel.getByLabel('バーなどの固定重量').fill('20');
@@ -982,9 +1030,12 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await expect(addedCard).toBeVisible();
   await addedCard.locator('summary').click();
   await expect(addedCard.getByLabel('種目の説明')).toHaveValue('胸を張ってゆっくり動かす。');
-  await addedCard.getByLabel('鍛える部位').fill('上胸');
+  await addedCard.getByLabel('胸（上部）', { exact: true }).check();
+  await addedCard.getByLabel('胸（上部）の役割').selectOption('primary');
+  await addedCard.getByLabel('胸（中部）', { exact: true }).uncheck();
   await addedCard.getByRole('button', { name: '種目情報を保存' }).click();
-  await expect(addedCard.getByLabel('鍛える部位')).toHaveValue('上胸');
+  await expect(addedCard.getByLabel('胸（上部）', { exact: true })).toBeChecked();
+  await expect(addedCard.getByLabel('胸（中部）', { exact: true })).not.toBeChecked();
 
   page.once('dialog', (dialog) => dialog.accept());
   await addedCard.getByRole('button', { name: '種目自体を削除' }).click();
@@ -1137,7 +1188,7 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 3);
+  assert.equal(exported.schemaVersion, 4);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);

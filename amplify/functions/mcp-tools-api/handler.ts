@@ -21,6 +21,20 @@ import {
 } from "../shared/coaching-context-store";
 import { ddb } from "../shared/ddb";
 import { enumerateYmdRange } from "../shared/date-range";
+import {
+  MUSCLE_TAXONOMY_VERSION,
+  muscleGroupId,
+  muscleGroupLabel,
+  muscleLabel,
+  normalizeLaterality,
+  normalizeLoadModel,
+  normalizeMovementPattern,
+  normalizeMuscleTargets,
+  type Laterality,
+  type LoadModel,
+  type MovementPattern,
+  type MuscleTarget
+} from "../shared/muscle-targets";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
@@ -113,7 +127,10 @@ type AiMenuItemInput = {
   existingTrainingMenuItemId?: unknown;
   newTrainingMenuItem?: {
     trainingName?: unknown;
-    bodyPart?: unknown;
+    muscleTargets?: unknown;
+    movementPattern?: unknown;
+    laterality?: unknown;
+    loadModel?: unknown;
     equipment?: unknown;
     description?: unknown;
     weightInputMode?: unknown;
@@ -696,7 +713,12 @@ function normalizeAnalysisGymVisit(item: Record<string, unknown>): Record<string
       return {
         trainingMenuItemId: nullableString(entry.trainingMenuItemId),
         trainingName: nullableString(entry.trainingNameSnapshot),
-        bodyPart: nullableString(entry.bodyPartSnapshot),
+        muscleTargets: normalizeMuscleTargets(entry.muscleTargetsSnapshot) ?? [],
+        movementPattern: normalizeMovementPattern(entry.movementPatternSnapshot),
+        laterality: normalizeLaterality(entry.lateralitySnapshot),
+        loadModel: normalizeLoadModel(entry.loadModelSnapshot),
+        classificationVersion: nullableNumber(entry.classificationVersionSnapshot),
+        bodyWeightKgSnapshot: nullableNumber(entry.bodyWeightKgSnapshot),
         equipment: nullableString(entry.equipmentSnapshot),
         isAiGenerated: entry.isAiGeneratedSnapshot === true,
         frequencyDays: nullableNumber(entry.frequencySnapshot),
@@ -735,7 +757,12 @@ export function normalizeGymVisitWeightSnapshots(item: Record<string, unknown>):
       return {
         trainingMenuItemId: nullableString(entry.trainingMenuItemId),
         trainingNameSnapshot: nullableString(entry.trainingNameSnapshot),
-        bodyPartSnapshot: nullableString(entry.bodyPartSnapshot),
+        muscleTargetsSnapshot: normalizeMuscleTargets(entry.muscleTargetsSnapshot) ?? [],
+        movementPatternSnapshot: normalizeMovementPattern(entry.movementPatternSnapshot),
+        lateralitySnapshot: normalizeLaterality(entry.lateralitySnapshot),
+        loadModelSnapshot: normalizeLoadModel(entry.loadModelSnapshot),
+        classificationVersionSnapshot: nullableNumber(entry.classificationVersionSnapshot),
+        bodyWeightKgSnapshot: nullableNumber(entry.bodyWeightKgSnapshot),
         equipmentSnapshot: nullableString(entry.equipmentSnapshot),
         isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
         frequencySnapshot: nullableNumber(entry.frequencySnapshot),
@@ -767,7 +794,11 @@ function normalizeAnalysisTrainingMenu(item: Record<string, unknown>): Record<st
   return {
     trainingMenuItemId: nullableString(item.trainingMenuItemId),
     trainingName: nullableString(item.trainingName),
-    bodyPart: nullableString(item.bodyPart),
+    muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
+    movementPattern: normalizeMovementPattern(item.movementPattern),
+    laterality: normalizeLaterality(item.laterality),
+    loadModel: normalizeLoadModel(item.loadModel),
+    classificationVersion: nullableNumber(item.classificationVersion),
     equipment: nullableString(item.equipment),
     isAiGenerated: item.isAiGenerated === true,
     description: nullableString(item.description),
@@ -887,7 +918,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   return mcpToolResponse(200, {
     tool: "get_analysis_export_manifest",
     schema: "kintrain.analysis-export",
-    schemaVersion: 3,
+    schemaVersion: 4,
     generatedAtUtc: new Date().toISOString(),
     selection: analysisExportSelectionResponse(selection),
     currentContext: {
@@ -1087,7 +1118,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   return mcpToolResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
-    schemaVersion: 3,
+    schemaVersion: 4,
     selection: analysisExportSelectionResponse(selection),
     section: typedSection,
     items,
@@ -1356,6 +1387,39 @@ function rollingAverage(
   };
 }
 
+type MuscleSetStats = {
+  primarySets: number;
+  secondarySets: number;
+  effectiveSets: number;
+};
+
+function addMuscleSets(stats: Map<string, MuscleSetStats>, key: string, sets: number, role: "primary" | "secondary") {
+  const current = stats.get(key) ?? { primarySets: 0, secondarySets: 0, effectiveSets: 0 };
+  if (role === "primary") {
+    current.primarySets += sets;
+    current.effectiveSets += sets;
+  } else {
+    current.secondarySets += sets;
+    current.effectiveSets += sets * 0.5;
+  }
+  stats.set(key, current);
+}
+
+function resistanceForStrength(
+  entry: Record<string, unknown>,
+  loadModel: LoadModel | null,
+  inputWeightKg: number
+): number | undefined {
+  if (loadModel === "external_load") {
+    return inputWeightKg > 0 ? inputWeightKg : undefined;
+  }
+  if (loadModel === "assisted_bodyweight") {
+    const bodyWeightKg = finiteNumber(entry.bodyWeightKgSnapshot);
+    return bodyWeightKg && bodyWeightKg > inputWeightKg ? bodyWeightKg - inputWeightKg : undefined;
+  }
+  return undefined;
+}
+
 export function buildTrainingCoachingSummary(
   visits: Record<string, unknown>[],
   dailyRecords: Record<string, unknown>[],
@@ -1365,14 +1429,16 @@ export function buildTrainingCoachingSummary(
 ): Record<string, unknown> {
   const trainingDates = new Set<string>();
   const weeklySets = new Map<string, number>();
-  const bodyPartSets = new Map<string, number>();
+  const muscleSets = new Map<string, MuscleSetStats>();
+  const muscleGroupSets = new Map<string, MuscleSetStats>();
   const exerciseMap = new Map<
     string,
     {
       trainingMenuItemId: string;
       trainingName: string | null;
       lastPerformedDate: string | null;
-      maxWeightKg: number | null;
+      loadModel: LoadModel | null;
+      bestResistanceKg: number | null;
       estimated1RmKg: number | null;
       recommendedIntervalDays: number | null;
       performances: Array<Record<string, unknown>>;
@@ -1397,8 +1463,11 @@ export function buildTrainingCoachingSummary(
       totalSets += sets;
       const week = startOfIsoWeek(date);
       weeklySets.set(week, (weeklySets.get(week) ?? 0) + sets);
-      const bodyPart = toNonEmptyString(entry.bodyPartSnapshot) ?? "未設定";
-      bodyPartSets.set(bodyPart, (bodyPartSets.get(bodyPart) ?? 0) + sets);
+      const targets = normalizeMuscleTargets(entry.muscleTargetsSnapshot) ?? [];
+      for (const target of targets) {
+        addMuscleSets(muscleSets, target.muscleId, sets, target.role);
+        addMuscleSets(muscleGroupSets, muscleGroupId(target.muscleId), sets, target.role);
+      }
       const trainingMenuItemId = toNonEmptyString(entry.trainingMenuItemId);
       if (!trainingMenuItemId) {
         continue;
@@ -1409,23 +1478,29 @@ export function buildTrainingCoachingSummary(
           trainingMenuItemId,
           trainingName: nullableString(entry.trainingNameSnapshot),
           lastPerformedDate: null,
-          maxWeightKg: null,
+          loadModel: normalizeLoadModel(entry.loadModelSnapshot),
+          bestResistanceKg: null,
           estimated1RmKg: null,
           recommendedIntervalDays: null,
           performances: []
         };
       const totalWeight =
         finiteNumber(entry.calculatedTotalWeightKg) ?? finiteNumber(entry.weightKg) ?? 0;
+      const loadModel = normalizeLoadModel(entry.loadModelSnapshot);
+      const resistanceKg = resistanceForStrength(entry, loadModel, totalWeight);
       const reps = Math.max(0, Math.floor(finiteNumber(entry.reps) ?? 0));
       const estimate =
-        totalWeight > 0 && reps >= 1 && reps <= 10
-          ? rounded(totalWeight * (1 + reps / 30))
+        resistanceKg !== undefined && reps >= 1 && reps <= 10
+          ? rounded(resistanceKg * (1 + reps / 30))
           : undefined;
       current.trainingName = nullableString(entry.trainingNameSnapshot) ?? current.trainingName;
       current.lastPerformedDate =
         !current.lastPerformedDate || date > current.lastPerformedDate ? date : current.lastPerformedDate;
-      current.maxWeightKg =
-        current.maxWeightKg === null ? totalWeight : Math.max(current.maxWeightKg, totalWeight);
+      current.loadModel = loadModel ?? current.loadModel;
+      if (resistanceKg !== undefined) {
+        current.bestResistanceKg =
+          current.bestResistanceKg === null ? resistanceKg : Math.max(current.bestResistanceKg, resistanceKg);
+      }
       if (estimate !== undefined) {
         current.estimated1RmKg =
           current.estimated1RmKg === null ? estimate : Math.max(current.estimated1RmKg, estimate);
@@ -1436,7 +1511,9 @@ export function buildTrainingCoachingSummary(
       }
       current.performances.push({
         date,
-        weightKg: rounded(totalWeight),
+        inputWeightKg: rounded(totalWeight),
+        resistanceKg: resistanceKg === undefined ? null : rounded(resistanceKg),
+        loadModel,
         reps,
         sets
       });
@@ -1463,7 +1540,8 @@ export function buildTrainingCoachingSummary(
       trainingMenuItemId: exercise.trainingMenuItemId,
       trainingName: exercise.trainingName,
       lastPerformedDate: exercise.lastPerformedDate,
-      maxWeightKg: exercise.maxWeightKg,
+      loadModel: exercise.loadModel,
+      bestResistanceKg: exercise.bestResistanceKg,
       estimated1RmKg: exercise.estimated1RmKg,
       recentPerformanceTrend: exercise.performances
         .sort((left, right) => String(left.date).localeCompare(String(right.date)))
@@ -1510,9 +1588,24 @@ export function buildTrainingCoachingSummary(
     weeklySets: Array.from(weeklySets.entries())
       .sort(([left], [right]) => left.localeCompare(right))
       .map(([weekStartDate, sets]) => ({ weekStartDate, sets })),
-    bodyPartSets: Array.from(bodyPartSets.entries())
-      .sort(([left], [right]) => left.localeCompare(right, "ja"))
-      .map(([bodyPart, sets]) => ({ bodyPart, sets })),
+    muscleGroupSets: Array.from(muscleGroupSets.entries())
+      .map(([groupId, stats]) => ({
+        groupId,
+        label: muscleGroupLabel(groupId as Parameters<typeof muscleGroupLabel>[0]),
+        primarySets: stats.primarySets,
+        secondarySets: stats.secondarySets,
+        effectiveSets: rounded(stats.effectiveSets)
+      }))
+      .sort((left, right) => right.effectiveSets - left.effectiveSets),
+    muscleSets: Array.from(muscleSets.entries())
+      .map(([muscleId, stats]) => ({
+        muscleId,
+        label: muscleLabel(muscleId as Parameters<typeof muscleLabel>[0]),
+        primarySets: stats.primarySets,
+        secondarySets: stats.secondarySets,
+        effectiveSets: rounded(stats.effectiveSets)
+      }))
+      .sort((left, right) => right.effectiveSets - left.effectiveSets),
     exercises,
     bodyMetrics: {
       bodyWeightKg: {
@@ -1584,7 +1677,9 @@ async function getTrainingCoachingSummary(args: ToolArgs, userId: string): Promi
     definitions: {
       weekStartsOn: "Monday",
       restDay: "A local date in the requested range without a gym visit containing entries.",
-      estimated1Rm: "Epley formula, calculated only for positive loads and 1-10 repetitions.",
+      estimated1Rm:
+        "Epley formula for external loads and assisted-bodyweight resistance (body weight minus assistance), calculated for 1-10 repetitions. Plain bodyweight movements are excluded.",
+      effectiveSets: "Primary targets receive 1.0 set credit and secondary targets receive 0.5 set credit.",
       bodyMetricAverage: "Average of recorded samples only; missing dates are not counted."
     }
   });
@@ -1738,7 +1833,12 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<McpTo
   const items = (performanceResult.Items ?? []).map((item) => ({
     trainingMenuItemId: item.trainingMenuItemId,
     trainingNameSnapshot: item.trainingNameSnapshot,
-    bodyPartSnapshot: item.bodyPartSnapshot ?? "",
+    muscleTargetsSnapshot: normalizeMuscleTargets(item.muscleTargetsSnapshot) ?? [],
+    movementPatternSnapshot: normalizeMovementPattern(item.movementPatternSnapshot),
+    lateralitySnapshot: normalizeLaterality(item.lateralitySnapshot),
+    loadModelSnapshot: normalizeLoadModel(item.loadModelSnapshot),
+    classificationVersionSnapshot: item.classificationVersionSnapshot ?? MUSCLE_TAXONOMY_VERSION,
+    bodyWeightKgSnapshot: item.bodyWeightKgSnapshot ?? null,
     equipmentSnapshot: item.equipmentSnapshot ?? "",
     isAiGeneratedSnapshot: item.isAiGeneratedSnapshot === true,
     frequencySnapshot: item.frequencySnapshot,
@@ -3020,7 +3120,11 @@ async function hydrateTrainingMenuSet(
         trainingMenuSetItemId: link.trainingMenuSetItemId,
         trainingMenuItemId: link.trainingMenuItemId,
         trainingName: menu?.trainingName ?? null,
-        bodyPart: menu?.bodyPart ?? "",
+        muscleTargets: normalizeMuscleTargets(menu?.muscleTargets) ?? [],
+        movementPattern: normalizeMovementPattern(menu?.movementPattern),
+        laterality: normalizeLaterality(menu?.laterality),
+        loadModel: normalizeLoadModel(menu?.loadModel),
+        classificationVersion: menu?.classificationVersion ?? MUSCLE_TAXONOMY_VERSION,
         equipment: menu?.equipment ?? "その他",
         description: menu?.description ?? "",
         weightInputMode: menu?.weightInputMode ?? "legacyUnspecified",
@@ -3103,7 +3207,11 @@ async function listTrainingMenuItemsForAi(userId: string): Promise<McpToolRespon
       .map((item) => ({
         trainingMenuItemId: item.trainingMenuItemId,
         trainingName: item.trainingName,
-        bodyPart: item.bodyPart ?? "",
+        muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
+        movementPattern: normalizeMovementPattern(item.movementPattern),
+        laterality: normalizeLaterality(item.laterality),
+        loadModel: normalizeLoadModel(item.loadModel),
+        classificationVersion: item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION,
         equipment: item.equipment ?? "その他",
         description: item.description ?? "",
         weightInputMode: item.weightInputMode ?? "legacyUnspecified",
@@ -4154,8 +4262,20 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
       const trainingName = toNonEmptyString(newDefinition?.trainingName);
       const equipment = normalizeEquipment(newDefinition?.equipment);
       const description = normalizeDescription(newDefinition?.description);
+      const muscleTargets = normalizeMuscleTargets(newDefinition?.muscleTargets);
+      const movementPattern = normalizeMovementPattern(newDefinition?.movementPattern);
+      const laterality = normalizeLaterality(newDefinition?.laterality);
+      const loadModel = normalizeLoadModel(newDefinition?.loadModel);
       const normalizedTrainingName = trainingName ? normalizeTrainingName(trainingName) : "";
-      if (!trainingName || !equipment || description === undefined) {
+      if (
+        !trainingName ||
+        !equipment ||
+        description === undefined ||
+        !muscleTargets ||
+        !movementPattern ||
+        !laterality ||
+        !loadModel
+      ) {
         throw new Error(`items[${index}].newTrainingMenuItem is invalid.`);
       }
       if (newNames.has(normalizedTrainingName) || await existsByTrainingName(userId, normalizedTrainingName)) {
@@ -4172,7 +4292,11 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
           trainingMenuItemId,
           trainingName,
           normalizedTrainingName,
-          bodyPart: toNonEmptyString(newDefinition?.bodyPart) ?? "",
+          muscleTargets,
+          movementPattern,
+          laterality,
+          loadModel,
+          classificationVersion: MUSCLE_TAXONOMY_VERSION,
           equipment,
           description,
           weightInputMode,

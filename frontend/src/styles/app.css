@@ -2671,3 +2671,49 @@ a {
     resize: vertical;
   }
 }
+.muscle-target-fieldset {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  margin: 0;
+  padding: 16px;
+}
+
+.muscle-target-fieldset legend {
+  font-weight: 700;
+  padding: 0 6px;
+}
+
+.muscle-target-groups {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.muscle-target-group {
+  background: var(--surface-subtle, rgba(0, 0, 0, 0.03));
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.muscle-target-group h4 {
+  margin: 0 0 8px;
+}
+
+.muscle-target-row {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 36px;
+}
+
+.muscle-target-row label {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 6px;
+}
+
+.muscle-target-row select {
+  width: auto;
+}

@@ -77,7 +77,11 @@
 
 `TrainingMenuItemDraft`:
 - `trainingName`
-- `bodyPart`
+- `muscleTargets`（主働筋を1つ以上、必要に応じて補助筋）
+- `movementPattern`
+- `laterality`
+- `loadModel`
+- `classificationVersion`
 - `equipment`
 - `frequency`
 - `defaultWeightKg`
@@ -103,7 +107,11 @@
 - `setName: string`
 - `items: Array<{
   trainingName: string,
-  bodyPart?: string,
+  muscleTargets: Array<{ muscleId: string, role: "primary" | "secondary" }>,
+  movementPattern: string,
+  laterality: "bilateral" | "unilateral" | "alternating",
+  loadModel: "external_load" | "bodyweight" | "assisted_bodyweight",
+  classificationVersion: number,
   equipment: "マシン" | "フリー" | "自重" | "その他",
   frequency: number,
   defaultWeightKg: number,

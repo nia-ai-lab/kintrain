@@ -844,7 +844,75 @@
                 "additionalProperties": false,
                 "properties": {
                   "trainingName": { "type": "string", "minLength": 1, "maxLength": 100 },
-                  "bodyPart": { "type": "string", "maxLength": 100 },
+                  "muscleTargets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "muscleId": {
+                          "type": "string",
+                          "enum": [
+                            "chest_upper",
+                            "chest_mid",
+                            "chest_lower",
+                            "latissimus",
+                            "upper_back",
+                            "spinal_erectors",
+                            "anterior_deltoid",
+                            "lateral_deltoid",
+                            "posterior_deltoid",
+                            "biceps",
+                            "triceps",
+                            "forearms",
+                            "quadriceps",
+                            "hamstrings",
+                            "glute_max",
+                            "glute_med",
+                            "adductors",
+                            "calves",
+                            "rectus_abdominis",
+                            "obliques",
+                            "core_stability"
+                          ]
+                        },
+                        "role": { "type": "string", "enum": ["primary", "secondary"] }
+                      },
+                      "required": ["muscleId", "role"]
+                    }
+                  },
+                  "movementPattern": {
+                    "type": "string",
+                    "enum": [
+                      "horizontal_push",
+                      "vertical_push",
+                      "horizontal_pull",
+                      "vertical_pull",
+                      "squat",
+                      "hip_hinge",
+                      "hip_extension",
+                      "hip_abduction",
+                      "hip_adduction",
+                      "knee_extension",
+                      "knee_flexion",
+                      "calf_raise",
+                      "elbow_flexion",
+                      "elbow_extension",
+                      "trunk_flexion",
+                      "trunk_rotation",
+                      "anti_extension"
+                    ]
+                  },
+                  "laterality": {
+                    "type": "string",
+                    "enum": ["bilateral", "unilateral", "alternating"]
+                  },
+                  "loadModel": {
+                    "type": "string",
+                    "enum": ["external_load", "bodyweight", "assisted_bodyweight"]
+                  },
                   "equipment": {
                     "type": "string",
                     "enum": ["マシン", "フリー", "自重", "その他"]
@@ -856,7 +924,14 @@
                   },
                   "fixedWeightKg": { "type": "number", "minimum": 0 }
                 },
-                "required": ["trainingName", "equipment"]
+                "required": [
+                  "trainingName",
+                  "muscleTargets",
+                  "movementPattern",
+                  "laterality",
+                  "loadModel",
+                  "equipment"
+                ]
               },
               "prescription": {
                 "type": "object",

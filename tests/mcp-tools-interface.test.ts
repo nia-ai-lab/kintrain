@@ -382,7 +382,11 @@ test("analysis export schemas expose manifest and section paging without set det
   ]);
   assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
   const handlerSource = await readFile("amplify/functions/mcp-tools-api/handler.ts", "utf8");
-  assert.match(handlerSource, /schemaVersion: 3/);
+  assert.match(handlerSource, /schemaVersion: 4/);
+  assert.match(handlerSource, /muscleTargets/);
+  assert.match(handlerSource, /movementPattern/);
+  assert.match(handlerSource, /loadModel/);
+  assert.equal(handlerSource.includes("bodyPartSnapshot"), false);
   for (const field of [
     "weightInputMode",
     "loadMultiplier",

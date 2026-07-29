@@ -12,6 +12,17 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { enumerateYmdRange } from "../shared/date-range";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response, toNonEmptyString } from "../shared/http";
+import {
+  MUSCLE_TAXONOMY_VERSION,
+  normalizeLaterality,
+  normalizeLoadModel,
+  normalizeMovementPattern,
+  normalizeMuscleTargets,
+  type Laterality,
+  type LoadModel,
+  type MovementPattern,
+  type MuscleTarget
+} from "../shared/muscle-targets";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
@@ -34,7 +45,10 @@ type DataSource = "manual" | "ai";
 
 type MenuItemInput = {
   trainingName: string;
-  bodyPart?: string;
+  muscleTargets?: MuscleTarget[];
+  movementPattern?: MovementPattern;
+  laterality?: Laterality;
+  loadModel?: LoadModel;
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
@@ -215,7 +229,11 @@ function toMenuItemResponse(item: Record<string, unknown>, usageCount = 0): Reco
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: String(item.trainingName ?? ""),
-    bodyPart: String(item.bodyPart ?? ""),
+    muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
+    movementPattern: normalizeMovementPattern(item.movementPattern),
+    laterality: normalizeLaterality(item.laterality),
+    loadModel: normalizeLoadModel(item.loadModel),
+    classificationVersion: Number(item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
     equipment: normalizeEquipment(item.equipment) ?? "その他",
     isAiGenerated: item.isAiGenerated === true,
     description: String(item.description ?? ""),
@@ -384,7 +402,19 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
   const equipment = normalizeEquipment(body.equipment ?? "その他");
   const description = trimmed(body.description) ?? "";
   const weightInputMode = body.weightInputMode ?? "direct";
-  if (!equipment || description.length > 500 || !["direct", "perSide"].includes(weightInputMode)) {
+  const muscleTargets = normalizeMuscleTargets(body.muscleTargets);
+  const movementPattern = normalizeMovementPattern(body.movementPattern);
+  const laterality = normalizeLaterality(body.laterality);
+  const loadModel = normalizeLoadModel(body.loadModel);
+  if (
+    !equipment ||
+    !muscleTargets ||
+    !movementPattern ||
+    !laterality ||
+    !loadModel ||
+    description.length > 500 ||
+    !["direct", "perSide"].includes(weightInputMode)
+  ) {
     return response(400, { message: "invalid menu item." });
   }
   const trainingMenuItemId = randomUUID();
@@ -395,7 +425,11 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
     trainingMenuItemId,
     trainingName,
     normalizedTrainingName,
-    bodyPart: trimmed(body.bodyPart) ?? "",
+    muscleTargets,
+    movementPattern,
+    laterality,
+    loadModel,
+    classificationVersion: MUSCLE_TAXONOMY_VERSION,
     equipment,
     description,
     weightInputMode,
@@ -437,14 +471,30 @@ async function updateMenuItem(
   const equipment = body.equipment !== undefined ? normalizeEquipment(body.equipment) : normalizeEquipment(current.equipment);
   const description = body.description !== undefined ? trimmed(body.description) ?? "" : String(current.description ?? "");
   const weightInputMode = body.weightInputMode ?? normalizeWeightInputMode(current.weightInputMode);
-  if (!equipment || description.length > 500) {
+  const muscleTargets =
+    body.muscleTargets !== undefined
+      ? normalizeMuscleTargets(body.muscleTargets)
+      : normalizeMuscleTargets(current.muscleTargets);
+  const movementPattern =
+    body.movementPattern !== undefined
+      ? normalizeMovementPattern(body.movementPattern)
+      : normalizeMovementPattern(current.movementPattern);
+  const laterality =
+    body.laterality !== undefined ? normalizeLaterality(body.laterality) : normalizeLaterality(current.laterality);
+  const loadModel =
+    body.loadModel !== undefined ? normalizeLoadModel(body.loadModel) : normalizeLoadModel(current.loadModel);
+  if (!equipment || !muscleTargets || !movementPattern || !laterality || !loadModel || description.length > 500) {
     return response(400, { message: "invalid menu item." });
   }
   const updatedAt = nowIsoSeconds();
   const updated = {
     trainingName,
     normalizedTrainingName,
-    bodyPart: body.bodyPart !== undefined ? trimmed(body.bodyPart) ?? "" : String(current.bodyPart ?? ""),
+    muscleTargets,
+    movementPattern,
+    laterality,
+    loadModel,
+    classificationVersion: MUSCLE_TAXONOMY_VERSION,
     equipment,
     description,
     weightInputMode,
@@ -458,7 +508,7 @@ async function updateMenuItem(
     TableName: trainingMenuTableName,
     Key: { userId, trainingMenuItemId },
     UpdateExpression:
-      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, bodyPart=:bodyPart, equipment=:equipment, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
+      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, muscleTargets=:muscleTargets, movementPattern=:movementPattern, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipment=:equipment, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE bodyPart, frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
     ExpressionAttributeNames: { "#description": "description" },
     ExpressionAttributeValues: Object.fromEntries(Object.entries(updated).map(([key, value]) => [`:${key}`, value]))
   }));

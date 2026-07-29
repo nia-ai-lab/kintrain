@@ -1,5 +1,11 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
 import amplifyOutputs from '../amplify_outputs.json';
+import type {
+  Laterality,
+  LoadModel,
+  MovementPattern,
+  MuscleTarget
+} from '../muscleTaxonomy';
 import type { Goal, UserProfile, WeightInputMode, WeightLoadMultiplier } from '../types';
 
 type CoreEndpointOutput = {
@@ -13,7 +19,11 @@ type CoreEndpointOutput = {
 export type TrainingMenuItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
-  bodyPart?: string;
+  muscleTargets: MuscleTarget[];
+  movementPattern: MovementPattern;
+  laterality: Laterality;
+  loadModel: LoadModel;
+  classificationVersion: number;
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
@@ -70,7 +80,12 @@ type ListTrainingMenuSetsResponse = {
 type GymVisitEntryInput = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
-  bodyPartSnapshot?: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementPatternSnapshot: MovementPattern;
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
   equipmentSnapshot?: string;
   isAiGeneratedSnapshot?: boolean;
   frequencySnapshot?: number;
@@ -123,7 +138,11 @@ type ListGymVisitsResponse = {
 export type TrainingSessionViewItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
-  bodyPart?: string;
+  muscleTargets: MuscleTarget[];
+  movementPattern: MovementPattern;
+  laterality: Laterality;
+  loadModel: LoadModel;
+  classificationVersion: number;
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
@@ -149,7 +168,12 @@ export type TrainingSessionViewItemDto = {
     calculatedTotalWeightKg?: number;
     reps: number;
     sets: number;
-    bodyPartSnapshot?: string;
+    muscleTargetsSnapshot: MuscleTarget[];
+    movementPatternSnapshot: MovementPattern;
+    lateralitySnapshot: Laterality;
+    loadModelSnapshot: LoadModel;
+    classificationVersionSnapshot: number;
+    bodyWeightKgSnapshot?: number;
     equipmentSnapshot?: string;
     note?: string;
     visitDateLocal: string;
@@ -394,7 +418,10 @@ export async function listTrainingMenuItems(params?: {
 
 export async function createTrainingMenuItem(input: {
   trainingName: string;
-  bodyPart?: string;
+  muscleTargets: MuscleTarget[];
+  movementPattern: MovementPattern;
+  laterality: Laterality;
+  loadModel: LoadModel;
   equipment?: string;
   isAiGenerated?: boolean;
   description?: string;
@@ -412,7 +439,10 @@ export async function updateTrainingMenuItem(
   trainingMenuItemId: string,
   input: Partial<{
     trainingName: string;
-    bodyPart: string;
+    muscleTargets: MuscleTarget[];
+    movementPattern: MovementPattern;
+    laterality: Laterality;
+    loadModel: LoadModel;
     equipment: string;
     isAiGenerated: boolean;
     description: string;

@@ -164,7 +164,11 @@ export function TrainingSessionPage() {
             return {
             id: item.trainingMenuItemId,
             trainingName: item.trainingName,
-            bodyPart: item.bodyPart ?? '',
+            muscleTargets: item.muscleTargets ?? [],
+            movementPattern: item.movementPattern,
+            laterality: item.laterality,
+            loadModel: item.loadModel,
+            classificationVersion: item.classificationVersion,
             equipment: normalizeTrainingEquipment(item.equipment),
             isAiGenerated: item.isAiGenerated === true,
             description: typeof item.description === 'string' ? item.description : '',
@@ -256,7 +260,11 @@ export function TrainingSessionPage() {
           ({
             id: draft.menuItemId,
             trainingName: '不明トレーニング',
-            bodyPart: '',
+            muscleTargets: [],
+            movementPattern: 'horizontal_push',
+            laterality: 'bilateral',
+            loadModel: 'external_load',
+            classificationVersion: 1,
             equipment: 'その他',
             isAiGenerated: false,
             description: '',
@@ -435,7 +443,7 @@ export function TrainingSessionPage() {
               <div className="training-item-head">
                 <div className="training-item-summary">
                   <p className="priority-chip">優先 {index + 1}</p>
-                  <h2>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</h2>
+                  <h2>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</h2>
                   <p className="muted">
                     {resolvedMenuSet?.setType === 'temporary' ? '本日の設定' : 'メニューセットの設定'}: {formatWeightLoad({
                       weightKg: item.targetWeightKg,
@@ -695,7 +703,7 @@ export function TrainingSessionPage() {
                 <ul className="simple-list training-session-confirm-list">
                   {validEnteredItems.map(({ draftKey, item, draft }) => (
                     <li key={draftKey}>
-                      <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
+                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</strong>
                       <span>
                         {formatWeightLoad({
                           weightKg: draft?.weightKg ?? 0,
@@ -722,7 +730,7 @@ export function TrainingSessionPage() {
                 <ul className="simple-list">
                   {incompleteEnteredItems.map(({ draftKey, item, draft }) => (
                     <li key={draftKey}>
-                      <strong>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</strong>
+                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</strong>
                       <span>
                         重量:{draft?.weightKg ?? '未入力'} / 回数:{draft?.reps ?? '未入力'} / セット:{draft?.sets ?? '未入力'}
                       </span>

@@ -3,6 +3,17 @@ import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response } from "../shared/http";
+import {
+  MUSCLE_TAXONOMY_VERSION,
+  normalizeLaterality,
+  normalizeLoadModel,
+  normalizeMovementPattern,
+  normalizeMuscleTargets,
+  type Laterality,
+  type LoadModel,
+  type MovementPattern,
+  type MuscleTarget
+} from "../shared/muscle-targets";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
@@ -29,7 +40,12 @@ function addYmdDays(value: string, days: number): string {
 type ExerciseEntry = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
-  bodyPartSnapshot?: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementPatternSnapshot: MovementPattern;
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
   equipmentSnapshot?: string;
   isAiGeneratedSnapshot?: boolean;
   frequencySnapshot?: number;
@@ -162,7 +178,12 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       isPositiveNumber(entry.sets) &&
       typeof entry.performedAtUtc === "string" &&
       entry.performedAtUtc.length > 0 &&
-      (entry.bodyPartSnapshot === undefined || typeof entry.bodyPartSnapshot === "string") &&
+      normalizeMuscleTargets(entry.muscleTargetsSnapshot) !== null &&
+      normalizeMovementPattern(entry.movementPatternSnapshot) !== null &&
+      normalizeLaterality(entry.lateralitySnapshot) !== null &&
+      normalizeLoadModel(entry.loadModelSnapshot) !== null &&
+      entry.classificationVersionSnapshot === MUSCLE_TAXONOMY_VERSION &&
+      (entry.bodyWeightKgSnapshot === undefined || isPositiveNumber(entry.bodyWeightKgSnapshot)) &&
       (entry.equipmentSnapshot === undefined || typeof entry.equipmentSnapshot === "string") &&
       (entry.isAiGeneratedSnapshot === undefined || typeof entry.isAiGeneratedSnapshot === "boolean") &&
       (entry.frequencySnapshot === undefined ||
@@ -192,7 +213,13 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
 
 export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
   return entries.map((entry) => {
-    const bodyPartSnapshot = toTrimmedString(entry.bodyPartSnapshot);
+    const muscleTargetsSnapshot = normalizeMuscleTargets(entry.muscleTargetsSnapshot);
+    const movementPatternSnapshot = normalizeMovementPattern(entry.movementPatternSnapshot);
+    const lateralitySnapshot = normalizeLaterality(entry.lateralitySnapshot);
+    const loadModelSnapshot = normalizeLoadModel(entry.loadModelSnapshot);
+    if (!muscleTargetsSnapshot || !movementPatternSnapshot || !lateralitySnapshot || !loadModelSnapshot) {
+      throw new Error("Exercise classification is invalid.");
+    }
     const equipmentSnapshot = toTrimmedString(entry.equipmentSnapshot);
     const note = toTrimmedString(entry.note);
     const weightInputModeSnapshot = normalizeWeightInputMode(entry.weightInputModeSnapshot);
@@ -218,7 +245,15 @@ export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
       ...entry,
       trainingMenuItemId: entry.trainingMenuItemId.trim(),
       trainingNameSnapshot: entry.trainingNameSnapshot.trim(),
-      bodyPartSnapshot,
+      muscleTargetsSnapshot,
+      movementPatternSnapshot,
+      lateralitySnapshot,
+      loadModelSnapshot,
+      classificationVersionSnapshot: MUSCLE_TAXONOMY_VERSION,
+      bodyWeightKgSnapshot:
+        typeof entry.bodyWeightKgSnapshot === "number"
+          ? Math.round(entry.bodyWeightKgSnapshot * 100) / 100
+          : undefined,
       equipmentSnapshot,
       isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
       frequencySnapshot:
@@ -257,7 +292,12 @@ type TrainingPerformanceItem = {
   visitDateLocal: string;
   timeZoneId: string;
   trainingNameSnapshot: string;
-  bodyPartSnapshot: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementPatternSnapshot: MovementPattern;
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
   equipmentSnapshot: string;
   isAiGeneratedSnapshot: boolean;
   frequencySnapshot?: number;
@@ -309,7 +349,12 @@ function buildTrainingPerformanceItems(params: {
     visitDateLocal: params.visitDateLocal,
     timeZoneId: params.timeZoneId,
     trainingNameSnapshot: entry.trainingNameSnapshot,
-    bodyPartSnapshot: entry.bodyPartSnapshot ?? "",
+    muscleTargetsSnapshot: entry.muscleTargetsSnapshot,
+    movementPatternSnapshot: entry.movementPatternSnapshot,
+    lateralitySnapshot: entry.lateralitySnapshot,
+    loadModelSnapshot: entry.loadModelSnapshot,
+    classificationVersionSnapshot: entry.classificationVersionSnapshot,
+    bodyWeightKgSnapshot: entry.bodyWeightKgSnapshot,
     equipmentSnapshot: entry.equipmentSnapshot ?? "",
     isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
     frequencySnapshot: entry.frequencySnapshot,
@@ -411,7 +456,12 @@ async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: 
     calculatedTotalWeightKg: item.calculatedTotalWeightKg,
     reps: item.reps,
     sets: item.sets,
-    bodyPartSnapshot: item.bodyPartSnapshot ?? "",
+    muscleTargetsSnapshot: item.muscleTargetsSnapshot,
+    movementPatternSnapshot: item.movementPatternSnapshot,
+    lateralitySnapshot: item.lateralitySnapshot,
+    loadModelSnapshot: item.loadModelSnapshot,
+    classificationVersionSnapshot: item.classificationVersionSnapshot,
+    bodyWeightKgSnapshot: item.bodyWeightKgSnapshot,
     equipmentSnapshot: item.equipmentSnapshot ?? "",
     note: item.note ?? "",
     visitDateLocal: item.visitDateLocal
@@ -730,7 +780,11 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
       return {
         trainingMenuItemId,
         trainingName: menu.trainingName,
-        bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
+        muscleTargets: normalizeMuscleTargets(menu.muscleTargets) ?? [],
+        movementPattern: normalizeMovementPattern(menu.movementPattern),
+        laterality: normalizeLaterality(menu.laterality),
+        loadModel: normalizeLoadModel(menu.loadModel),
+        classificationVersion: Number(menu.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
         equipment: typeof menu.equipment === "string" ? menu.equipment : "",
         isAiGenerated: menu.isAiGenerated === true,
         description: typeof menu.description === "string" ? menu.description : "",
