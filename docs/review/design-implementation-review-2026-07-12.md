@@ -36,7 +36,7 @@
 - UI: `docs/ui-spec.md`
 - AI経路: `docs/ai-implementation-spec.md`
 - AIメニュー生成: `docs/ai-menu-generation-spec.md` / `docs/ai-menu-generation-design.md`
-- メニューセットDB/API: `docs/training-menu-set-backend-design.md`
+- メニューセットDB/API: `docs/training-menu-and-daily-plan-requirements.md`
 - TrainingPerformance: `docs/training-performance-design.md`
 - ビルド／デプロイ: `docs/deployment.md`
 - MCPユーザー境界: `docs/mcp-security-design.md`
@@ -48,4 +48,4 @@
 - Core APIの一部自由記述に長さ上限がなく、目標値の業務範囲チェックも不足する。
 - `training-menu-api` とMCP Lambdaの入力検証が重複し、重量0の扱いなどに差がある。
 - `/history` と `/progress` はプレースホルダのまま。
-- 旧設計の `docs/tmp/training-session-menu-set-switch-design.md` は実装後の参考資料として残っており、正本ではない。
+- 実装後に正本ではなくなった旧メニューセット設計は、現行要件への統合後に削除した。

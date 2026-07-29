@@ -24,16 +24,19 @@
   - セット詳細入力
   - 「前回と同じ」「入力クリア」
 - トレーニングメニュー管理
-  - 追加・更新・削除・並び替え
+  - 種目マスタと複数メニューセットの追加・更新・削除・並び替え
   - 主働筋・補助筋、動作パターン、左右の実施方式、負荷方式の設定
-  - 回数レンジ（`defaultRepsMin/defaultRepsMax`）
+  - セットごとの目標重量・回数レンジ・セット数・推奨間隔
+  - 日付ごとのトレーニング計画（`DailyTrainingPlan`）
 - Daily記録
   - 体重・体脂肪率・測定時刻
   - 体調/気分（10段階）・コメント・日記・その他運動
+  - 睡眠時間・睡眠の質・疲労度・やる気・筋肉痛・安静時心拍数
+  - 痛み・違和感の部位別記録、食事内容・栄養メモ
   - 自動保存（3秒デバウンス）+ 明示保存ボタン
 - カレンダー表示（月次、実施日/体調アイコン、当日ハイライト）
 - AIチャット（AgentCore RuntimeへのSSE接続。Runtime未設定時のみモック応答へフォールバック）
-- AIメニュー生成（対話で提案を調整し、MCP経由で新規セットとして登録）
+- AIメニュー生成（対話で提案を調整し、既存／新規種目を組み合わせた有効期間付き一時セットとしてMCP経由で登録）
 - ユーザー／AIコーチのアバター画像アップロードと永続化
 - iPhoneホーム画面追加対応（PWA manifest / standalone起動メタタグ）
 
@@ -54,18 +57,24 @@
   - `ai-settings-api`
   - `coaching-context-api`
   - `avatar-upload-api`
+  - `mcp-identity-interceptor`（Gateway REQUEST Interceptor）
   - `mcp-tools-api`（AgentCore GatewayのLambda target）
 - DynamoDB
   - `KinTrain-UserProfileTable-{branch}`
   - `KinTrain-TrainingMenuTable-{branch}`
   - `KinTrain-TrainingMenuSetTable-{branch}`
   - `KinTrain-TrainingMenuSetItemTable-{branch}`
+  - `KinTrain-DailyTrainingPlanTable-{branch}`
   - `KinTrain-TrainingHistoryTable-{branch}`
   - `KinTrain-TrainingPerformanceTable-{branch}`
   - `KinTrain-DailyRecordTable-{branch}`
   - `KinTrain-GoalTable-{branch}`
   - `KinTrain-AiSettingTable-{branch}`
   - `KinTrain-CoachingContextTable-{branch}`
+- S3
+  - private `AvatarImageBucket`（ユーザー／AIコーチのアバター）
+- Secrets Manager
+  - ページネーショントークン署名鍵
 
 ## ローカル実行
 
@@ -121,9 +130,11 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
 - `ENABLE_WEB_SEARCH_TOOL`  
   `true` / `false`
 - `WEB_SEARCH_PROVIDER`  
-  `tavily` または `exa`
+  `http_request`、`tavily`、`exa`（省略時は `http_request`）
 - `TAVILY_API_KEY` / `EXA_API_KEY`
   現行コードはRuntime環境変数へ渡す実装のため、利用前にSecrets Manager参照へ移行すること。値をリポジトリへ保存しない。
+
+注記: 現行コードは `WEB_SEARCH_PROVIDER=http_request` の場合に `ENABLE_WEB_SEARCH_TOOL=false` でもHTTP取得ツールをロードします。外部取得を無効化する契約との不一致、および取得先URL制限は継続課題です。
 
 既存Runtimeを使う場合のみ:
 
@@ -139,6 +150,7 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
 - 要件定義: `docs/spec.md`
 - UI仕様: `docs/ui-spec.md`
 - AI実装仕様: `docs/ai-implementation-spec.md`
+- AWSアーキテクチャ図: `docs/kintrain-architecture.svg` / `docs/kintrain-architecture.png`
 - MCPユーザー境界セキュリティ設計: `docs/mcp-security-design.md`
 - MCP体重・体脂肪率一括登録要件: `docs/mcp-body-metrics-bulk-registration-requirements.md`
 - ChatGPT MCP接続: `docs/chatgpt-mcp-connection.md`

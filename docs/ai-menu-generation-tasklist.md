@@ -1,22 +1,31 @@
 # KinTrain AIメニュー生成 タスクリスト
 
-最終更新日: 2026-07-12
-ステータス: 実装完了（セキュリティ是正を除く）
+最終更新日: 2026-07-29
+ステータス: 現行機能は実装完了
 
 ## 完了
 
-- 条件フォーム、専用チャット、セッション分離、追加指示、登録導線
-- 通常AIチャットと共通のAgentCore Runtime接続
-- `create_training_menu_set_from_ai` tool schema、Gateway公開、MCP Lambda実装
-- 新規セット・新規種目・紐付けの単一DynamoDB transaction
-- `isAiGenerated=true` 強制、最大20種目、名前重複拒否
+- 条件フォーム、専用チャット、通常チャットとのセッション分離
+- 有効開始日・終了日と31日上限のUI検証
+- AgentCore RuntimeへのSSE接続と進行状態表示
+- `list_training_menu_items` による既存種目参照
+- 既存種目と新規種目を混在できる一時セット登録
+- `create_temporary_training_menu_set_from_ai` のGateway schemaとMCP Lambda実装
+- 1セット最大12種目
+- `TrainingMenuItem` / `TrainingMenuSet` / `TrainingMenuSetItem` / `DailyTrainingPlan` の整合登録
+- 冪等性キー、日付競合検出、ユーザー確認後の置き換え
 - 登録後の `refreshCoreData()`
-- 仕様書、実装設計、UI設計、README更新
+- 一時メニューの取得、日程変更、部分更新、論理キャンセル
+- Gateway REQUEST Interceptorによるアクセストークン再検証と本人ID強制
+- MCPツール境界、日付競合、ライフサイクルの回帰テスト
 
-## 残タスク
+## 継続課題
 
-- MCP `userId` をモデル公開引数から削除し、検証済みidentityだけをLambdaへ渡す
-- `ENABLE_WEB_SEARCH_TOOL=false` でHTTP取得ツールを確実に無効化する
-- HTTP取得先のloopback、link-local、private IP、AWS metadata/credential endpointを拒否する
-- Webコンテンツを非信頼データとして扱い、内容を理由に書き込みツールを実行しない制御を追加する
-- UI条件入力から登録までの自動E2E、重複・ロールバック・ユーザー境界テストを追加する
+- RuntimeのMemory `actorId` をRuntime認可済みclaimへ固定する
+- Web取得を無効化設定どおりに停止し、loopback、link-local、private IP、
+  AWS metadata/credential endpointを拒否する
+- Webコンテンツを非信頼データとして扱うprompt injection対策を強化する
+- 外部検索APIキーをRuntime環境変数からSecrets Manager参照へ移行する
+- UI条件入力から実際のRuntime／Gateway登録までを含む自動E2Eを拡充する
+
+セキュリティ課題の詳細は `docs/review/security-review-2026-07-12.md` を参照する。

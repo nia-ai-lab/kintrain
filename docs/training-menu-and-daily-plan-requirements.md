@@ -1,6 +1,6 @@
 # メニューセット・種目・今日のトレーニング計画 再設計要件
 
-最終更新日: 2026-07-27
+最終更新日: 2026-07-29
 
 ## 1. 目的
 
@@ -9,8 +9,8 @@ KinTrain のトレーニング関連データを、次の利用方法に適し�
 - 種目をユーザー固有のマスタとして一元管理する。
 - 同じ種目を複数のメニューセットで共有する。
 - 重量、回数、セット数などの目標値をメニューセットごとに設定する。
-- AI が既存種目と新規種目を組み合わせて、今日利用する一時的なメニューセットを作成できるようにする。
-- 実施画面を開いたときに、今日のメニューセットを直ちに取得して利用できるようにする。
+- AI が既存種目と新規種目を組み合わせて、有効期間付きの一時メニューセットを作成できるようにする。
+- 実施画面を開いたときに、対象日のメニューセットを直ちに取得して利用できるようにする。
 - 一時的なメニューセットを実施後に削除できるようにする。
 - 一時セットや種目定義を削除しても、確定済みの実施履歴は失われないようにする。
 - メニューセット管理と種目マスタ管理を分離し、スマートフォンでも直感的に操作できるようにする。
@@ -280,8 +280,8 @@ erDiagram
 - `PUT /training-menu-sets/{trainingMenuSetId}`
 - `DELETE /training-menu-sets/{trainingMenuSetId}`
 - `POST /training-menu-sets/{trainingMenuSetId}/items`
-- `PUT /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuSetItemId}`
-- `DELETE /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuSetItemId}`
+- `PUT /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
+- `DELETE /training-menu-sets/{trainingMenuSetId}/items/{trainingMenuItemId}`
 - `PUT /training-menu-sets/{trainingMenuSetId}/items/reorder`
 - `PUT /training-menu-sets/{trainingMenuSetId}/items/bulk`
 
