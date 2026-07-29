@@ -29,19 +29,16 @@ import { initialAppData } from './data/mock-data';
 import {
   MUSCLE_TAXONOMY_VERSION,
   normalizeMuscleTargets,
+  type EquipmentType,
+  type JointAction,
   type Laterality,
   type LoadModel,
-  type MovementPattern,
+  type MovementFamily,
   type MuscleTarget
 } from './muscleTaxonomy';
 import { toLocalIsoWithOffset, toYmd } from './utils/date';
 import { loadFromStorage, saveToStorage } from './utils/storage';
-import {
-  calculateTotalWeightKg,
-  normalizeFixedWeightKg,
-  normalizeLoadMultiplier,
-  normalizeWeightInputMode
-} from './utils/weightLoad';
+import { calculateTotalWeightKg, normalizeLoadMultiplier, normalizeWeightInputMode } from './utils/weightLoad';
 import type {
   AiCharacterProfile,
   AppData,
@@ -52,7 +49,6 @@ import type {
   ExerciseEntry,
   Goal,
   MoodRating,
-  TrainingEquipment,
   TrainingFrequencyDays,
   TrainingMenuSet,
   TrainingMenuItem,
@@ -118,37 +114,28 @@ interface AppStateContextValue {
 
 const AppStateContext = createContext<AppStateContextValue | null>(null);
 
-const defaultTrainingEquipment: TrainingEquipment = 'マシン';
-const trainingEquipmentValues: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
 const defaultTrainingFrequency: TrainingFrequencyDays = 3;
 const trainingFrequencyValues: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
 const maxTrainingSessionEntryCount = 12;
-const movementPatterns = new Set<MovementPattern>([
-  'horizontal_push',
-  'vertical_push',
-  'horizontal_pull',
-  'vertical_pull',
-  'squat',
-  'hip_hinge',
-  'hip_extension',
-  'hip_abduction',
-  'hip_adduction',
-  'knee_extension',
-  'knee_flexion',
-  'calf_raise',
-  'elbow_flexion',
-  'elbow_extension',
-  'trunk_flexion',
-  'trunk_rotation',
-  'anti_extension'
+const movementFamilies = new Set<MovementFamily>(['push', 'pull', 'squat', 'hinge', 'trunk', 'isolation']);
+const equipmentTypes = new Set<EquipmentType>([
+  'barbell', 'dumbbell', 'kettlebell', 'cable_machine', 'smith_machine',
+  'selectorized_machine', 'plate_loaded_machine', 'assisted_machine', 'pullup_bar',
+  'dip_station', 'roman_chair', 'bodyweight_space', 'ab_wheel', 'other'
 ]);
 const lateralities = new Set<Laterality>(['bilateral', 'unilateral', 'alternating']);
-const loadModels = new Set<LoadModel>(['external_load', 'bodyweight', 'assisted_bodyweight']);
+const loadModels = new Set<LoadModel>([
+  'external_load', 'bodyweight', 'bodyweight_plus_external_load', 'assisted_bodyweight'
+]);
 
-function normalizeMovementPattern(value: unknown): MovementPattern {
-  return typeof value === 'string' && movementPatterns.has(value as MovementPattern)
-    ? (value as MovementPattern)
-    : 'horizontal_push';
+function normalizeMovementFamily(value: unknown): MovementFamily {
+  return typeof value === 'string' && movementFamilies.has(value as MovementFamily)
+    ? (value as MovementFamily)
+    : 'isolation';
+}
+
+function normalizeJointActions(value: unknown): JointAction[] {
+  return Array.isArray(value) ? value.filter((candidate): candidate is JointAction => typeof candidate === 'string') : [];
 }
 
 function normalizeLaterality(value: unknown): Laterality {
@@ -159,17 +146,10 @@ function normalizeLoadModel(value: unknown): LoadModel {
   return typeof value === 'string' && loadModels.has(value as LoadModel) ? (value as LoadModel) : 'external_load';
 }
 
-function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
-  if (typeof value === 'string' && trainingEquipmentValues.includes(value as TrainingEquipment)) {
-    return value as TrainingEquipment;
-  }
-  if (typeof value === 'string') {
-    const legacy = value.trim();
-    if (legacy === 'バーベル' || legacy === 'ダンベル' || legacy === 'ケトルベル') {
-      return 'フリー';
-    }
-  }
-  return defaultTrainingEquipment;
+function normalizeEquipmentType(value: unknown): EquipmentType {
+  return typeof value === 'string' && equipmentTypes.has(value as EquipmentType)
+    ? (value as EquipmentType)
+    : 'other';
 }
 
 function normalizeTrainingDescription(value: unknown): string {
@@ -375,18 +355,19 @@ function normalizeAppData(rawData: AppData): AppData {
     return {
       ...item,
       trainingName: item.trainingName ?? item.machineName ?? '未設定トレーニング',
+      exerciseFamilyId: item.exerciseFamilyId ?? item.id,
       muscleTargets: normalizeMuscleTargets(item.muscleTargets),
-      movementPattern: normalizeMovementPattern(item.movementPattern),
+      movementFamily: normalizeMovementFamily(item.movementFamily),
+      jointActions: normalizeJointActions(item.jointActions),
       laterality: normalizeLaterality(item.laterality),
       loadModel: normalizeLoadModel(item.loadModel),
       classificationVersion: Number(item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
-      equipment: normalizeTrainingEquipment((item as TrainingMenuItem & { equipment?: unknown }).equipment),
+      equipmentType: normalizeEquipmentType(item.equipmentType),
       isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
       description: normalizeTrainingDescription(item.description),
       frequency: normalizeTrainingFrequency(item.frequency),
       weightInputMode,
       loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
-      fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
       usageCount: Number(item.usageCount ?? 0),
       ...normalizeRepsRange(item)
     };
@@ -409,24 +390,19 @@ function normalizeAppData(rawData: AppData): AppData {
         ...entry,
         trainingName: entry.trainingName ?? entry.machineName ?? '未設定トレーニング',
         muscleTargetsSnapshot: normalizeMuscleTargets(entry.muscleTargetsSnapshot),
-        movementPatternSnapshot: normalizeMovementPattern(entry.movementPatternSnapshot),
+        movementFamilySnapshot: normalizeMovementFamily(entry.movementFamilySnapshot),
+        jointActionsSnapshot: normalizeJointActions(entry.jointActionsSnapshot),
         lateralitySnapshot: normalizeLaterality(entry.lateralitySnapshot),
         loadModelSnapshot: normalizeLoadModel(entry.loadModelSnapshot),
         classificationVersionSnapshot: Number(
           entry.classificationVersionSnapshot ?? MUSCLE_TAXONOMY_VERSION
         ),
-        equipment: typeof (entry as ExerciseEntry & { equipment?: unknown }).equipment === 'string'
-          ? ((entry as ExerciseEntry & { equipment?: string }).equipment ?? '')
-          : '',
+        equipmentTypeSnapshot: normalizeEquipmentType(entry.equipmentTypeSnapshot),
         weightInputModeSnapshot,
         loadMultiplierSnapshot:
           weightInputModeSnapshot === 'legacyUnspecified'
             ? undefined
             : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot),
-        fixedWeightKgSnapshot:
-          weightInputModeSnapshot === 'legacyUnspecified'
-            ? undefined
-            : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot),
         calculatedTotalWeightKg:
           typeof entry.calculatedTotalWeightKg === 'number' && Number.isFinite(entry.calculatedTotalWeightKg)
             ? entry.calculatedTotalWeightKg
@@ -475,17 +451,20 @@ function toUtcIsoSeconds(localIso: string): string {
 function mapRemoteMenuItem(item: {
   trainingMenuItemId: string;
   trainingName: string;
+  exerciseFamilyId?: string;
   muscleTargets?: MuscleTarget[];
-  movementPattern?: MovementPattern;
+  movementFamily?: MovementFamily;
+  jointActions?: JointAction[];
   laterality?: Laterality;
   loadModel?: LoadModel;
   classificationVersion?: number;
-  equipment?: string;
+  equipmentType?: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: TrainingMenuItem['cableSettings'];
   isAiGenerated?: boolean;
   description?: string;
   weightInputMode?: unknown;
   loadMultiplier?: unknown;
-  fixedWeightKg?: unknown;
   isActive: boolean;
   usageCount?: number;
 }): TrainingMenuItem {
@@ -493,19 +472,22 @@ function mapRemoteMenuItem(item: {
   return {
     id: item.trainingMenuItemId,
     trainingName: item.trainingName,
+    exerciseFamilyId: item.exerciseFamilyId ?? item.trainingMenuItemId,
     muscleTargets: normalizeMuscleTargets(item.muscleTargets),
-    movementPattern: normalizeMovementPattern(item.movementPattern),
+    movementFamily: normalizeMovementFamily(item.movementFamily),
+    jointActions: normalizeJointActions(item.jointActions),
     laterality: normalizeLaterality(item.laterality),
     loadModel: normalizeLoadModel(item.loadModel),
     classificationVersion: Number(item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
-    equipment: normalizeTrainingEquipment(item.equipment),
+    equipmentType: normalizeEquipmentType(item.equipmentType),
+    equipmentProfileId: item.equipmentProfileId,
+    cableSettings: item.cableSettings,
     isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
     description: normalizeTrainingDescription(item.description),
     frequency: 3,
     defaultWeightKg: 0,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
-    fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
     defaultRepsMin: 1,
     defaultRepsMax: 1,
     defaultSets: 1,
@@ -563,17 +545,17 @@ function mapRemoteGymVisit(visit: {
     trainingMenuItemId?: string;
     trainingNameSnapshot?: string;
     muscleTargetsSnapshot?: MuscleTarget[];
-    movementPatternSnapshot?: MovementPattern;
+    movementFamilySnapshot?: MovementFamily;
+    jointActionsSnapshot?: JointAction[];
     lateralitySnapshot?: Laterality;
     loadModelSnapshot?: LoadModel;
     classificationVersionSnapshot?: number;
     bodyWeightKgSnapshot?: number;
-    equipmentSnapshot?: string;
+    equipmentTypeSnapshot?: EquipmentType;
     note?: string;
     weightKg?: number;
     weightInputModeSnapshot?: unknown;
     loadMultiplierSnapshot?: unknown;
-    fixedWeightKgSnapshot?: unknown;
     calculatedTotalWeightKg?: number;
     reps?: number;
     sets?: number;
@@ -601,14 +583,13 @@ function mapRemoteGymVisit(visit: {
       weightInputModeSnapshot === 'legacyUnspecified'
         ? undefined
         : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot);
-    const fixedWeightKgSnapshot =
-      weightInputModeSnapshot === 'legacyUnspecified' ? undefined : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot);
     return {
       id: `${visit.visitId}-entry-${index + 1}`,
       menuItemId: entry.trainingMenuItemId ?? '',
       trainingName: entry.trainingNameSnapshot ?? '不明トレーニング',
       muscleTargetsSnapshot: normalizeMuscleTargets(entry.muscleTargetsSnapshot),
-      movementPatternSnapshot: normalizeMovementPattern(entry.movementPatternSnapshot),
+      movementFamilySnapshot: normalizeMovementFamily(entry.movementFamilySnapshot),
+      jointActionsSnapshot: normalizeJointActions(entry.jointActionsSnapshot),
       lateralitySnapshot: normalizeLaterality(entry.lateralitySnapshot),
       loadModelSnapshot: normalizeLoadModel(entry.loadModelSnapshot),
       classificationVersionSnapshot: Number(
@@ -616,12 +597,11 @@ function mapRemoteGymVisit(visit: {
       ),
       bodyWeightKgSnapshot:
         typeof entry.bodyWeightKgSnapshot === 'number' ? entry.bodyWeightKgSnapshot : undefined,
-      equipment: typeof entry.equipmentSnapshot === 'string' ? entry.equipmentSnapshot : '',
+      equipmentTypeSnapshot: normalizeEquipmentType(entry.equipmentTypeSnapshot),
       note: typeof entry.note === 'string' ? entry.note : undefined,
       weightKg: Number(entry.weightKg ?? 0),
       weightInputModeSnapshot,
       loadMultiplierSnapshot,
-      fixedWeightKgSnapshot,
       calculatedTotalWeightKg:
         typeof entry.calculatedTotalWeightKg === 'number' && Number.isFinite(entry.calculatedTotalWeightKg)
           ? entry.calculatedTotalWeightKg
@@ -1130,26 +1110,26 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               menuItemId: entry.menuItemId,
               trainingName: menuItem?.trainingName ?? '不明トレーニング',
               muscleTargetsSnapshot: menuItem?.muscleTargets ?? [],
-              movementPatternSnapshot: menuItem?.movementPattern ?? 'horizontal_push',
+              movementFamilySnapshot: menuItem?.movementFamily ?? 'isolation',
+              jointActionsSnapshot: menuItem?.jointActions ?? [],
               lateralitySnapshot: menuItem?.laterality ?? 'bilateral',
               loadModelSnapshot: menuItem?.loadModel ?? 'external_load',
               classificationVersionSnapshot:
                 menuItem?.classificationVersion ?? MUSCLE_TAXONOMY_VERSION,
               bodyWeightKgSnapshot: data.dailyRecords[date]?.bodyWeightKg,
-              equipment: menuItem?.equipment ?? '',
+              equipmentTypeSnapshot: menuItem?.equipmentType ?? 'other',
+              equipmentProfileIdSnapshot: menuItem?.equipmentProfileId,
+              cableSettingsSnapshot: menuItem?.cableSettings,
               note: typeof entry.memo === 'string' ? entry.memo.trim() || undefined : undefined,
               weightKg: entry.weightKg ?? 0,
               weightInputModeSnapshot: menuItem?.weightInputMode ?? 'legacyUnspecified',
               loadMultiplierSnapshot:
                 menuItem?.weightInputMode === 'legacyUnspecified' ? undefined : menuItem?.loadMultiplier,
-              fixedWeightKgSnapshot:
-                menuItem?.weightInputMode === 'legacyUnspecified' ? undefined : menuItem?.fixedWeightKg,
               calculatedTotalWeightKg: menuItem
                 ? calculateTotalWeightKg(
                     entry.weightKg,
                     menuItem.weightInputMode,
-                    menuItem.loadMultiplier,
-                    menuItem.fixedWeightKg
+                    menuItem.loadMultiplier
                   )
                 : undefined,
               reps: entry.reps ?? 0,
@@ -1198,19 +1178,25 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                 trainingMenuItemId: entry.menuItemId,
                 trainingNameSnapshot: entry.trainingName,
                 muscleTargetsSnapshot: entry.muscleTargetsSnapshot,
-                movementPatternSnapshot: entry.movementPatternSnapshot,
+                movementFamilySnapshot: entry.movementFamilySnapshot,
+                jointActionsSnapshot: entry.jointActionsSnapshot,
                 lateralitySnapshot: entry.lateralitySnapshot,
                 loadModelSnapshot: entry.loadModelSnapshot,
                 classificationVersionSnapshot: entry.classificationVersionSnapshot,
                 bodyWeightKgSnapshot: entry.bodyWeightKgSnapshot,
-                equipmentSnapshot: entry.equipment.trim() || undefined,
+                equipmentTypeSnapshot: entry.equipmentTypeSnapshot,
+                equipmentProfileIdSnapshot: entry.equipmentProfileIdSnapshot,
+                cableSettingsSnapshot: entry.cableSettingsSnapshot,
                 isAiGeneratedSnapshot: menuItem?.isAiGenerated === true,
                 frequencySnapshot: menuItem?.frequency,
                 note: entry.note?.trim() || undefined,
                 weightKg: entry.weightKg,
+                additionalLoadKg:
+                  entry.loadModelSnapshot === 'bodyweight_plus_external_load' ? entry.weightKg : undefined,
+                assistanceKg:
+                  entry.loadModelSnapshot === 'assisted_bodyweight' ? entry.weightKg : undefined,
                 weightInputModeSnapshot: entry.weightInputModeSnapshot,
                 loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
-                fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
                 calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
                 reps: entry.reps,
                 sets: entry.sets,
@@ -1418,24 +1404,25 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         const payload = {
           trainingName: item.trainingName.trim(),
+          exerciseFamilyId: item.exerciseFamilyId,
           muscleTargets: item.muscleTargets,
-          movementPattern: item.movementPattern,
+          movementFamily: item.movementFamily,
+          jointActions: item.jointActions,
           laterality: item.laterality,
           loadModel: item.loadModel,
-          equipment: normalizeTrainingEquipment(item.equipment),
+          equipmentType: item.equipmentType,
+          equipmentProfileId: item.equipmentProfileId,
+          cableSettings: item.cableSettings,
           isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
           description: normalizeTrainingDescription(item.description),
           weightInputMode: item.weightInputMode,
-          loadMultiplier: item.loadMultiplier,
-          fixedWeightKg: Math.round(item.fixedWeightKg * 100) / 100
+          loadMultiplier: item.loadMultiplier
         };
         if (
           !payload.trainingName ||
           !payload.muscleTargets.some((target) => target.role === 'primary') ||
           !Number.isFinite(item.defaultWeightKg) ||
           item.defaultWeightKg < 0 ||
-          !Number.isFinite(payload.fixedWeightKg) ||
-          payload.fixedWeightKg < 0 ||
           item.defaultRepsMin <= 0 ||
           item.defaultRepsMax <= 0 ||
           item.defaultRepsMin > item.defaultRepsMax ||
@@ -1489,8 +1476,6 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           !nextItem.trainingName.trim() ||
           !Number.isFinite(nextItem.defaultWeightKg) ||
           nextItem.defaultWeightKg < 0 ||
-          !Number.isFinite(nextItem.fixedWeightKg) ||
-          nextItem.fixedWeightKg < 0 ||
           nextItem.defaultRepsMin <= 0 ||
           nextItem.defaultRepsMax <= 0 ||
           nextItem.defaultRepsMin > nextItem.defaultRepsMax ||
@@ -1500,16 +1485,19 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         }
         void updateTrainingMenuItemApi(itemId, {
           trainingName: nextItem.trainingName.trim(),
+          exerciseFamilyId: nextItem.exerciseFamilyId,
           muscleTargets: nextItem.muscleTargets,
-          movementPattern: nextItem.movementPattern,
+          movementFamily: nextItem.movementFamily,
+          jointActions: nextItem.jointActions,
           laterality: nextItem.laterality,
           loadModel: nextItem.loadModel,
-          equipment: normalizeTrainingEquipment(nextItem.equipment),
+          equipmentType: nextItem.equipmentType,
+          equipmentProfileId: nextItem.equipmentProfileId,
+          cableSettings: nextItem.cableSettings,
           isAiGenerated: normalizeAiGeneratedFlag(nextItem.isAiGenerated),
           description: normalizeTrainingDescription(nextItem.description),
           weightInputMode: nextItem.weightInputMode,
-          loadMultiplier: nextItem.loadMultiplier,
-          fixedWeightKg: Math.round(nextItem.fixedWeightKg * 100) / 100
+          loadMultiplier: nextItem.loadMultiplier
         })
           .then(() => {
             setCoreDataError('');

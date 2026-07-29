@@ -1,12 +1,14 @@
 import { fetchAuthSession } from 'aws-amplify/auth';
 import amplifyOutputs from '../amplify_outputs.json';
 import type {
+  EquipmentType,
+  JointAction,
   Laterality,
   LoadModel,
-  MovementPattern,
+  MovementFamily,
   MuscleTarget
 } from '../muscleTaxonomy';
-import type { Goal, UserProfile, WeightInputMode, WeightLoadMultiplier } from '../types';
+import type { CableSettings, Goal, UserProfile, WeightInputMode, WeightLoadMultiplier } from '../types';
 
 type CoreEndpointOutput = {
   custom?: {
@@ -19,17 +21,20 @@ type CoreEndpointOutput = {
 export type TrainingMenuItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
+  exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
-  movementPattern: MovementPattern;
+  movementFamily: MovementFamily;
+  jointActions: JointAction[];
   laterality: Laterality;
   loadModel: LoadModel;
   classificationVersion: number;
-  equipment?: string;
+  equipmentType: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: CableSettings;
   isAiGenerated?: boolean;
   description?: string;
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
-  fixedWeightKg?: number;
   isActive: boolean;
   usageCount: number;
   createdAt: string;
@@ -81,19 +86,23 @@ type GymVisitEntryInput = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
   muscleTargetsSnapshot: MuscleTarget[];
-  movementPatternSnapshot: MovementPattern;
+  movementFamilySnapshot: MovementFamily;
+  jointActionsSnapshot: JointAction[];
   lateralitySnapshot: Laterality;
   loadModelSnapshot: LoadModel;
   classificationVersionSnapshot: number;
   bodyWeightKgSnapshot?: number;
-  equipmentSnapshot?: string;
+  equipmentTypeSnapshot: EquipmentType;
+  equipmentProfileIdSnapshot?: string;
+  cableSettingsSnapshot?: CableSettings;
   isAiGeneratedSnapshot?: boolean;
   frequencySnapshot?: number;
   note?: string;
   weightKg: number;
+  additionalLoadKg?: number;
+  assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: WeightLoadMultiplier;
-  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -138,12 +147,16 @@ type ListGymVisitsResponse = {
 export type TrainingSessionViewItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
+  exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
-  movementPattern: MovementPattern;
+  movementFamily: MovementFamily;
+  jointActions: JointAction[];
   laterality: Laterality;
   loadModel: LoadModel;
   classificationVersion: number;
-  equipment?: string;
+  equipmentType: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: CableSettings;
   isAiGenerated?: boolean;
   description?: string;
   trainingMenuSetItemId: string;
@@ -156,7 +169,6 @@ export type TrainingSessionViewItemDto = {
   createdBy: 'manual' | 'ai';
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
-  fixedWeightKg?: number;
   displayOrder: number;
   isActive: boolean;
   lastPerformanceSnapshot?: {
@@ -164,17 +176,17 @@ export type TrainingSessionViewItemDto = {
     weightKg: number;
     weightInputModeSnapshot?: WeightInputMode;
     loadMultiplierSnapshot?: WeightLoadMultiplier;
-    fixedWeightKgSnapshot?: number;
     calculatedTotalWeightKg?: number;
     reps: number;
     sets: number;
     muscleTargetsSnapshot: MuscleTarget[];
-    movementPatternSnapshot: MovementPattern;
+    movementFamilySnapshot: MovementFamily;
+    jointActionsSnapshot: JointAction[];
     lateralitySnapshot: Laterality;
     loadModelSnapshot: LoadModel;
     classificationVersionSnapshot: number;
     bodyWeightKgSnapshot?: number;
-    equipmentSnapshot?: string;
+    equipmentTypeSnapshot: EquipmentType;
     note?: string;
     visitDateLocal: string;
   };
@@ -418,16 +430,19 @@ export async function listTrainingMenuItems(params?: {
 
 export async function createTrainingMenuItem(input: {
   trainingName: string;
+  exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
-  movementPattern: MovementPattern;
+  movementFamily: MovementFamily;
+  jointActions: JointAction[];
   laterality: Laterality;
   loadModel: LoadModel;
-  equipment?: string;
+  equipmentType: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: CableSettings;
   isAiGenerated?: boolean;
   description?: string;
   weightInputMode: WeightInputMode;
   loadMultiplier: WeightLoadMultiplier;
-  fixedWeightKg: number;
 }): Promise<TrainingMenuItemDto> {
   return coreApiFetch<TrainingMenuItemDto>('/training-menu-items', {
     method: 'POST',
@@ -439,16 +454,19 @@ export async function updateTrainingMenuItem(
   trainingMenuItemId: string,
   input: Partial<{
     trainingName: string;
+    exerciseFamilyId: string;
     muscleTargets: MuscleTarget[];
-    movementPattern: MovementPattern;
+    movementFamily: MovementFamily;
+    jointActions: JointAction[];
     laterality: Laterality;
     loadModel: LoadModel;
-    equipment: string;
+    equipmentType: EquipmentType;
+    equipmentProfileId: string;
+    cableSettings: CableSettings;
     isAiGenerated: boolean;
     description: string;
     weightInputMode: WeightInputMode;
     loadMultiplier: WeightLoadMultiplier;
-    fixedWeightKg: number;
     isActive: boolean;
   }>
 ): Promise<TrainingMenuItemDto> {

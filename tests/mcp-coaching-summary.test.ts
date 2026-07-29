@@ -72,18 +72,19 @@ test("coaching summary aggregates sets, streaks, trends, and recorded-sample ave
   assert.equal(summary.longestTrainingStreak, 2);
   assert.equal(summary.currentTrainingStreakThroughEndDate, 2);
   assert.deepEqual(summary.muscleGroupSets, [
-    { groupId: "chest", label: "胸", primarySets: 7, secondarySets: 0, effectiveSets: 7 },
-    { groupId: "arms", label: "腕", primarySets: 0, secondarySets: 7, effectiveSets: 3.5 },
-    { groupId: "shoulders", label: "肩", primarySets: 0, secondarySets: 7, effectiveSets: 3.5 }
+    { groupId: "chest", label: "胸", primarySets: 7, secondarySets: 0, stabilizerSets: 0, effectiveSets: 7 },
+    { groupId: "arms", label: "腕", primarySets: 0, secondarySets: 7, stabilizerSets: 0, effectiveSets: 3.5 },
+    { groupId: "shoulders", label: "肩", primarySets: 0, secondarySets: 7, stabilizerSets: 0, effectiveSets: 3.5 }
   ]);
   assert.deepEqual(summary.muscleSets, [
-    { muscleId: "chest_mid", label: "胸（中部）", primarySets: 7, secondarySets: 0, effectiveSets: 7 },
-    { muscleId: "triceps", label: "上腕三頭筋", primarySets: 0, secondarySets: 7, effectiveSets: 3.5 },
+    { muscleId: "chest_mid", label: "胸（中部）", primarySets: 7, secondarySets: 0, stabilizerSets: 0, effectiveSets: 7 },
+    { muscleId: "triceps", label: "上腕三頭筋", primarySets: 0, secondarySets: 7, stabilizerSets: 0, effectiveSets: 3.5 },
     {
       muscleId: "anterior_deltoid",
       label: "三角筋前部",
       primarySets: 0,
       secondarySets: 7,
+      stabilizerSets: 0,
       effectiveSets: 3.5
     }
   ]);
@@ -111,6 +112,7 @@ test("assisted bodyweight strength improves when assistance decreases", () => {
             loadModelSnapshot: "assisted_bodyweight",
             classificationVersionSnapshot: 1,
             bodyWeightKgSnapshot: 72,
+            assistanceKg: 19,
             calculatedTotalWeightKg: 19,
             reps: 8,
             sets: 3
@@ -129,6 +131,7 @@ test("assisted bodyweight strength improves when assistance decreases", () => {
             loadModelSnapshot: "assisted_bodyweight",
             classificationVersionSnapshot: 1,
             bodyWeightKgSnapshot: 72,
+            assistanceKg: 12,
             calculatedTotalWeightKg: 12,
             reps: 8,
             sets: 3

@@ -1,4 +1,4 @@
-export const MUSCLE_TAXONOMY_VERSION = 1;
+export const MUSCLE_TAXONOMY_VERSION = 2;
 
 export const muscleGroups = [
   { id: "chest", label: "胸" },
@@ -35,8 +35,8 @@ export const muscles = [
 
 export type MuscleId = (typeof muscles)[number]["id"];
 export type MuscleGroupId = (typeof muscleGroups)[number]["id"];
-export type MuscleRole = "primary" | "secondary";
-export type MovementPattern =
+export type MuscleRole = "primary" | "secondary" | "stabilizer";
+type LegacyMovementPattern =
   | "horizontal_push"
   | "vertical_push"
   | "horizontal_pull"
@@ -55,16 +55,56 @@ export type MovementPattern =
   | "trunk_rotation"
   | "anti_extension";
 export type Laterality = "bilateral" | "unilateral" | "alternating";
-export type LoadModel = "external_load" | "bodyweight" | "assisted_bodyweight";
+export type LoadModel =
+  | "external_load"
+  | "bodyweight"
+  | "bodyweight_plus_external_load"
+  | "assisted_bodyweight";
+export type MovementFamily = "push" | "pull" | "squat" | "hinge" | "trunk" | "isolation";
+export type JointAction =
+  | "shoulder_horizontal_adduction"
+  | "shoulder_horizontal_abduction"
+  | "shoulder_abduction"
+  | "shoulder_adduction"
+  | "shoulder_flexion"
+  | "elbow_flexion"
+  | "elbow_extension"
+  | "hip_extension"
+  | "hip_abduction"
+  | "hip_adduction"
+  | "knee_extension"
+  | "knee_flexion"
+  | "ankle_plantar_flexion"
+  | "trunk_flexion"
+  | "trunk_extension"
+  | "trunk_rotation"
+  | "trunk_anti_extension";
+export type EquipmentType =
+  | "barbell"
+  | "dumbbell"
+  | "kettlebell"
+  | "cable_machine"
+  | "smith_machine"
+  | "selectorized_machine"
+  | "plate_loaded_machine"
+  | "assisted_machine"
+  | "pullup_bar"
+  | "dip_station"
+  | "roman_chair"
+  | "bodyweight_space"
+  | "ab_wheel"
+  | "other";
 
 export type MuscleTarget = {
   muscleId: MuscleId;
   role: MuscleRole;
+  effectiveSetFactor: number;
 };
 
 export type ExerciseClassification = {
   muscleTargets: MuscleTarget[];
-  movementPattern: MovementPattern;
+  movementFamily: MovementFamily;
+  jointActions: JointAction[];
   laterality: Laterality;
   loadModel: LoadModel;
   classificationVersion: number;
@@ -73,28 +113,52 @@ export type ExerciseClassification = {
 const muscleById = new Map(muscles.map((muscle) => [muscle.id, muscle]));
 const muscleGroupById = new Map(muscleGroups.map((group) => [group.id, group]));
 
-const movementPatterns = new Set<MovementPattern>([
-  "horizontal_push",
-  "vertical_push",
-  "horizontal_pull",
-  "vertical_pull",
-  "squat",
-  "hip_hinge",
+const lateralities = new Set<Laterality>(["bilateral", "unilateral", "alternating"]);
+const loadModels = new Set<LoadModel>([
+  "external_load",
+  "bodyweight",
+  "bodyweight_plus_external_load",
+  "assisted_bodyweight"
+]);
+const movementFamilies = new Set<MovementFamily>(["push", "pull", "squat", "hinge", "trunk", "isolation"]);
+const jointActions = new Set<JointAction>([
+  "shoulder_horizontal_adduction",
+  "shoulder_horizontal_abduction",
+  "shoulder_abduction",
+  "shoulder_adduction",
+  "shoulder_flexion",
+  "elbow_flexion",
+  "elbow_extension",
   "hip_extension",
   "hip_abduction",
   "hip_adduction",
   "knee_extension",
   "knee_flexion",
-  "calf_raise",
-  "elbow_flexion",
-  "elbow_extension",
+  "ankle_plantar_flexion",
   "trunk_flexion",
+  "trunk_extension",
   "trunk_rotation",
-  "anti_extension"
+  "trunk_anti_extension"
+]);
+const equipmentTypes = new Set<EquipmentType>([
+  "barbell",
+  "dumbbell",
+  "kettlebell",
+  "cable_machine",
+  "smith_machine",
+  "selectorized_machine",
+  "plate_loaded_machine",
+  "assisted_machine",
+  "pullup_bar",
+  "dip_station",
+  "roman_chair",
+  "bodyweight_space",
+  "ab_wheel",
+  "other"
 ]);
 
-const lateralities = new Set<Laterality>(["bilateral", "unilateral", "alternating"]);
-const loadModels = new Set<LoadModel>(["external_load", "bodyweight", "assisted_bodyweight"]);
+export const defaultEffectiveSetFactor = (role: MuscleRole): number =>
+  role === "primary" ? 1 : role === "secondary" ? 0.5 : 0;
 
 export function isMuscleId(value: unknown): value is MuscleId {
   return typeof value === "string" && muscleById.has(value as MuscleId);
@@ -111,21 +175,48 @@ export function normalizeMuscleTargets(value: unknown): MuscleTarget[] | null {
       return null;
     }
     const record = item as Record<string, unknown>;
-    if (!isMuscleId(record.muscleId) || (record.role !== "primary" && record.role !== "secondary")) {
+    if (
+      !isMuscleId(record.muscleId) ||
+      (record.role !== "primary" && record.role !== "secondary" && record.role !== "stabilizer")
+    ) {
       return null;
     }
     if (seen.has(record.muscleId)) {
       return null;
     }
     seen.add(record.muscleId);
-    result.push({ muscleId: record.muscleId, role: record.role });
+    const factor =
+      typeof record.effectiveSetFactor === "number" &&
+      Number.isFinite(record.effectiveSetFactor) &&
+      record.effectiveSetFactor >= 0 &&
+      record.effectiveSetFactor <= 1
+        ? Math.round(record.effectiveSetFactor * 100) / 100
+        : defaultEffectiveSetFactor(record.role);
+    result.push({ muscleId: record.muscleId, role: record.role, effectiveSetFactor: factor });
   }
   return result.some((target) => target.role === "primary") ? result : null;
 }
 
-export function normalizeMovementPattern(value: unknown): MovementPattern | null {
-  return typeof value === "string" && movementPatterns.has(value as MovementPattern)
-    ? (value as MovementPattern)
+export function normalizeMovementFamily(value: unknown): MovementFamily | null {
+  return typeof value === "string" && movementFamilies.has(value as MovementFamily)
+    ? (value as MovementFamily)
+    : null;
+}
+
+export function normalizeJointActions(value: unknown): JointAction[] | null {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 8) return null;
+  const result = value.filter(
+    (candidate, index): candidate is JointAction =>
+      typeof candidate === "string" &&
+      jointActions.has(candidate as JointAction) &&
+      value.indexOf(candidate) === index
+  );
+  return result.length === value.length ? result : null;
+}
+
+export function normalizeEquipmentType(value: unknown): EquipmentType | null {
+  return typeof value === "string" && equipmentTypes.has(value as EquipmentType)
+    ? (value as EquipmentType)
     : null;
 }
 
@@ -158,29 +249,77 @@ export function formatMuscleTargets(targets: MuscleTarget[]): string {
   const secondary = targets
     .filter((target) => target.role === "secondary")
     .map((target) => muscleLabel(target.muscleId));
-  if (!secondary.length) {
-    return primary.join("・");
-  }
-  return `${primary.join("・")}（補助: ${secondary.join("・")}）`;
+  const stabilizers = targets
+    .filter((target) => target.role === "stabilizer")
+    .map((target) => muscleLabel(target.muscleId));
+  const details = [
+    secondary.length ? `補助: ${secondary.join("・")}` : "",
+    stabilizers.length ? `安定: ${stabilizers.join("・")}` : ""
+  ].filter(Boolean);
+  return details.length ? `${primary.join("・")}（${details.join(" / ")}）` : primary.join("・");
 }
+
+const legacyPatternMap: Record<LegacyMovementPattern, { family: MovementFamily; actions: JointAction[] }> = {
+  horizontal_push: { family: "push", actions: ["shoulder_horizontal_adduction", "elbow_extension"] },
+  vertical_push: { family: "push", actions: ["shoulder_flexion", "elbow_extension"] },
+  horizontal_pull: { family: "pull", actions: ["shoulder_horizontal_abduction", "elbow_flexion"] },
+  vertical_pull: { family: "pull", actions: ["shoulder_adduction", "elbow_flexion"] },
+  squat: { family: "squat", actions: ["knee_extension", "hip_extension"] },
+  hip_hinge: { family: "hinge", actions: ["hip_extension"] },
+  hip_extension: { family: "hinge", actions: ["hip_extension"] },
+  hip_abduction: { family: "isolation", actions: ["hip_abduction"] },
+  hip_adduction: { family: "isolation", actions: ["hip_adduction"] },
+  knee_extension: { family: "isolation", actions: ["knee_extension"] },
+  knee_flexion: { family: "isolation", actions: ["knee_flexion"] },
+  calf_raise: { family: "isolation", actions: ["ankle_plantar_flexion"] },
+  elbow_flexion: { family: "isolation", actions: ["elbow_flexion"] },
+  elbow_extension: { family: "isolation", actions: ["elbow_extension"] },
+  trunk_flexion: { family: "trunk", actions: ["trunk_flexion"] },
+  trunk_rotation: { family: "trunk", actions: ["trunk_rotation"] },
+  anti_extension: { family: "trunk", actions: ["trunk_anti_extension"] }
+};
 
 function classification(
   muscleTargets: MuscleTarget[],
-  movementPattern: MovementPattern,
+  movementPattern: LegacyMovementPattern,
   laterality: Laterality,
   loadModel: LoadModel
 ): ExerciseClassification {
+  const movement = legacyPatternMap[movementPattern];
   return {
     muscleTargets,
-    movementPattern,
+    movementFamily: movement.family,
+    jointActions: movement.actions,
     laterality,
     loadModel,
     classificationVersion: MUSCLE_TAXONOMY_VERSION
   };
 }
 
-const p = (muscleId: MuscleId): MuscleTarget => ({ muscleId, role: "primary" });
-const s = (muscleId: MuscleId): MuscleTarget => ({ muscleId, role: "secondary" });
+function classificationV2(
+  muscleTargets: MuscleTarget[],
+  movementFamily: MovementFamily,
+  jointActions: JointAction[],
+  laterality: Laterality,
+  loadModel: LoadModel
+): ExerciseClassification {
+  return {
+    muscleTargets,
+    movementFamily,
+    jointActions,
+    laterality,
+    loadModel,
+    classificationVersion: MUSCLE_TAXONOMY_VERSION
+  };
+}
+
+const p = (muscleId: MuscleId): MuscleTarget => ({ muscleId, role: "primary", effectiveSetFactor: 1 });
+const s = (muscleId: MuscleId, effectiveSetFactor = 0.5): MuscleTarget => ({
+  muscleId,
+  role: "secondary",
+  effectiveSetFactor
+});
+const z = (muscleId: MuscleId): MuscleTarget => ({ muscleId, role: "stabilizer", effectiveSetFactor: 0 });
 
 export const knownExerciseClassifications: Record<string, ExerciseClassification> = {
   "2ae17c38-2c76-408a-ab7e-4dc47bed6b2c": classification(
@@ -298,7 +437,7 @@ export const knownExerciseClassifications: Record<string, ExerciseClassification
     "external_load"
   ),
   "57c07175-89d4-4e3c-812a-12805b7c9672": classification(
-    [p("quadriceps"), p("glute_max"), s("hamstrings"), s("core_stability")],
+    [p("quadriceps"), p("glute_max"), z("hamstrings"), z("core_stability")],
     "squat",
     "bilateral",
     "external_load"
@@ -376,7 +515,7 @@ export const knownExerciseClassifications: Record<string, ExerciseClassification
     "external_load"
   ),
   "af77aabe-6357-4f0d-9601-e6f8dfdc31d3": classification(
-    [p("glute_max"), s("hamstrings")],
+    [p("glute_max"), z("hamstrings")],
     "hip_extension",
     "bilateral",
     "external_load"
@@ -388,7 +527,7 @@ export const knownExerciseClassifications: Record<string, ExerciseClassification
     "bodyweight"
   ),
   "dce8641a-3170-49f6-9940-b0067c8f8f2d": classification(
-    [p("quadriceps"), p("glute_max"), s("hamstrings")],
+    [p("quadriceps"), p("glute_max"), s("hamstrings", 0.25)],
     "squat",
     "unilateral",
     "external_load"
@@ -399,14 +538,15 @@ export const knownExerciseClassifications: Record<string, ExerciseClassification
     "bilateral",
     "external_load"
   ),
-  "105eb05c-6459-4308-8c35-4ed3ccbf4026": classification(
+  "105eb05c-6459-4308-8c35-4ed3ccbf4026": classificationV2(
     [p("lateral_deltoid")],
-    "vertical_push",
+    "isolation",
+    ["shoulder_abduction"],
     "bilateral",
     "external_load"
   ),
   "688a13c5-4e77-4b2b-8d49-abd4eefcacc3": classification(
-    [p("glute_max"), s("hamstrings")],
+    [p("glute_max"), z("hamstrings")],
     "hip_extension",
     "bilateral",
     "external_load"

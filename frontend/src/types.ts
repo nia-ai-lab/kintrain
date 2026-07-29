@@ -1,8 +1,13 @@
 import type {
+  AttachmentType,
+  CableSides,
+  EquipmentType,
+  JointAction,
   Laterality,
   LoadModel,
-  MovementPattern,
-  MuscleTarget
+  MovementFamily,
+  MuscleTarget,
+  PulleyPosition
 } from './muscleTaxonomy';
 
 export type ConditionRating = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -18,19 +23,22 @@ export interface SetDetail {
 export interface TrainingMenuItem {
   id: string;
   trainingName: string;
+  exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
-  movementPattern: MovementPattern;
+  movementFamily: MovementFamily;
+  jointActions: JointAction[];
   laterality: Laterality;
   loadModel: LoadModel;
   classificationVersion: number;
-  equipment: TrainingEquipment;
+  equipmentType: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: CableSettings;
   isAiGenerated: boolean;
   description: string;
   frequency: TrainingFrequencyDays;
   defaultWeightKg: number;
   weightInputMode: WeightInputMode;
   loadMultiplier: WeightLoadMultiplier;
-  fixedWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultSets: number;
@@ -39,7 +47,12 @@ export interface TrainingMenuItem {
   usageCount: number;
 }
 
-export type TrainingEquipment = 'マシン' | 'フリー' | '自重' | 'その他';
+export interface CableSettings {
+  pulleyPosition: PulleyPosition;
+  attachmentType: AttachmentType;
+  cableSides: CableSides;
+}
+
 export type TrainingFrequencyDays = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type WeightInputMode = 'direct' | 'perSide' | 'legacyUnspecified';
 export type WeightLoadMultiplier = 1 | 2;
@@ -79,17 +92,21 @@ export interface ExerciseEntry {
   menuItemId: string;
   trainingName: string;
   muscleTargetsSnapshot: MuscleTarget[];
-  movementPatternSnapshot: MovementPattern;
+  movementFamilySnapshot: MovementFamily;
+  jointActionsSnapshot: JointAction[];
   lateralitySnapshot: Laterality;
   loadModelSnapshot: LoadModel;
   classificationVersionSnapshot: number;
   bodyWeightKgSnapshot?: number;
-  equipment: string;
+  equipmentTypeSnapshot: EquipmentType;
+  equipmentProfileIdSnapshot?: string;
+  cableSettingsSnapshot?: CableSettings;
   note?: string;
   weightKg: number;
+  additionalLoadKg?: number;
+  assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: WeightLoadMultiplier;
-  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;

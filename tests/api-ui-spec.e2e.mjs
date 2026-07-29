@@ -306,26 +306,27 @@ async function run() {
         pathWithQuery: "/training-menu-items",
         body: {
           trainingName: "チェストプレス",
+          exerciseFamilyId: "chest_press",
           muscleTargets: [
-            { muscleId: "chest_mid", role: "primary" },
-            { muscleId: "triceps", role: "secondary" }
+            { muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 },
+            { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
           ],
-          movementPattern: "horizontal_push",
+          movementFamily: "push",
+          jointActions: ["shoulder_horizontal_adduction", "elbow_extension"],
           laterality: "bilateral",
           loadModel: "external_load",
-          classificationVersion: 1,
+          classificationVersion: 2,
           description: "肩をすくめず、胸を張って押す。",
-          equipment: "マシン",
+          equipmentType: "selectorized_machine",
           weightInputMode: "direct",
-          loadMultiplier: 1,
-          fixedWeightKg: 0
+          loadMultiplier: 1
         }
       });
       assert.equal(res.status, 201);
       assert.ok(res.json.trainingMenuItemId);
       assert.deepEqual(res.json.muscleTargets, [
-        { muscleId: "chest_mid", role: "primary" },
-        { muscleId: "triceps", role: "secondary" }
+        { muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 },
+        { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
       ]);
       assert.equal(res.json.description, "肩をすくめず、胸を張って押す。");
       state.menuItemA = res.json.trainingMenuItemId;
@@ -339,23 +340,24 @@ async function run() {
         pathWithQuery: "/training-menu-items",
         body: {
           trainingName: "プッシュアップ",
+          exerciseFamilyId: "push_up",
           muscleTargets: [
-            { muscleId: "chest_mid", role: "primary" },
-            { muscleId: "triceps", role: "secondary" }
+            { muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 },
+            { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
           ],
-          movementPattern: "horizontal_push",
+          movementFamily: "push",
+          jointActions: ["shoulder_horizontal_adduction", "elbow_extension"],
           laterality: "bilateral",
           loadModel: "bodyweight",
-          classificationVersion: 1,
-          equipment: "自重",
+          classificationVersion: 2,
+          equipmentType: "bodyweight_space",
           weightInputMode: "direct",
-          loadMultiplier: 1,
-          fixedWeightKg: 0
+          loadMultiplier: 1
         }
       });
       assert.equal(res.status, 201);
       assert.ok(res.json.trainingMenuItemId);
-      assert.equal(res.json.equipment, "自重");
+      assert.equal(res.json.equipmentType, "bodyweight_space");
       state.menuItemB = res.json.trainingMenuItemId;
     });
 
@@ -436,16 +438,18 @@ async function run() {
         pathWithQuery: `/training-menu-items/${state.menuItemA}`,
         body: {
           trainingName: "チェストプレス改",
+          exerciseFamilyId: "chest_press",
           muscleTargets: [
-            { muscleId: "chest_mid", role: "primary" },
-            { muscleId: "triceps", role: "secondary" }
+            { muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 },
+            { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
           ],
-          movementPattern: "horizontal_push",
+          movementFamily: "push",
+          jointActions: ["shoulder_horizontal_adduction", "elbow_extension"],
           laterality: "bilateral",
           loadModel: "external_load",
-          classificationVersion: 1,
+          classificationVersion: 2,
           description: "肩甲骨を寄せたまま、ゆっくり戻す。",
-          equipment: "マシン"
+          equipmentType: "selectorized_machine"
         }
       });
       assert.equal(res.status, 200);
@@ -462,14 +466,12 @@ async function run() {
         method: "PUT",
         pathWithQuery: `/training-menu-items/${state.menuItemB}`,
         body: {
-          equipment: "自重",
-          weightInputMode: "direct",
-          fixedWeightKg: 0
+          equipmentType: "bodyweight_space",
+          weightInputMode: "direct"
         }
       });
       assert.equal(res.status, 200);
-      assert.equal(res.json.equipment, "自重");
-      assert.equal(res.json.fixedWeightKg, 0);
+      assert.equal(res.json.equipmentType, "bodyweight_space");
     });
 
     await testCase("DailyTrainingPlan: PUT assigns today's menu", async () => {
@@ -525,14 +527,15 @@ async function run() {
               trainingMenuItemId: state.menuItemB,
               trainingNameSnapshot: "プッシュアップ",
               muscleTargetsSnapshot: [
-                { muscleId: "chest_mid", role: "primary" },
-                { muscleId: "triceps", role: "secondary" }
+                { muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 },
+                { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
               ],
-              movementPatternSnapshot: "horizontal_push",
+              movementFamilySnapshot: "push",
+              jointActionsSnapshot: ["shoulder_horizontal_adduction", "elbow_extension"],
               lateralitySnapshot: "bilateral",
               loadModelSnapshot: "bodyweight",
-              classificationVersionSnapshot: 1,
-              equipmentSnapshot: "自重",
+              classificationVersionSnapshot: 2,
+              equipmentTypeSnapshot: "bodyweight_space",
               weightKg: 0,
               reps: 10,
               sets: 3,
@@ -545,7 +548,7 @@ async function run() {
       assert.equal(res.status, 201);
       assert.ok(res.json.visitId);
       assert.equal(res.json.entries?.[0]?.muscleTargetsSnapshot?.[0]?.muscleId, "chest_mid");
-      assert.equal(res.json.entries?.[0]?.equipmentSnapshot, "自重");
+      assert.equal(res.json.entries?.[0]?.equipmentTypeSnapshot, "bodyweight_space");
       assert.equal(res.json.entries?.[0]?.weightKg, 0);
       state.visitId = res.json.visitId;
     });
@@ -594,13 +597,15 @@ async function run() {
               trainingMenuItemId: state.menuItemA,
               trainingNameSnapshot: "チェストプレス改",
               muscleTargetsSnapshot: [
-                { muscleId: "chest_mid", role: "primary" },
-                { muscleId: "triceps", role: "secondary" }
+                { muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 },
+                { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
               ],
-              movementPatternSnapshot: "horizontal_push",
+              movementFamilySnapshot: "push",
+              jointActionsSnapshot: ["shoulder_horizontal_adduction", "elbow_extension"],
               lateralitySnapshot: "bilateral",
               loadModelSnapshot: "external_load",
-              classificationVersionSnapshot: 1,
+              classificationVersionSnapshot: 2,
+              equipmentTypeSnapshot: "selectorized_machine",
               weightKg: 27.5,
               reps: 10,
               sets: 3,

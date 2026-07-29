@@ -544,16 +544,19 @@ async function attachCoreApiMock(page) {
       const item = {
         trainingMenuItemId: `mock-${mock.sequence}`,
         trainingName: String(input.trainingName ?? '').trim(),
+        exerciseFamilyId: input.exerciseFamilyId ?? input.trainingName,
         muscleTargets: Array.isArray(input.muscleTargets) ? input.muscleTargets : [],
-        movementPattern: input.movementPattern ?? 'other',
+        movementFamily: input.movementFamily ?? 'isolation',
+        jointActions: input.jointActions ?? [],
         laterality: input.laterality ?? 'bilateral',
         loadModel: input.loadModel ?? 'external_load',
-        classificationVersion: Number(input.classificationVersion ?? 1),
-        equipment: input.equipment ?? 'その他',
+        classificationVersion: Number(input.classificationVersion ?? 2),
+        equipmentType: input.equipmentType ?? 'other',
+        equipmentProfileId: input.equipmentProfileId,
+        cableSettings: input.cableSettings,
         description: String(input.description ?? '').trim(),
         weightInputMode: input.weightInputMode ?? 'direct',
         loadMultiplier: Number(input.loadMultiplier ?? 1),
-        fixedWeightKg: Number(input.fixedWeightKg ?? 0),
         usageCount: 0,
         displayOrder: mock.menuItems.length + 1,
         isActive: true,
@@ -1020,9 +1023,9 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
   await createPanel.locator('.muscle-group-tabs').getByRole('button', { name: '腕' }).click();
   await createPanel.getByRole('button', { name: '上腕三頭筋を補助筋にする' }).click();
-  await createPanel.getByLabel('用具').selectOption('フリー');
+  await createPanel.getByRole('button', { name: '肩の水平内転' }).click();
+  await createPanel.getByLabel('使用する器具').selectOption('dumbbell');
   await createPanel.getByLabel('重量入力方式').selectOption('perSide');
-  await createPanel.getByLabel('バーなどの固定重量').fill('20');
   await createPanel.getByLabel('種目の説明').fill('胸を張ってゆっくり動かす。');
   await createPanel.getByRole('button', { name: '種目一覧へ登録' }).click();
 
@@ -1061,7 +1064,7 @@ test('iPhone幅で筋肉と役割を見やすく選択できる', async ({ page 
   await expect(createPanel.locator('.muscle-group-tab')).toHaveCount(6);
   await expect(createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' })).toBeVisible();
   await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
-  await expect(createPanel.getByText('主働胸（中部）', { exact: true })).toBeVisible();
+  await expect(createPanel.locator('.muscle-target-chip.is-primary').filter({ hasText: '胸（中部）' })).toBeVisible();
 
   const layout = await createPanel.locator('.muscle-target-fieldset').evaluate((fieldset) => ({
     fitsWidth: fieldset.scrollWidth <= fieldset.clientWidth,
@@ -1218,7 +1221,7 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 4);
+  assert.equal(exported.schemaVersion, 5);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);

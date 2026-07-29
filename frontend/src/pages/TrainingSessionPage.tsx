@@ -2,13 +2,12 @@ import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { deleteTrainingMenuSet, getTrainingSessionView } from '../api/coreApi';
-import type { DraftEntry, TrainingEquipment, TrainingFrequencyDays, TrainingMenuItem } from '../types';
+import type { DraftEntry, TrainingFrequencyDays, TrainingMenuItem } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
 import {
   calculateTotalWeightKg,
   formatWeightLoad,
-  normalizeFixedWeightKg,
   normalizeLoadMultiplier,
   normalizeWeightInputMode
 } from '../utils/weightLoad';
@@ -22,7 +21,6 @@ type TrainingSessionLastPerformanceSnapshot = {
   weightKg: number;
   weightInputModeSnapshot?: 'direct' | 'perSide' | 'legacyUnspecified';
   loadMultiplierSnapshot?: 1 | 2;
-  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -39,19 +37,6 @@ type TrainingSessionMenuItem = TrainingMenuItem & {
   targetInstruction: string;
   lastPerformanceSnapshot?: TrainingSessionLastPerformanceSnapshot;
 };
-
-function normalizeTrainingEquipment(value: unknown): TrainingEquipment {
-  if (value === 'マシン' || value === 'フリー' || value === '自重' || value === 'その他') {
-    return value;
-  }
-  if (typeof value === 'string') {
-    const legacy = value.trim();
-    if (legacy === 'バーベル' || legacy === 'ダンベル' || legacy === 'ケトルベル') {
-      return 'フリー';
-    }
-  }
-  return 'マシン';
-}
 
 function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 8) {
@@ -164,19 +149,22 @@ export function TrainingSessionPage() {
             return {
             id: item.trainingMenuItemId,
             trainingName: item.trainingName,
+            exerciseFamilyId: item.exerciseFamilyId,
             muscleTargets: item.muscleTargets ?? [],
-            movementPattern: item.movementPattern,
+            movementFamily: item.movementFamily,
+            jointActions: item.jointActions,
             laterality: item.laterality,
             loadModel: item.loadModel,
             classificationVersion: item.classificationVersion,
-            equipment: normalizeTrainingEquipment(item.equipment),
+            equipmentType: item.equipmentType,
+            equipmentProfileId: item.equipmentProfileId,
+            cableSettings: item.cableSettings,
             isAiGenerated: item.isAiGenerated === true,
             description: typeof item.description === 'string' ? item.description : '',
             frequency: normalizeTrainingFrequency(item.recommendedIntervalDays),
             defaultWeightKg: Number(item.targetWeightKg),
             weightInputMode,
             loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
-            fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg),
             defaultRepsMin: Number(item.targetRepsMin),
             defaultRepsMax: Number(item.targetRepsMax),
             defaultSets: Number(item.targetSets),
@@ -197,7 +185,6 @@ export function TrainingSessionPage() {
                     item.lastPerformanceSnapshot.weightInputModeSnapshot
                   ),
                   loadMultiplierSnapshot: item.lastPerformanceSnapshot.loadMultiplierSnapshot,
-                  fixedWeightKgSnapshot: item.lastPerformanceSnapshot.fixedWeightKgSnapshot,
                   calculatedTotalWeightKg: item.lastPerformanceSnapshot.calculatedTotalWeightKg,
                   reps: Number(item.lastPerformanceSnapshot.reps),
                   sets: Number(item.lastPerformanceSnapshot.sets),
@@ -260,19 +247,20 @@ export function TrainingSessionPage() {
           ({
             id: draft.menuItemId,
             trainingName: '不明トレーニング',
+            exerciseFamilyId: draft.menuItemId,
             muscleTargets: [],
-            movementPattern: 'horizontal_push',
+            movementFamily: 'isolation',
+            jointActions: [],
             laterality: 'bilateral',
             loadModel: 'external_load',
             classificationVersion: 1,
-            equipment: 'その他',
+            equipmentType: 'other',
             isAiGenerated: false,
             description: '',
             frequency: 3,
             defaultWeightKg: 0,
             weightInputMode: 'legacyUnspecified',
             loadMultiplier: 1,
-            fixedWeightKg: 0,
             defaultRepsMin: 1,
             defaultRepsMax: 1,
             defaultSets: 1,
@@ -443,18 +431,16 @@ export function TrainingSessionPage() {
               <div className="training-item-head">
                 <div className="training-item-summary">
                   <p className="priority-chip">優先 {index + 1}</p>
-                  <h2>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</h2>
+                  <h2>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</h2>
                   <p className="muted">
                     {resolvedMenuSet?.setType === 'temporary' ? '本日の設定' : 'メニューセットの設定'}: {formatWeightLoad({
                       weightKg: item.targetWeightKg,
                       weightInputModeSnapshot: item.weightInputMode,
                       loadMultiplierSnapshot: item.loadMultiplier,
-                      fixedWeightKgSnapshot: item.fixedWeightKg,
                       calculatedTotalWeightKg: calculateTotalWeightKg(
                         item.targetWeightKg,
                         item.weightInputMode,
-                        item.loadMultiplier,
-                        item.fixedWeightKg
+                        item.loadMultiplier
                       )
                     })} x {formatRepsTarget(item.targetRepsMin, item.targetRepsMax)} x {item.targetSets}set
                   </p>
@@ -465,19 +451,16 @@ export function TrainingSessionPage() {
                           weightKg: last.weightKg,
                           weightInputModeSnapshot: last.weightInputModeSnapshot,
                           loadMultiplierSnapshot: last.loadMultiplierSnapshot,
-                          fixedWeightKgSnapshot: last.fixedWeightKgSnapshot,
                           calculatedTotalWeightKg: last.calculatedTotalWeightKg
                         })} x ${last.reps}回 x ${last.sets}set`
                       : `未実施（メニュー: ${formatWeightLoad({
                           weightKg: item.defaultWeightKg,
                           weightInputModeSnapshot: item.weightInputMode,
                           loadMultiplierSnapshot: item.loadMultiplier,
-                          fixedWeightKgSnapshot: item.fixedWeightKg,
                           calculatedTotalWeightKg: calculateTotalWeightKg(
                             item.defaultWeightKg,
                             item.weightInputMode,
-                            item.loadMultiplier,
-                            item.fixedWeightKg
+                            item.loadMultiplier
                           )
                         })} x ${formatRepsTarget(item.defaultRepsMin, item.defaultRepsMax)} x ${item.defaultSets}set）`}
                   </p>
@@ -559,7 +542,13 @@ export function TrainingSessionPage() {
               <div className="input-grid training-metrics-grid">
                 <label>
                   <span className="training-metric-title">
-                    {item.weightInputMode === 'perSide' ? '片側重量 (kg)' : '重量 (kg)'}
+                    {item.loadModel === 'assisted_bodyweight'
+                      ? '補助重量 (kg)'
+                      : item.loadModel === 'bodyweight_plus_external_load'
+                        ? '追加重量 (kg)'
+                        : item.weightInputMode === 'perSide'
+                          ? '片側重量 (kg)'
+                          : '重量 (kg)'}
                   </span>
                   <input
                     type="number"
@@ -652,10 +641,9 @@ export function TrainingSessionPage() {
                           calculateTotalWeightKg(
                             weightValue,
                             item.weightInputMode,
-                            item.loadMultiplier,
-                            item.fixedWeightKg
+                            item.loadMultiplier
                           ) ?? '-'
-                        }kg（×${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
+                        }kg（×${item.loadMultiplier}）`}
                 </span>
               </div>
               <label>
@@ -703,18 +691,16 @@ export function TrainingSessionPage() {
                 <ul className="simple-list training-session-confirm-list">
                   {validEnteredItems.map(({ draftKey, item, draft }) => (
                     <li key={draftKey}>
-                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</strong>
+                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</strong>
                       <span>
                         {formatWeightLoad({
                           weightKg: draft?.weightKg ?? 0,
                           weightInputModeSnapshot: item.weightInputMode,
                           loadMultiplierSnapshot: item.loadMultiplier,
-                          fixedWeightKgSnapshot: item.fixedWeightKg,
                           calculatedTotalWeightKg: calculateTotalWeightKg(
                             draft?.weightKg,
                             item.weightInputMode,
-                            item.loadMultiplier,
-                            item.fixedWeightKg
+                            item.loadMultiplier
                           )
                         })} x {draft?.reps}回 x {draft?.sets}set
                       </span>
@@ -730,7 +716,7 @@ export function TrainingSessionPage() {
                 <ul className="simple-list">
                   {incompleteEnteredItems.map(({ draftKey, item, draft }) => (
                     <li key={draftKey}>
-                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipment, item.isAiGenerated)}</strong>
+                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</strong>
                       <span>
                         重量:{draft?.weightKg ?? '未入力'} / 回数:{draft?.reps ?? '未入力'} / セット:{draft?.sets ?? '未入力'}
                       </span>

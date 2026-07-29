@@ -362,7 +362,7 @@ export function DailyPage() {
           <ol className="simple-list numbered-list">
             {visitEntries.map((entry) => (
               <li key={entry.id}>
-                {formatTrainingLabel(entry.trainingName, entry.muscleTargetsSnapshot, entry.equipment)} {formatWeightLoad(entry)} x {entry.reps}回 x {entry.sets}set
+                {formatTrainingLabel(entry.trainingName, entry.muscleTargetsSnapshot, entry.equipmentTypeSnapshot)} {formatWeightLoad(entry)} x {entry.reps}回 x {entry.sets}set
               </li>
             ))}
           </ol>

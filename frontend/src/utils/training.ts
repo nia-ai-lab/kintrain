@@ -1,5 +1,10 @@
 import type { GymVisit, TrainingMenuItem } from '../types';
-import { formatMuscleTargets, type MuscleTarget } from '../muscleTaxonomy';
+import {
+  equipmentTypeLabel,
+  formatMuscleTargets,
+  type EquipmentType,
+  type MuscleTarget
+} from '../muscleTaxonomy';
 import { diffDays } from './date';
 
 export interface LastPerformance {
@@ -14,12 +19,12 @@ export interface LastPerformance {
 export function formatTrainingLabel(
   trainingName: string,
   muscleTargets?: MuscleTarget[],
-  equipment?: string,
+  equipmentType?: EquipmentType,
   isAiGenerated?: boolean
 ): string {
   const name = (trainingName ?? '').trim();
   const part = formatMuscleTargets(muscleTargets ?? []);
-  const tool = (equipment ?? '').trim();
+  const tool = equipmentType ? equipmentTypeLabel(equipmentType) : '';
   const suffix = isAiGenerated ? ' (AI生成)' : '';
   return `${name} : ${part || '筋群未設定'} : ${tool || '未設定'}${suffix}`;
 }
