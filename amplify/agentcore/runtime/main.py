@@ -536,7 +536,7 @@ async def _run_agent_turn_stream(
     ) as session_manager:
         system_prompt_for_turn = (
             f"{system_prompt}\n\n"
-            "When calling save_daily_diary without explicit date, include timeZoneId from user profile."
+            "When calling a save_daily_* tool without an explicit date, include timeZoneId from the user profile."
         )
         web_search_tools = _load_web_search_tools()
         mcp_url = _normalize_mcp_gateway_url(MCP_GATEWAY_URL)

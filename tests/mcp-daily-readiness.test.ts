@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
+import { GetCommand, PutCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { hasValidPainAreas } from "../amplify/functions/daily-record-api/handler";
 import { ddb } from "../amplify/functions/shared/ddb";
 import {
+  buildMcpToolInvocationLog,
+  calculateSleepHoursFromLocalDateTimes,
   normalizeDailyRecordForMcp,
-  saveDailyMealNotes
+  saveDailyMealNotes,
+  saveDailyReadiness
 } from "../amplify/functions/mcp-tools-api/handler";
 
 test("Daily pain areas require a bounded structured 1-10 severity record", () => {
@@ -109,4 +112,122 @@ test("MCP saves, appends, and clears the same free-form meal notes used by Daily
   } finally {
     (ddb as any).send = originalSend;
   }
+});
+
+test("sleep duration is calculated across midnight in the user's time zone", () => {
+  assert.equal(
+    calculateSleepHoursFromLocalDateTimes(
+      "2026-07-28T23:30",
+      "2026-07-29T07:00",
+      "Asia/Tokyo"
+    ),
+    7.5
+  );
+  assert.equal(
+    calculateSleepHoursFromLocalDateTimes(
+      "2026-07-29T07:00",
+      "2026-07-29T06:00",
+      "Asia/Tokyo"
+    ),
+    undefined
+  );
+  assert.equal(
+    calculateSleepHoursFromLocalDateTimes(
+      "2026-03-08T01:30",
+      "2026-03-08T03:30",
+      "America/New_York"
+    ),
+    1
+  );
+});
+
+test("MCP readiness save calculates sleep server-side and preserves unrelated Daily fields", async () => {
+  const stored: Record<string, unknown> = {
+    userId: "user-1",
+    recordDate: "2026-07-29",
+    diary: "既存の日記",
+    mealNotes: "朝：オートミール",
+    otherActivities: ["散歩"]
+  };
+  const originalSend = ddb.send.bind(ddb);
+  (ddb as any).send = async (command: unknown) => {
+    if (!(command instanceof UpdateCommand)) {
+      throw new Error(`Unexpected command: ${(command as { constructor: { name: string } }).constructor.name}`);
+    }
+    const names = command.input.ExpressionAttributeNames ?? {};
+    const values = command.input.ExpressionAttributeValues ?? {};
+    for (const [alias, field] of Object.entries(names)) {
+      if (!alias.startsWith("#field")) continue;
+      const index = alias.slice("#field".length);
+      stored[field] = values[`:field${index}`];
+    }
+    stored.timeZoneId = values[":timeZoneId"];
+    stored.updatedAt = values[":updatedAt"];
+    stored.createdAt ??= values[":createdAt"];
+    return { Attributes: stored };
+  };
+
+  try {
+    const result = await saveDailyReadiness(
+      {
+        sleepStartedAtLocal: "2026-07-28T23:30",
+        wokeUpAtLocal: "2026-07-29T07:00",
+        timeZoneId: "Asia/Tokyo",
+        sleepQuality: 8,
+        fatigueLevel: 3
+      },
+      "user-1"
+    ) as Record<string, any>;
+    assert.equal(result.recordDate, "2026-07-29");
+    assert.equal(result.sleepCalculation.sleepHours, 7.5);
+    assert.deepEqual(result.updatedFields, ["fatigueLevel", "sleepHours", "sleepQuality"]);
+    assert.equal(stored.sleepHours, 7.5);
+    assert.equal(stored.diary, "既存の日記");
+    assert.equal(stored.mealNotes, "朝：オートミール");
+    assert.deepEqual(stored.otherActivities, ["散歩"]);
+  } finally {
+    (ddb as any).send = originalSend;
+  }
+});
+
+test("MCP readiness rejects incomplete or conflicting sleep inputs", async () => {
+  const incomplete = await saveDailyReadiness(
+    {
+      sleepStartedAtLocal: "2026-07-28T23:30",
+      timeZoneId: "Asia/Tokyo"
+    },
+    "user-1"
+  );
+  assert.equal((incomplete.error as Record<string, unknown>).code, "INVALID_REQUEST");
+
+  const conflicting = await saveDailyReadiness(
+    {
+      sleepHours: 7.5,
+      sleepStartedAtLocal: "2026-07-28T23:30",
+      wokeUpAtLocal: "2026-07-29T07:00",
+      timeZoneId: "Asia/Tokyo"
+    },
+    "user-1"
+  );
+  assert.equal((conflicting.error as Record<string, unknown>).code, "INVALID_REQUEST");
+});
+
+test("MCP invocation audit logs tool and argument names without values or identity", () => {
+  const log = buildMcpToolInvocationLog(
+    "save_daily_meal_notes",
+    {
+      __principalUserId: "private-user",
+      mealNotes: "朝：卵とヨーグルト",
+      date: "2026-07-29"
+    },
+    "request-1"
+  );
+  assert.deepEqual(log, {
+    event: "mcp_tool_invocation",
+    toolName: "save_daily_meal_notes",
+    argumentKeys: ["date", "mealNotes"],
+    requestId: "request-1"
+  });
+  assert.equal(JSON.stringify(log).includes("private-user"), false);
+  assert.equal(JSON.stringify(log).includes("卵とヨーグルト"), false);
 });

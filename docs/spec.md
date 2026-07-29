@@ -696,6 +696,7 @@
 - `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_daily_meal_notes(mealNotes, date?, timeZoneId?, mode?)`
+- `save_daily_readiness(date?, timeZoneId?, sleepHours?, sleepStartedAtLocal?, wokeUpAtLocal?, sleepQuality?, fatigueLevel?, motivationLevel?, muscleSorenessLevel?, restingHeartRate?, painAreas?)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `list_training_menu_items()`
@@ -714,6 +715,7 @@
 - 一括登録の確定要件は `docs/mcp-body-metrics-bulk-registration-requirements.md` を正とする。
 - コーチング方針の読み書きは `docs/coaching-context-requirements.md` を正とし、書き込みはユーザーの明示承認を必須とする。
 - 一時メニューの取得・更新・日程変更・キャンセルは `docs/mcp-temporary-menu-lifecycle.md` を正とする。
+- Dailyの回復状態保存、睡眠時間計算、日記・食事の振り分けは `docs/mcp-daily-readiness.md` を正とする。
 
 ### 9.3 連携方式
 

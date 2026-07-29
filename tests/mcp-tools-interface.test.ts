@@ -328,6 +328,7 @@ test("MCP schemas distinguish single-day lookup and constrain diary save mode", 
   const dailyRecords = schemas.find((candidate) => candidate.name === "get_daily_records");
   const saveDiary = schemas.find((candidate) => candidate.name === "save_daily_diary");
   const saveMealNotes = schemas.find((candidate) => candidate.name === "save_daily_meal_notes");
+  const saveReadiness = schemas.find((candidate) => candidate.name === "save_daily_readiness");
   assert.ok(history);
   assert.equal(history.inputSchema.required, undefined);
   assert.match(dailyRecord!.description, /1日/);
@@ -336,6 +337,24 @@ test("MCP schemas distinguish single-day lookup and constrain diary save mode", 
   assert.ok(saveMealNotes);
   assert.deepEqual(saveMealNotes.inputSchema.properties.mode.enum, ["append", "overwrite"]);
   assert.deepEqual(saveMealNotes.inputSchema.required, ["mealNotes"]);
+  assert.ok(saveReadiness);
+  assert.ok(Object.hasOwn(saveReadiness.inputSchema.properties, "sleepStartedAtLocal"));
+  assert.ok(Object.hasOwn(saveReadiness.inputSchema.properties, "wokeUpAtLocal"));
+  assert.ok(Object.hasOwn(saveReadiness.inputSchema.properties, "sleepHours"));
+  assert.match(saveDiary!.description, /save_daily_meal_notes/);
+  assert.match(saveMealNotes.description, /save_daily_diaryへ保存しない/);
+  assert.match(saveReadiness.description, /バックエンドが睡眠時間を計算/);
+});
+
+test("runtime prompt routes meal, diary, and readiness content to distinct tools", async () => {
+  const prompt = await readFile(
+    "amplify/agentcore/runtime/config/prompts/system-prompt.ja.txt",
+    "utf8"
+  );
+  assert.match(prompt, /食事.*save_daily_meal_notes/);
+  assert.match(prompt, /出来事.*save_daily_diary/);
+  assert.match(prompt, /睡眠時間.*save_daily_readiness/);
+  assert.match(prompt, /sleepStartedAtLocal.*wokeUpAtLocal/);
 });
 
 test("analysis export schemas expose manifest and section paging without set details", async () => {

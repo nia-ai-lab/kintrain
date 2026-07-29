@@ -195,8 +195,100 @@
     }
   },
   {
+    "name": "save_daily_readiness",
+    "description": "Dailyの回復・トレーニング準備を保存する。ユーザーが就寝日時と起床日時を伝えた場合はこのツールを使い、sleepStartedAtLocalとwokeUpAtLocalを渡すとバックエンドが睡眠時間を計算する。睡眠の質、疲労度、やる気、筋肉痛、安静時心拍数、痛み・違和感も部分更新でき、日記や食事メモなど未指定項目は保持する。",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "保存対象日（YYYY-MM-DD）。睡眠日時を指定する場合は起床日のローカル日付。省略時は起床日時の日付、起床日時もなければtimeZoneId基準の本日。"
+        },
+        "timeZoneId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "日時解釈に使うIANAタイムゾーンID。既定はAsia/Tokyo。"
+        },
+        "sleepHours": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 24,
+          "description": "睡眠時間を直接保存する場合の時間数。就寝・起床日時と同時には指定しない。"
+        },
+        "sleepStartedAtLocal": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "就寝したローカル日時（YYYY-MM-DDTHH:mm）。wokeUpAtLocalと必ず対で指定する。"
+        },
+        "wokeUpAtLocal": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d$",
+          "description": "起床したローカル日時（YYYY-MM-DDTHH:mm）。sleepStartedAtLocalと必ず対で指定する。"
+        },
+        "sleepQuality": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "睡眠の質（1:低い、10:高い）。"
+        },
+        "fatigueLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "疲労度（1:低い、10:高い）。"
+        },
+        "motivationLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "トレーニングへのやる気（1:低い、10:高い）。"
+        },
+        "muscleSorenessLevel": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "description": "筋肉痛の程度（1:低い、10:高い）。"
+        },
+        "restingHeartRate": {
+          "type": "integer",
+          "minimum": 20,
+          "maximum": 250,
+          "description": "安静時心拍数（bpm）。"
+        },
+        "painAreas": {
+          "type": "array",
+          "maxItems": 20,
+          "description": "痛み・違和感の部位別記録。空配列で全件消去する。",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "area": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "severity": { "type": "integer", "minimum": 1, "maximum": 10 },
+              "occursAtRest": { "type": "boolean" },
+              "occursDuringMovement": { "type": "boolean" },
+              "numbness": { "type": "boolean" },
+              "weakness": { "type": "boolean" }
+            },
+            "required": [
+              "area",
+              "severity",
+              "occursAtRest",
+              "occursDuringMovement",
+              "numbness",
+              "weakness"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
     "name": "save_daily_diary",
-    "description": "Dailyの日記(diary)を保存する。既存日記がある場合はmode指定で追記または上書きする。",
+    "description": "Dailyの日記(diary)へ、その日の出来事、感想、気づきを保存する。朝食・昼食・夕食・間食・飲み物・水分・栄養・サプリメントは日記へ保存せず、必ずsave_daily_meal_notesを使用する。睡眠や回復状態にはsave_daily_readinessを使用する。既存日記がある場合はmode指定で追記または上書きする。",
     "inputSchema": {
       "type": "object",
       "properties": {
@@ -224,7 +316,7 @@
   },
   {
     "name": "save_daily_meal_notes",
-    "description": "Dailyの「食事内容・栄養メモ」(mealNotes)を自由記述で保存する。食事内容、量、時間、水分、サプリメントなどを記録できる。既存メモがある場合はmode指定で追記または上書きする。",
+    "description": "Dailyの「食事内容・栄養メモ」(mealNotes)へ、朝食・昼食・夕食・間食・飲み物・水分・食事量・栄養・サプリメントを自由記述で保存する。食事に関する保存では必ずこのツールを使い、save_daily_diaryへ保存しない。既存メモがある場合はmode指定で追記または上書きする。",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,

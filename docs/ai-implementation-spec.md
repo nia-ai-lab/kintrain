@@ -196,6 +196,7 @@
 - `get_daily_record(date)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_daily_meal_notes(mealNotes, date?, timeZoneId?, mode?)`
+- `save_daily_readiness(date?, timeZoneId?, sleepHours?, sleepStartedAtLocal?, wokeUpAtLocal?, sleepQuality?, fatigueLevel?, motivationLevel?, muscleSorenessLevel?, restingHeartRate?, painAreas?)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `get_goal()`

@@ -38,6 +38,7 @@ const userProfileTableName = process.env.USER_PROFILE_TABLE_NAME ?? "";
 export type McpToolResponse = Record<string, unknown>;
 
 type LambdaToolContext = {
+  awsRequestId?: string;
   clientContext?: {
     custom?: {
       bedrockAgentCoreToolName?: string;
@@ -58,6 +59,15 @@ type LambdaToolContext = {
 
 type ToolArgs = Record<string, unknown>;
 type DailyTextSaveMode = "append" | "overwrite";
+type TenPointRating = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+type DailyPainArea = {
+  area: string;
+  severity: TenPointRating;
+  occursAtRest: boolean;
+  occursDuringMovement: boolean;
+  numbness: boolean;
+  weakness: boolean;
+};
 type BodyMetricsConflictPolicy = "reject" | "overwrite";
 type BodyMetricWritableField =
   | "bodyWeightKg"
@@ -332,6 +342,91 @@ export function parseLocalTime(value: unknown): string | undefined {
     return undefined;
   }
   return /^(?:[01]\d|2[0-3]):[0-5]\d$/.test(value) ? value : undefined;
+}
+
+function isTenPointRating(value: unknown): value is TenPointRating {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 10;
+}
+
+function isValidDailyPainAreas(value: unknown): value is DailyPainArea[] {
+  return (
+    Array.isArray(value) &&
+    value.length <= 20 &&
+    value.every(
+      (pain) =>
+        pain &&
+        typeof pain === "object" &&
+        !Array.isArray(pain) &&
+        typeof pain.area === "string" &&
+        pain.area.trim().length >= 1 &&
+        pain.area.trim().length <= 100 &&
+        isTenPointRating(pain.severity) &&
+        typeof pain.occursAtRest === "boolean" &&
+        typeof pain.occursDuringMovement === "boolean" &&
+        typeof pain.numbness === "boolean" &&
+        typeof pain.weakness === "boolean"
+    )
+  );
+}
+
+function parseLocalDateTime(value: unknown): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const match = /^(\d{4}-\d{2}-\d{2})T((?:[01]\d|2[0-3]):[0-5]\d)$/.exec(value);
+  if (!match || !parseYmd(match[1]) || !parseLocalTime(match[2])) {
+    return undefined;
+  }
+  return value;
+}
+
+function localDateTimeInTimeZone(instant: Date, timeZoneId: string): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timeZoneId,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23"
+  }).formatToParts(instant);
+  const value = (type: Intl.DateTimeFormatPartTypes): string =>
+    parts.find((part) => part.type === type)?.value ?? "";
+  return `${value("year")}-${value("month")}-${value("day")}T${value("hour")}:${value("minute")}`;
+}
+
+function localDateTimeToUtcMs(value: string, timeZoneId: string): number | undefined {
+  const [date, time] = value.split("T");
+  const [year, month, day] = date.split("-").map(Number);
+  const [hour, minute] = time.split(":").map(Number);
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute);
+  let instant = new Date(localAsUtc);
+  for (let iteration = 0; iteration < 4; iteration += 1) {
+    instant = new Date(localAsUtc - timeZoneOffsetMs(instant, timeZoneId));
+  }
+  return localDateTimeInTimeZone(instant, timeZoneId) === value ? instant.getTime() : undefined;
+}
+
+export function calculateSleepHoursFromLocalDateTimes(
+  sleepStartedAtLocal: unknown,
+  wokeUpAtLocal: unknown,
+  timeZoneId: string
+): number | undefined {
+  const start = parseLocalDateTime(sleepStartedAtLocal);
+  const end = parseLocalDateTime(wokeUpAtLocal);
+  if (!start || !end) {
+    return undefined;
+  }
+  const startUtcMs = localDateTimeToUtcMs(start, timeZoneId);
+  const endUtcMs = localDateTimeToUtcMs(end, timeZoneId);
+  if (startUtcMs === undefined || endUtcMs === undefined) {
+    return undefined;
+  }
+  const durationHours = (endUtcMs - startUtcMs) / 3_600_000;
+  if (durationHours <= 0 || durationHours > 24) {
+    return undefined;
+  }
+  return Math.round(durationHours * 100) / 100;
 }
 
 export function isValidBodyWeightKg(value: unknown): value is number {
@@ -1080,6 +1175,22 @@ function extractToolName(context: LambdaToolContext): string | null {
   const rawToolName = separatorIndex >= 0 ? normalized.slice(separatorIndex + 2) : normalized;
   const trimmedToolName = rawToolName.replace(/^_+/, "");
   return trimmedToolName.length > 0 ? trimmedToolName : null;
+}
+
+export function buildMcpToolInvocationLog(
+  toolName: string,
+  args: ToolArgs,
+  requestId?: string
+): Record<string, unknown> {
+  const hiddenKeys = new Set(["__principalUserId", "userId", "actorId"]);
+  return {
+    event: "mcp_tool_invocation",
+    toolName,
+    argumentKeys: Object.keys(args)
+      .filter((key) => !hiddenKeys.has(key))
+      .sort(),
+    ...(requestId ? { requestId } : {})
+  };
 }
 
 function requireConfiguredTables(): string | null {
@@ -1878,6 +1989,187 @@ export async function saveDailyMealNotes(args: ToolArgs, userId: string): Promis
     mode: mode ?? "overwrite",
     mealNotes: nextMealNotes,
     updatedAt: ts
+  });
+}
+
+export async function saveDailyReadiness(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const timeZoneId = resolveTimeZoneId(args);
+  if (!timeZoneId) {
+    return mcpToolResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
+  }
+
+  const hasSleepStartedAt = args.sleepStartedAtLocal !== undefined;
+  const hasWokeUpAt = args.wokeUpAtLocal !== undefined;
+  const hasSleepTimePair = hasSleepStartedAt && hasWokeUpAt;
+  if (hasSleepStartedAt !== hasWokeUpAt) {
+    return mcpToolResponse(400, {
+      message: "sleepStartedAtLocal and wokeUpAtLocal must be specified together."
+    });
+  }
+  if (hasSleepTimePair && args.sleepHours !== undefined) {
+    return mcpToolResponse(400, {
+      message: "Specify either sleepHours or the sleepStartedAtLocal/wokeUpAtLocal pair, not both."
+    });
+  }
+
+  const sleepStartedAtLocal = hasSleepTimePair
+    ? parseLocalDateTime(args.sleepStartedAtLocal)
+    : undefined;
+  const wokeUpAtLocal = hasSleepTimePair ? parseLocalDateTime(args.wokeUpAtLocal) : undefined;
+  if (hasSleepTimePair && (!sleepStartedAtLocal || !wokeUpAtLocal)) {
+    return mcpToolResponse(400, {
+      message: "Sleep timestamps must use YYYY-MM-DDTHH:mm local date-time format."
+    });
+  }
+
+  const inferredRecordDate = wokeUpAtLocal?.slice(0, 10);
+  const date =
+    args.date === undefined && inferredRecordDate
+      ? inferredRecordDate
+      : resolveRecordDate(args.date, timeZoneId);
+  if (!date) {
+    return mcpToolResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
+  }
+  if (inferredRecordDate && date !== inferredRecordDate) {
+    return mcpToolResponse(400, {
+      message: "date must match the local calendar date in wokeUpAtLocal.",
+      inferredRecordDate
+    });
+  }
+
+  const updates: Record<string, unknown> = {};
+  let calculatedSleepHours: number | undefined;
+  if (hasSleepTimePair) {
+    calculatedSleepHours = calculateSleepHoursFromLocalDateTimes(
+      sleepStartedAtLocal,
+      wokeUpAtLocal,
+      timeZoneId
+    );
+    if (calculatedSleepHours === undefined) {
+      return mcpToolResponse(400, {
+        message:
+          "The sleep interval must be valid in the specified time zone, end after it starts, and be at most 24 hours."
+      });
+    }
+    updates.sleepHours = calculatedSleepHours;
+  } else if (args.sleepHours !== undefined) {
+    if (
+      typeof args.sleepHours !== "number" ||
+      !Number.isFinite(args.sleepHours) ||
+      args.sleepHours < 0 ||
+      args.sleepHours > 24
+    ) {
+      return mcpToolResponse(400, { message: "sleepHours must be a number between 0 and 24." });
+    }
+    updates.sleepHours = Math.round(args.sleepHours * 100) / 100;
+  }
+
+  for (const field of [
+    "sleepQuality",
+    "fatigueLevel",
+    "motivationLevel",
+    "muscleSorenessLevel"
+  ] as const) {
+    if (args[field] === undefined) {
+      continue;
+    }
+    if (!isTenPointRating(args[field])) {
+      return mcpToolResponse(400, {
+        message: `${field} must be an integer between 1 and 10.`
+      });
+    }
+    updates[field] = args[field];
+  }
+
+  if (args.restingHeartRate !== undefined) {
+    if (
+      typeof args.restingHeartRate !== "number" ||
+      !Number.isInteger(args.restingHeartRate) ||
+      args.restingHeartRate < 20 ||
+      args.restingHeartRate > 250
+    ) {
+      return mcpToolResponse(400, {
+        message: "restingHeartRate must be an integer between 20 and 250."
+      });
+    }
+    updates.restingHeartRate = args.restingHeartRate;
+  }
+
+  if (args.painAreas !== undefined) {
+    if (!isValidDailyPainAreas(args.painAreas)) {
+      return mcpToolResponse(400, {
+        message: "painAreas must contain at most 20 valid structured pain records."
+      });
+    }
+    updates.painAreas = args.painAreas.map((pain) => ({
+      ...pain,
+      area: pain.area.trim()
+    }));
+  }
+
+  const updatedFields = Object.keys(updates).sort();
+  if (updatedFields.length === 0) {
+    return mcpToolResponse(400, {
+      message: "Specify at least one readiness field to save."
+    });
+  }
+
+  const ts = nowIsoSeconds();
+  const expressionAttributeNames: Record<string, string> = {
+    "#createdAt": "createdAt",
+    "#updatedAt": "updatedAt",
+    "#timeZoneId": "timeZoneId",
+    "#otherActivities": "otherActivities"
+  };
+  const expressionAttributeValues: Record<string, unknown> = {
+    ":createdAt": ts,
+    ":updatedAt": ts,
+    ":timeZoneId": timeZoneId,
+    ":emptyActivities": []
+  };
+  const setExpressions = [
+    "#createdAt = if_not_exists(#createdAt, :createdAt)",
+    "#updatedAt = :updatedAt",
+    "#timeZoneId = :timeZoneId",
+    "#otherActivities = if_not_exists(#otherActivities, :emptyActivities)"
+  ];
+  for (const [index, [field, value]] of Object.entries(updates).entries()) {
+    const nameKey = `#field${index}`;
+    const valueKey = `:field${index}`;
+    expressionAttributeNames[nameKey] = field;
+    expressionAttributeValues[valueKey] = value;
+    setExpressions.push(`${nameKey} = ${valueKey}`);
+  }
+
+  const result = await ddb.send(
+    new UpdateCommand({
+      TableName: dailyRecordTableName,
+      Key: {
+        userId,
+        recordDate: date
+      },
+      UpdateExpression: `SET ${setExpressions.join(", ")}`,
+      ExpressionAttributeNames: expressionAttributeNames,
+      ExpressionAttributeValues: expressionAttributeValues,
+      ReturnValues: "ALL_NEW"
+    })
+  );
+
+  return mcpToolResponse(200, {
+    tool: "save_daily_readiness",
+    recordDate: date,
+    timeZoneId,
+    updatedFields,
+    ...(calculatedSleepHours !== undefined
+      ? {
+          sleepCalculation: {
+            sleepStartedAtLocal,
+            wokeUpAtLocal,
+            sleepHours: calculatedSleepHours
+          }
+        }
+      : {}),
+    item: normalizeDailyRecordForMcp((result.Attributes ?? {}) as Record<string, unknown>)
   });
 }
 
@@ -4025,6 +4317,7 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     if (!userId) {
       return mcpToolResponse(403, { message: "Trusted user identity is required." });
     }
+    console.info(JSON.stringify(buildMcpToolInvocationLog(toolName, event, context.awsRequestId)));
 
     if (toolName === "get_gym_visits") {
       return getGymVisits(event, userId);
@@ -4052,6 +4345,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "save_daily_meal_notes") {
       return saveDailyMealNotes(event, userId);
+    }
+    if (toolName === "save_daily_readiness") {
+      return saveDailyReadiness(event, userId);
     }
     if (toolName === "save_body_metrics") {
       return saveBodyMetrics(event, userId);

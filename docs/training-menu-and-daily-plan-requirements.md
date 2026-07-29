@@ -316,6 +316,7 @@ erDiagram
 - `update_temporary_training_menu_set`
 - `cancel_temporary_training_plan`
 - `save_daily_meal_notes`（Dailyの自由記述の食事内容・栄養メモを追記または上書き）
+- `save_daily_readiness`（就寝・起床日時からの睡眠時間計算と回復状態の部分更新）
 
 更新・キャンセルの詳細は`docs/mcp-temporary-menu-lifecycle.md`を正とする。
 
