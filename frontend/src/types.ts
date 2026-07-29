@@ -1,3 +1,15 @@
+import type {
+  AttachmentType,
+  CableSides,
+  EquipmentType,
+  JointAction,
+  Laterality,
+  LoadModel,
+  MovementFamily,
+  MuscleTarget,
+  PulleyPosition
+} from './muscleTaxonomy';
+
 export type ConditionRating = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
 export type MoodRating = ConditionRating;
 
@@ -5,20 +17,28 @@ export interface SetDetail {
   setIndex: number;
   weightKg: number;
   reps: number;
+  side?: 'left' | 'right' | 'bilateral';
 }
 
 export interface TrainingMenuItem {
   id: string;
   trainingName: string;
-  bodyPart: string;
-  equipment: TrainingEquipment;
+  exerciseFamilyId: string;
+  muscleTargets: MuscleTarget[];
+  movementFamily: MovementFamily;
+  jointActions: JointAction[];
+  laterality: Laterality;
+  loadModel: LoadModel;
+  classificationVersion: number;
+  equipmentType: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: CableSettings;
   isAiGenerated: boolean;
   description: string;
   frequency: TrainingFrequencyDays;
   defaultWeightKg: number;
   weightInputMode: WeightInputMode;
   loadMultiplier: WeightLoadMultiplier;
-  fixedWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultSets: number;
@@ -27,7 +47,12 @@ export interface TrainingMenuItem {
   usageCount: number;
 }
 
-export type TrainingEquipment = 'マシン' | 'フリー' | '自重' | 'その他';
+export interface CableSettings {
+  pulleyPosition: PulleyPosition;
+  attachmentType: AttachmentType;
+  cableSides: CableSides;
+}
+
 export type TrainingFrequencyDays = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type WeightInputMode = 'direct' | 'perSide' | 'legacyUnspecified';
 export type WeightLoadMultiplier = 1 | 2;
@@ -66,13 +91,22 @@ export interface ExerciseEntry {
   id: string;
   menuItemId: string;
   trainingName: string;
-  bodyPart: string;
-  equipment: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementFamilySnapshot: MovementFamily;
+  jointActionsSnapshot: JointAction[];
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
+  equipmentTypeSnapshot: EquipmentType;
+  equipmentProfileIdSnapshot?: string;
+  cableSettingsSnapshot?: CableSettings;
   note?: string;
   weightKg: number;
+  additionalLoadKg?: number;
+  assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: WeightLoadMultiplier;
-  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;

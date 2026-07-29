@@ -26,7 +26,7 @@
 - `PUT /training-menu-items/reorder`
 - `DELETE /training-menu-items/{trainingMenuItemId}`
 - 補足:
-- `trainingName` は維持しつつ、`bodyPart`（鍛える部位）を設定・更新できること
+- `trainingName` は維持しつつ、主働筋・補助筋、動作パターン、左右の実施方式、負荷方式を設定・更新できること
 
 4. 実施画面の初期表示データ取得
 - UI根拠: `ui-spec.md` 6
@@ -41,7 +41,7 @@
 - `PUT /gym-visits/{visitId}`
 - `DELETE /gym-visits/{visitId}`
 - 補足:
-- `entries[].bodyPartSnapshot`（任意）を保存・参照できること
+- `entries[].muscleTargetsSnapshot` と分類スナップショットを保存・参照できること
 
 6. Daily画面の当日取得/更新/範囲取得
 - UI根拠: `ui-spec.md` 10

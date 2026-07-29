@@ -844,19 +844,133 @@
                 "additionalProperties": false,
                 "properties": {
                   "trainingName": { "type": "string", "minLength": 1, "maxLength": 100 },
-                  "bodyPart": { "type": "string", "maxLength": 100 },
-                  "equipment": {
+                  "exerciseFamilyId": { "type": "string", "minLength": 1, "maxLength": 80 },
+                  "muscleTargets": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "items": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "properties": {
+                        "muscleId": {
+                          "type": "string",
+                          "enum": [
+                            "chest_upper",
+                            "chest_mid",
+                            "chest_lower",
+                            "latissimus",
+                            "upper_back",
+                            "spinal_erectors",
+                            "anterior_deltoid",
+                            "lateral_deltoid",
+                            "posterior_deltoid",
+                            "biceps",
+                            "triceps",
+                            "forearms",
+                            "quadriceps",
+                            "hamstrings",
+                            "glute_max",
+                            "glute_med",
+                            "adductors",
+                            "calves",
+                            "rectus_abdominis",
+                            "obliques",
+                            "core_stability"
+                          ]
+                        },
+                        "role": { "type": "string", "enum": ["primary", "secondary", "stabilizer"] },
+                        "effectiveSetFactor": { "type": "number", "minimum": 0, "maximum": 1 }
+                      },
+                      "required": ["muscleId", "role", "effectiveSetFactor"]
+                    }
+                  },
+                  "movementFamily": {
                     "type": "string",
-                    "enum": ["マシン", "フリー", "自重", "その他"]
+                    "enum": ["push", "pull", "squat", "hinge", "trunk", "isolation"]
+                  },
+                  "jointActions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 8,
+                    "uniqueItems": true,
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "shoulder_horizontal_adduction",
+                        "shoulder_horizontal_abduction",
+                        "shoulder_abduction",
+                        "shoulder_adduction",
+                        "shoulder_flexion",
+                        "elbow_flexion",
+                        "elbow_extension",
+                        "hip_extension",
+                        "hip_abduction",
+                        "hip_adduction",
+                        "knee_extension",
+                        "knee_flexion",
+                        "ankle_plantar_flexion",
+                        "trunk_flexion",
+                        "trunk_extension",
+                        "trunk_rotation",
+                        "trunk_anti_extension"
+                      ]
+                    }
+                  },
+                  "laterality": {
+                    "type": "string",
+                    "enum": ["bilateral", "unilateral", "alternating"]
+                  },
+                  "loadModel": {
+                    "type": "string",
+                    "enum": ["external_load", "bodyweight", "bodyweight_plus_external_load", "assisted_bodyweight"]
+                  },
+                  "equipmentType": {
+                    "type": "string",
+                    "enum": [
+                      "barbell",
+                      "dumbbell",
+                      "kettlebell",
+                      "cable_machine",
+                      "smith_machine",
+                      "selectorized_machine",
+                      "plate_loaded_machine",
+                      "assisted_machine",
+                      "pullup_bar",
+                      "dip_station",
+                      "roman_chair",
+                      "bodyweight_space",
+                      "ab_wheel",
+                      "other"
+                    ]
+                  },
+                  "equipmentProfileId": { "type": "string", "maxLength": 80 },
+                  "cableSettings": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "pulleyPosition": { "type": "string", "enum": ["high", "middle", "low", "adjustable"] },
+                      "attachmentType": { "type": "string", "enum": ["single_handle", "rope", "straight_bar", "ez_bar", "ankle_strap", "none", "other"] },
+                      "cableSides": { "type": "string", "enum": ["single", "dual"] }
+                    },
+                    "required": ["pulleyPosition", "attachmentType", "cableSides"]
                   },
                   "description": { "type": "string", "maxLength": 500 },
                   "weightInputMode": {
                     "type": "string",
                     "enum": ["direct", "perSide"]
-                  },
-                  "fixedWeightKg": { "type": "number", "minimum": 0 }
+                  }
                 },
-                "required": ["trainingName", "equipment"]
+                "required": [
+                  "trainingName",
+                  "exerciseFamilyId",
+                  "muscleTargets",
+                  "movementFamily",
+                  "jointActions",
+                  "laterality",
+                  "loadModel",
+                  "equipmentType"
+                ]
               },
               "prescription": {
                 "type": "object",

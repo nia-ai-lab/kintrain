@@ -44,7 +44,15 @@ test("reschedule keeps the same set and item content, moves the date, and replay
     userId,
     trainingMenuItemId: "menu-1",
     trainingName: "ベンチプレス",
-    bodyPart: "胸",
+    muscleTargets: [
+      { muscleId: "chest_mid", role: "primary" },
+      { muscleId: "triceps", role: "secondary" },
+      { muscleId: "anterior_deltoid", role: "secondary" }
+    ],
+    movementPattern: "horizontal_push",
+    laterality: "bilateral",
+    loadModel: "external_load",
+    classificationVersion: 1,
     equipment: "フリー",
     isActive: true
   };

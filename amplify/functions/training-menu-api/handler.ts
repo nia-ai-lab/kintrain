@@ -12,6 +12,21 @@ import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { enumerateYmdRange } from "../shared/date-range";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response, toNonEmptyString } from "../shared/http";
+import {
+  MUSCLE_TAXONOMY_VERSION,
+  normalizeEquipmentType,
+  normalizeJointActions,
+  normalizeLaterality,
+  normalizeLoadModel,
+  normalizeMovementFamily,
+  normalizeMuscleTargets,
+  type EquipmentType,
+  type JointAction,
+  type Laterality,
+  type LoadModel,
+  type MovementFamily,
+  type MuscleTarget
+} from "../shared/muscle-targets";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingMenuTableName = process.env.TRAINING_MENU_TABLE_NAME ?? "";
@@ -34,13 +49,23 @@ type DataSource = "manual" | "ai";
 
 type MenuItemInput = {
   trainingName: string;
-  bodyPart?: string;
-  equipment?: string;
+  exerciseFamilyId?: string;
+  muscleTargets?: MuscleTarget[];
+  movementFamily?: MovementFamily;
+  jointActions?: JointAction[];
+  laterality?: Laterality;
+  loadModel?: LoadModel;
+  equipmentType?: EquipmentType;
+  equipmentProfileId?: string;
+  cableSettings?: {
+    pulleyPosition?: string;
+    attachmentType?: string;
+    cableSides?: string;
+  };
   isAiGenerated?: boolean;
   description?: string;
   weightInputMode?: WeightInputMode;
   loadMultiplier?: 1 | 2;
-  fixedWeightKg?: number;
   isActive?: boolean;
 };
 
@@ -84,12 +109,6 @@ function normalizeTrainingName(value: string): string {
   return value.trim().toLowerCase();
 }
 
-function normalizeEquipment(value: unknown): string | undefined {
-  const aliases: Record<string, string> = { バーベル: "フリー", ダンベル: "フリー", ケトルベル: "フリー" };
-  const normalized = aliases[trimmed(value) ?? ""] ?? trimmed(value);
-  return normalized && ["マシン", "フリー", "自重", "その他"].includes(normalized) ? normalized : undefined;
-}
-
 function normalizeWeightInputMode(value: unknown): WeightInputMode {
   return value === "direct" || value === "perSide" || value === "legacyUnspecified"
     ? value
@@ -103,13 +122,23 @@ function normalizeLoadMultiplier(value: unknown, mode: WeightInputMode): 1 | 2 {
   return value === 1 || value === 2 ? value : mode === "perSide" ? 2 : 1;
 }
 
-function normalizeFixedWeightKg(value: unknown, mode: WeightInputMode): number {
-  if (mode === "direct") {
-    return 0;
+function normalizeCableSettings(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const pulleyPositions = ["high", "middle", "low", "adjustable"];
+  const attachmentTypes = ["single_handle", "rope", "straight_bar", "ez_bar", "ankle_strap", "none", "other"];
+  if (
+    !pulleyPositions.includes(String(record.pulleyPosition)) ||
+    !attachmentTypes.includes(String(record.attachmentType)) ||
+    (record.cableSides !== "single" && record.cableSides !== "dual")
+  ) {
+    return undefined;
   }
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? Math.round(value * 100) / 100
-    : 0;
+  return {
+    pulleyPosition: String(record.pulleyPosition),
+    attachmentType: String(record.attachmentType),
+    cableSides: record.cableSides
+  };
 }
 
 function normalizeSetType(value: unknown): MenuSetType {
@@ -215,13 +244,20 @@ function toMenuItemResponse(item: Record<string, unknown>, usageCount = 0): Reco
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: String(item.trainingName ?? ""),
-    bodyPart: String(item.bodyPart ?? ""),
-    equipment: normalizeEquipment(item.equipment) ?? "その他",
+    exerciseFamilyId: String(item.exerciseFamilyId ?? item.trainingMenuItemId ?? ""),
+    muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
+    movementFamily: normalizeMovementFamily(item.movementFamily),
+    jointActions: normalizeJointActions(item.jointActions) ?? [],
+    laterality: normalizeLaterality(item.laterality),
+    loadModel: normalizeLoadModel(item.loadModel),
+    classificationVersion: Number(item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
+    equipmentType: normalizeEquipmentType(item.equipmentType) ?? "other",
+    equipmentProfileId: trimmed(item.equipmentProfileId),
+    cableSettings: normalizeCableSettings(item.cableSettings),
     isAiGenerated: item.isAiGenerated === true,
     description: String(item.description ?? ""),
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
-    fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg, weightInputMode),
     isActive: item.isActive !== false,
     usageCount,
     createdAt: item.createdAt,
@@ -381,10 +417,27 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
   if (await existsByName(userId, normalizedTrainingName)) {
     return response(409, { message: "trainingName already exists." });
   }
-  const equipment = normalizeEquipment(body.equipment ?? "その他");
+  const equipmentType = normalizeEquipmentType(body.equipmentType);
+  const exerciseFamilyId = trimmed(body.exerciseFamilyId) ?? trainingName;
   const description = trimmed(body.description) ?? "";
   const weightInputMode = body.weightInputMode ?? "direct";
-  if (!equipment || description.length > 500 || !["direct", "perSide"].includes(weightInputMode)) {
+  const muscleTargets = normalizeMuscleTargets(body.muscleTargets);
+  const movementFamily = normalizeMovementFamily(body.movementFamily);
+  const jointActions = normalizeJointActions(body.jointActions);
+  const laterality = normalizeLaterality(body.laterality);
+  const loadModel = normalizeLoadModel(body.loadModel);
+  if (
+    !equipmentType ||
+    !exerciseFamilyId ||
+    exerciseFamilyId.length > 80 ||
+    !muscleTargets ||
+    !movementFamily ||
+    !jointActions ||
+    !laterality ||
+    !loadModel ||
+    description.length > 500 ||
+    !["direct", "perSide"].includes(weightInputMode)
+  ) {
     return response(400, { message: "invalid menu item." });
   }
   const trainingMenuItemId = randomUUID();
@@ -395,12 +448,25 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
     trainingMenuItemId,
     trainingName,
     normalizedTrainingName,
-    bodyPart: trimmed(body.bodyPart) ?? "",
-    equipment,
+    exerciseFamilyId,
+    muscleTargets,
+    movementFamily,
+    jointActions,
+    laterality,
+    loadModel,
+    classificationVersion: MUSCLE_TAXONOMY_VERSION,
+    equipmentType,
+    ...(trimmed(body.equipmentProfileId) ? { equipmentProfileId: trimmed(body.equipmentProfileId) } : {}),
+    ...(equipmentType === "cable_machine"
+      ? { cableSettings: normalizeCableSettings(body.cableSettings) ?? {
+          pulleyPosition: "adjustable",
+          attachmentType: "other",
+          cableSides: "single"
+        } }
+      : {}),
     description,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(body.loadMultiplier, weightInputMode),
-    fixedWeightKg: normalizeFixedWeightKg(body.fixedWeightKg, weightInputMode),
     isAiGenerated: body.isAiGenerated === true,
     isActive: true,
     displayOrder,
@@ -434,22 +500,68 @@ async function updateMenuItem(
   if (duplicateId && duplicateId !== trainingMenuItemId) {
     return response(409, { message: "trainingName already exists." });
   }
-  const equipment = body.equipment !== undefined ? normalizeEquipment(body.equipment) : normalizeEquipment(current.equipment);
+  const equipmentType =
+    body.equipmentType !== undefined
+      ? normalizeEquipmentType(body.equipmentType)
+      : normalizeEquipmentType(current.equipmentType);
+  const exerciseFamilyId =
+    body.exerciseFamilyId !== undefined ? trimmed(body.exerciseFamilyId) : trimmed(current.exerciseFamilyId);
   const description = body.description !== undefined ? trimmed(body.description) ?? "" : String(current.description ?? "");
   const weightInputMode = body.weightInputMode ?? normalizeWeightInputMode(current.weightInputMode);
-  if (!equipment || description.length > 500) {
+  const muscleTargets =
+    body.muscleTargets !== undefined
+      ? normalizeMuscleTargets(body.muscleTargets)
+      : normalizeMuscleTargets(current.muscleTargets);
+  const movementFamily =
+    body.movementFamily !== undefined
+      ? normalizeMovementFamily(body.movementFamily)
+      : normalizeMovementFamily(current.movementFamily);
+  const jointActions =
+    body.jointActions !== undefined
+      ? normalizeJointActions(body.jointActions)
+      : normalizeJointActions(current.jointActions);
+  const laterality =
+    body.laterality !== undefined ? normalizeLaterality(body.laterality) : normalizeLaterality(current.laterality);
+  const loadModel =
+    body.loadModel !== undefined ? normalizeLoadModel(body.loadModel) : normalizeLoadModel(current.loadModel);
+  if (
+    !equipmentType ||
+    !exerciseFamilyId ||
+    exerciseFamilyId.length > 80 ||
+    !muscleTargets ||
+    !movementFamily ||
+    !jointActions ||
+    !laterality ||
+    !loadModel ||
+    description.length > 500
+  ) {
     return response(400, { message: "invalid menu item." });
   }
   const updatedAt = nowIsoSeconds();
   const updated = {
     trainingName,
     normalizedTrainingName,
-    bodyPart: body.bodyPart !== undefined ? trimmed(body.bodyPart) ?? "" : String(current.bodyPart ?? ""),
-    equipment,
+    exerciseFamilyId,
+    muscleTargets,
+    movementFamily,
+    jointActions,
+    laterality,
+    loadModel,
+    classificationVersion: MUSCLE_TAXONOMY_VERSION,
+    equipmentType,
+    equipmentProfileId:
+      (body.equipmentProfileId !== undefined ? trimmed(body.equipmentProfileId) : trimmed(current.equipmentProfileId)) ?? "",
+    cableSettings:
+      equipmentType === "cable_machine"
+        ? normalizeCableSettings(body.cableSettings ?? current.cableSettings) ?? {
+            pulleyPosition: "adjustable",
+            attachmentType: "other",
+            cableSides: "single"
+          }
+        : null,
     description,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(body.loadMultiplier ?? current.loadMultiplier, weightInputMode),
-    fixedWeightKg: normalizeFixedWeightKg(body.fixedWeightKg ?? current.fixedWeightKg, weightInputMode),
     isAiGenerated: body.isAiGenerated ?? (current.isAiGenerated === true),
     isActive: body.isActive ?? (current.isActive !== false),
     updatedAt
@@ -458,7 +570,7 @@ async function updateMenuItem(
     TableName: trainingMenuTableName,
     Key: { userId, trainingMenuItemId },
     UpdateExpression:
-      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, bodyPart=:bodyPart, equipment=:equipment, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
+      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, exerciseFamilyId=:exerciseFamilyId, muscleTargets=:muscleTargets, movementFamily=:movementFamily, jointActions=:jointActions, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipmentType=:equipmentType, equipmentProfileId=:equipmentProfileId, cableSettings=:cableSettings, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE bodyPart, movementPattern, equipment, fixedWeightKg, frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
     ExpressionAttributeNames: { "#description": "description" },
     ExpressionAttributeValues: Object.fromEntries(Object.entries(updated).map(([key, value]) => [`:${key}`, value]))
   }));

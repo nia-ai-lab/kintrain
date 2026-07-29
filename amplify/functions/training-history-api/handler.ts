@@ -3,6 +3,21 @@ import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
 import { getUserId, normalizePath, nowIsoSeconds, parseBody, parseYmd, response } from "../shared/http";
+import {
+  MUSCLE_TAXONOMY_VERSION,
+  normalizeEquipmentType,
+  normalizeJointActions,
+  normalizeLaterality,
+  normalizeLoadModel,
+  normalizeMovementFamily,
+  normalizeMuscleTargets,
+  type EquipmentType,
+  type JointAction,
+  type Laterality,
+  type LoadModel,
+  type MovementFamily,
+  type MuscleTarget
+} from "../shared/muscle-targets";
 import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
@@ -29,14 +44,23 @@ function addYmdDays(value: string, days: number): string {
 type ExerciseEntry = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
-  bodyPartSnapshot?: string;
-  equipmentSnapshot?: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementFamilySnapshot: MovementFamily;
+  jointActionsSnapshot: JointAction[];
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
+  equipmentTypeSnapshot: EquipmentType;
+  equipmentProfileIdSnapshot?: string;
+  cableSettingsSnapshot?: Record<string, unknown>;
   isAiGeneratedSnapshot?: boolean;
   frequencySnapshot?: number;
   weightKg: number;
+  additionalLoadKg?: number;
+  assistanceKg?: number | null;
   weightInputModeSnapshot?: "direct" | "perSide" | "legacyUnspecified";
   loadMultiplierSnapshot?: 1 | 2;
-  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -128,15 +152,8 @@ function normalizeLoadMultiplier(value: unknown, mode: WeightInputMode): 1 | 2 {
   return mode === "perSide" ? 2 : 1;
 }
 
-function normalizeFixedWeightKg(value: unknown): number {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return 0;
-  }
-  return Math.round(value * 100) / 100;
-}
-
-function calculateTotalWeightKg(weightKg: number, multiplier: number, fixedWeightKg: number): number {
-  return Math.round((weightKg * multiplier + fixedWeightKg) * 100) / 100;
+function calculateTotalWeightKg(weightKg: number, multiplier: number): number {
+  return Math.round(weightKg * multiplier * 100) / 100;
 }
 
 function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
@@ -157,13 +174,20 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       (entry.loadMultiplierSnapshot === undefined ||
         entry.loadMultiplierSnapshot === 1 ||
         entry.loadMultiplierSnapshot === 2) &&
-      (entry.fixedWeightKgSnapshot === undefined || isNonNegativeNumber(entry.fixedWeightKgSnapshot)) &&
+      (entry.additionalLoadKg === undefined || isNonNegativeNumber(entry.additionalLoadKg)) &&
+      (entry.assistanceKg === undefined || entry.assistanceKg === null || isNonNegativeNumber(entry.assistanceKg)) &&
       isPositiveNumber(entry.reps) &&
       isPositiveNumber(entry.sets) &&
       typeof entry.performedAtUtc === "string" &&
       entry.performedAtUtc.length > 0 &&
-      (entry.bodyPartSnapshot === undefined || typeof entry.bodyPartSnapshot === "string") &&
-      (entry.equipmentSnapshot === undefined || typeof entry.equipmentSnapshot === "string") &&
+      normalizeMuscleTargets(entry.muscleTargetsSnapshot) !== null &&
+      normalizeMovementFamily(entry.movementFamilySnapshot) !== null &&
+      normalizeJointActions(entry.jointActionsSnapshot) !== null &&
+      normalizeLaterality(entry.lateralitySnapshot) !== null &&
+      normalizeLoadModel(entry.loadModelSnapshot) !== null &&
+      entry.classificationVersionSnapshot === MUSCLE_TAXONOMY_VERSION &&
+      (entry.bodyWeightKgSnapshot === undefined || isPositiveNumber(entry.bodyWeightKgSnapshot)) &&
+      normalizeEquipmentType(entry.equipmentTypeSnapshot) !== null &&
       (entry.isAiGeneratedSnapshot === undefined || typeof entry.isAiGeneratedSnapshot === "boolean") &&
       (entry.frequencySnapshot === undefined ||
         (typeof entry.frequencySnapshot === "number" &&
@@ -192,8 +216,16 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
 
 export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
   return entries.map((entry) => {
-    const bodyPartSnapshot = toTrimmedString(entry.bodyPartSnapshot);
-    const equipmentSnapshot = toTrimmedString(entry.equipmentSnapshot);
+    const muscleTargetsSnapshot = normalizeMuscleTargets(entry.muscleTargetsSnapshot);
+    const movementFamilySnapshot = normalizeMovementFamily(entry.movementFamilySnapshot);
+    const jointActionsSnapshot = normalizeJointActions(entry.jointActionsSnapshot);
+    const lateralitySnapshot = normalizeLaterality(entry.lateralitySnapshot);
+    const loadModelSnapshot = normalizeLoadModel(entry.loadModelSnapshot);
+    if (!muscleTargetsSnapshot || !movementFamilySnapshot || !jointActionsSnapshot || !lateralitySnapshot || !loadModelSnapshot) {
+      throw new Error("Exercise classification is invalid.");
+    }
+    const equipmentTypeSnapshot = normalizeEquipmentType(entry.equipmentTypeSnapshot);
+    if (!equipmentTypeSnapshot) throw new Error("Equipment type is invalid.");
     const note = toTrimmedString(entry.note);
     const weightInputModeSnapshot = normalizeWeightInputMode(entry.weightInputModeSnapshot);
     const loadMultiplierSnapshot =
@@ -202,24 +234,28 @@ export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
         : weightInputModeSnapshot === "direct"
           ? 1
           : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot);
-    const fixedWeightKgSnapshot =
-      weightInputModeSnapshot === "legacyUnspecified"
-        ? undefined
-        : weightInputModeSnapshot === "direct"
-          ? 0
-          : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot);
     const calculatedTotalWeightKg =
       weightInputModeSnapshot === "legacyUnspecified" ||
-      loadMultiplierSnapshot === undefined ||
-      fixedWeightKgSnapshot === undefined
+      loadMultiplierSnapshot === undefined
         ? undefined
-        : calculateTotalWeightKg(entry.weightKg, loadMultiplierSnapshot, fixedWeightKgSnapshot);
+        : calculateTotalWeightKg(entry.weightKg, loadMultiplierSnapshot);
     return {
       ...entry,
       trainingMenuItemId: entry.trainingMenuItemId.trim(),
       trainingNameSnapshot: entry.trainingNameSnapshot.trim(),
-      bodyPartSnapshot,
-      equipmentSnapshot,
+      muscleTargetsSnapshot,
+      movementFamilySnapshot,
+      jointActionsSnapshot,
+      lateralitySnapshot,
+      loadModelSnapshot,
+      classificationVersionSnapshot: MUSCLE_TAXONOMY_VERSION,
+      bodyWeightKgSnapshot:
+        typeof entry.bodyWeightKgSnapshot === "number"
+          ? Math.round(entry.bodyWeightKgSnapshot * 100) / 100
+          : undefined,
+      equipmentTypeSnapshot,
+      equipmentProfileIdSnapshot: toTrimmedString(entry.equipmentProfileIdSnapshot),
+      cableSettingsSnapshot: entry.cableSettingsSnapshot,
       isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
       frequencySnapshot:
         typeof entry.frequencySnapshot === "number" &&
@@ -230,7 +266,16 @@ export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
           : undefined,
       weightInputModeSnapshot,
       loadMultiplierSnapshot,
-      fixedWeightKgSnapshot,
+      additionalLoadKg:
+        loadModelSnapshot === "bodyweight_plus_external_load"
+          ? Math.round((entry.additionalLoadKg ?? entry.weightKg) * 100) / 100
+          : undefined,
+      assistanceKg:
+        loadModelSnapshot === "assisted_bodyweight"
+          ? entry.assistanceKg === null
+            ? null
+            : Math.round((entry.assistanceKg ?? entry.weightKg) * 100) / 100
+          : undefined,
       calculatedTotalWeightKg,
       note
       ,
@@ -257,14 +302,23 @@ type TrainingPerformanceItem = {
   visitDateLocal: string;
   timeZoneId: string;
   trainingNameSnapshot: string;
-  bodyPartSnapshot: string;
-  equipmentSnapshot: string;
+  muscleTargetsSnapshot: MuscleTarget[];
+  movementFamilySnapshot: MovementFamily;
+  jointActionsSnapshot: JointAction[];
+  lateralitySnapshot: Laterality;
+  loadModelSnapshot: LoadModel;
+  classificationVersionSnapshot: number;
+  bodyWeightKgSnapshot?: number;
+  equipmentTypeSnapshot: EquipmentType;
+  equipmentProfileIdSnapshot?: string;
+  cableSettingsSnapshot?: Record<string, unknown>;
   isAiGeneratedSnapshot: boolean;
   frequencySnapshot?: number;
   weightKg: number;
+  additionalLoadKg?: number;
+  assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: 1 | 2;
-  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -309,14 +363,23 @@ function buildTrainingPerformanceItems(params: {
     visitDateLocal: params.visitDateLocal,
     timeZoneId: params.timeZoneId,
     trainingNameSnapshot: entry.trainingNameSnapshot,
-    bodyPartSnapshot: entry.bodyPartSnapshot ?? "",
-    equipmentSnapshot: entry.equipmentSnapshot ?? "",
+    muscleTargetsSnapshot: entry.muscleTargetsSnapshot,
+    movementFamilySnapshot: entry.movementFamilySnapshot,
+    jointActionsSnapshot: entry.jointActionsSnapshot,
+    lateralitySnapshot: entry.lateralitySnapshot,
+    loadModelSnapshot: entry.loadModelSnapshot,
+    classificationVersionSnapshot: entry.classificationVersionSnapshot,
+    bodyWeightKgSnapshot: entry.bodyWeightKgSnapshot,
+    equipmentTypeSnapshot: entry.equipmentTypeSnapshot,
+    equipmentProfileIdSnapshot: entry.equipmentProfileIdSnapshot,
+    cableSettingsSnapshot: entry.cableSettingsSnapshot,
     isAiGeneratedSnapshot: entry.isAiGeneratedSnapshot === true,
     frequencySnapshot: entry.frequencySnapshot,
     weightKg: entry.weightKg,
+    additionalLoadKg: entry.additionalLoadKg,
+    assistanceKg: entry.assistanceKg,
     weightInputModeSnapshot: entry.weightInputModeSnapshot ?? "legacyUnspecified",
     loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
-    fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
     calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
     reps: entry.reps,
     sets: entry.sets,
@@ -407,12 +470,21 @@ async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: 
     weightKg: item.weightKg,
     weightInputModeSnapshot: item.weightInputModeSnapshot ?? "legacyUnspecified",
     loadMultiplierSnapshot: item.loadMultiplierSnapshot,
-    fixedWeightKgSnapshot: item.fixedWeightKgSnapshot,
+    additionalLoadKg: item.additionalLoadKg,
+    assistanceKg: item.assistanceKg,
     calculatedTotalWeightKg: item.calculatedTotalWeightKg,
     reps: item.reps,
     sets: item.sets,
-    bodyPartSnapshot: item.bodyPartSnapshot ?? "",
-    equipmentSnapshot: item.equipmentSnapshot ?? "",
+    muscleTargetsSnapshot: item.muscleTargetsSnapshot,
+    movementFamilySnapshot: item.movementFamilySnapshot,
+    jointActionsSnapshot: item.jointActionsSnapshot,
+    lateralitySnapshot: item.lateralitySnapshot,
+    loadModelSnapshot: item.loadModelSnapshot,
+    classificationVersionSnapshot: item.classificationVersionSnapshot,
+    bodyWeightKgSnapshot: item.bodyWeightKgSnapshot,
+    equipmentTypeSnapshot: item.equipmentTypeSnapshot,
+    equipmentProfileIdSnapshot: item.equipmentProfileIdSnapshot,
+    cableSettingsSnapshot: item.cableSettingsSnapshot,
     note: item.note ?? "",
     visitDateLocal: item.visitDateLocal
   };
@@ -730,8 +802,16 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
       return {
         trainingMenuItemId,
         trainingName: menu.trainingName,
-        bodyPart: typeof menu.bodyPart === "string" ? menu.bodyPart : "",
-        equipment: typeof menu.equipment === "string" ? menu.equipment : "",
+        exerciseFamilyId: menu.exerciseFamilyId,
+        muscleTargets: normalizeMuscleTargets(menu.muscleTargets) ?? [],
+        movementFamily: normalizeMovementFamily(menu.movementFamily),
+        jointActions: normalizeJointActions(menu.jointActions) ?? [],
+        laterality: normalizeLaterality(menu.laterality),
+        loadModel: normalizeLoadModel(menu.loadModel),
+        classificationVersion: Number(menu.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
+        equipmentType: normalizeEquipmentType(menu.equipmentType) ?? "other",
+        equipmentProfileId: toTrimmedString(menu.equipmentProfileId),
+        cableSettings: menu.cableSettings,
         isAiGenerated: menu.isAiGenerated === true,
         description: typeof menu.description === "string" ? menu.description : "",
         trainingMenuSetItemId: menu.trainingMenuSetItemId,
@@ -744,7 +824,6 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
         createdBy: menu.createdBy === "ai" ? "ai" : "manual",
         weightInputMode,
         loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
-        fixedWeightKg: normalizeFixedWeightKg(menu.fixedWeightKg),
         displayOrder: menu.displayOrder,
         isActive: menu.isActive,
         lastPerformanceSnapshot

@@ -2671,3 +2671,347 @@ a {
     resize: vertical;
   }
 }
+.muscle-target-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  margin: 0;
+  min-width: 0;
+  padding: 16px;
+}
+
+.muscle-target-fieldset legend {
+  font-weight: 700;
+  padding: 0 6px;
+}
+
+.muscle-target-help {
+  font-size: 0.88rem;
+  line-height: 1.6;
+  margin-bottom: 12px;
+}
+
+.muscle-target-summary {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  min-height: 44px;
+  padding: 8px;
+}
+
+.muscle-target-empty {
+  color: var(--muted);
+  font-size: 0.82rem;
+  padding: 2px 4px;
+}
+
+.muscle-target-chip {
+  align-items: center;
+  border-radius: 999px;
+  display: flex;
+  font-size: 0.78rem;
+  gap: 5px;
+  padding: 6px 9px;
+}
+
+.muscle-target-chip strong {
+  font-size: 0.68rem;
+}
+
+.muscle-target-chip.is-primary {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.muscle-target-chip.is-secondary {
+  background: var(--accent-warm-soft);
+  color: #85521f;
+}
+
+.muscle-target-chip.is-stabilizer {
+  background: rgba(86, 102, 117, 0.12);
+  color: #485968;
+}
+
+.muscle-target-chip button {
+  background: transparent;
+  border: 0;
+  color: currentColor;
+  cursor: pointer;
+  font-size: 1rem;
+  line-height: 1;
+  margin-left: 2px;
+  padding: 0 2px;
+}
+
+.muscle-search {
+  margin-top: 12px;
+  width: min(100%, 360px);
+}
+
+.muscle-group-tabs {
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  margin: 12px 0 10px;
+}
+
+.muscle-group-tab {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.55);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 0.84rem;
+  font-weight: 700;
+  gap: 5px;
+  justify-content: center;
+  min-height: 42px;
+  padding: 8px 6px;
+}
+
+.muscle-group-tab.is-active {
+  background: var(--primary-soft);
+  border-color: rgba(15, 118, 110, 0.35);
+  color: var(--primary-strong);
+}
+
+.muscle-group-count {
+  align-items: center;
+  background: var(--primary);
+  border-radius: 999px;
+  color: white;
+  display: inline-flex;
+  font-size: 0.68rem;
+  height: 19px;
+  justify-content: center;
+  min-width: 19px;
+  padding: 0 5px;
+}
+
+.muscle-target-panel {
+  background: rgba(255, 255, 255, 0.38);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  display: grid;
+  gap: 8px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 10px;
+}
+
+.muscle-target-row {
+  align-items: center;
+  background: rgba(255, 255, 255, 0.54);
+  border: 1px solid transparent;
+  border-radius: 12px;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(90px, 1fr) minmax(150px, 1.3fr);
+  min-width: 0;
+  padding: 8px 9px;
+}
+
+.muscle-target-row.is-selected {
+  border-color: rgba(15, 118, 110, 0.18);
+}
+
+.muscle-target-name {
+  font-size: 0.88rem;
+  font-weight: 700;
+  line-height: 1.4;
+  min-width: 0;
+}
+
+.muscle-role-options {
+  background: rgba(24, 32, 40, 0.05);
+  border-radius: 10px;
+  display: grid;
+  gap: 2px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 2px;
+}
+
+.muscle-role-options button {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.74rem;
+  font-weight: 700;
+  min-height: 34px;
+  padding: 6px 4px;
+}
+
+.muscle-role-options button.is-active {
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 2px 8px rgba(18, 28, 35, 0.08);
+  color: var(--text);
+}
+
+.muscle-role-options button.is-primary {
+  background: var(--primary);
+  color: white;
+}
+
+.muscle-role-options button.is-secondary {
+  background: var(--accent-warm);
+  color: #37220d;
+}
+
+.muscle-role-options button.is-stabilizer {
+  background: #687b8b;
+  color: white;
+}
+
+.muscle-factor-control {
+  align-items: center;
+  color: var(--muted);
+  display: flex;
+  font-size: 0.72rem;
+  gap: 7px;
+  grid-column: 1 / -1;
+  justify-content: flex-end;
+}
+
+.muscle-factor-control input {
+  min-height: 34px;
+  padding: 5px 8px;
+  width: 76px;
+}
+
+.menu-form-basics {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.joint-action-fieldset,
+.equipment-detail-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  margin: 0;
+  min-width: 0;
+  padding: 16px;
+}
+
+.joint-action-fieldset legend,
+.equipment-detail-fieldset legend {
+  font-weight: 700;
+  padding: 0 6px;
+}
+
+.joint-action-grid {
+  display: grid;
+  gap: 7px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.joint-action-grid button {
+  background: rgba(255, 255, 255, 0.58);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 650;
+  min-height: 42px;
+  padding: 7px 9px;
+  text-align: left;
+}
+
+.joint-action-grid button.is-selected {
+  background: var(--primary-soft);
+  border-color: rgba(15, 118, 110, 0.45);
+  color: var(--primary-strong);
+}
+
+.menu-form-advanced {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 13px;
+}
+
+.menu-form-advanced summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.menu-form-advanced[open] summary {
+  margin-bottom: 12px;
+}
+
+@media (max-width: 760px) {
+  .muscle-target-fieldset {
+    padding: 13px;
+  }
+
+  .muscle-group-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .muscle-target-panel {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .muscle-target-row {
+    grid-template-columns: minmax(88px, 1fr) minmax(144px, 1.45fr);
+  }
+
+  .joint-action-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 430px) {
+  .muscle-target-fieldset {
+    padding: 11px;
+  }
+
+  .muscle-target-help {
+    font-size: 0.82rem;
+  }
+
+  .muscle-group-tabs {
+    gap: 6px;
+  }
+
+  .muscle-group-tab {
+    font-size: 0.8rem;
+    min-height: 40px;
+  }
+
+  .muscle-target-panel {
+    padding: 7px;
+  }
+
+  .muscle-target-row {
+    gap: 8px;
+    grid-template-columns: minmax(0, 1fr);
+    padding: 7px;
+  }
+
+  .muscle-target-name {
+    font-size: 0.82rem;
+  }
+
+  .muscle-role-options button {
+    font-size: 0.7rem;
+    min-height: 33px;
+  }
+
+  .menu-form-basics,
+  .joint-action-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .joint-action-fieldset,
+  .equipment-detail-fieldset {
+    padding: 11px;
+  }
+}

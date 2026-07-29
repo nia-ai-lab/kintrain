@@ -532,6 +532,12 @@ const avatarUploadPresignResource = avatarUploadResource.addResource("presign");
 avatarUploadPresignResource.addMethod("POST", avatarUploadIntegration, authMethodOptions);
 
 const enableAgentCoreResources = process.env.ENABLE_AGENTCORE_RESOURCES === "true";
+if (deploymentBranchSuffix === "main" && !enableAgentCoreResources) {
+  throw new Error(
+    "ENABLE_AGENTCORE_RESOURCES=true is required when deploying main. " +
+      "This guard prevents an accidental deletion of the production MCP gateway, runtime, and memory."
+  );
+}
 let aiRuntimeEndpoint = process.env.AI_RUNTIME_ENDPOINT_URL ?? "";
 let aiRuntimeEndpointArn = "";
 let aiGatewayUrl = "";

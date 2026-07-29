@@ -44,7 +44,14 @@ function buildCoreMockData() {
         trainingName: 'チェストプレス',
         description:
           '肩甲骨を軽く寄せて胸を張ります。\nハンドルは胸の高さに合わせ、肘を伸ばし切る直前で止めます。\n戻す動作はゆっくり行ってください。',
-        bodyPart: '胸',
+        muscleTargets: [
+          { muscleId: 'chest_mid', role: 'primary' },
+          { muscleId: 'triceps', role: 'secondary' }
+        ],
+        movementPattern: 'horizontal_push',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -62,7 +69,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-2',
         trainingName: 'ラットプルダウン',
-        bodyPart: '背中',
+        muscleTargets: [
+          { muscleId: 'latissimus', role: 'primary' },
+          { muscleId: 'biceps', role: 'secondary' }
+        ],
+        movementPattern: 'vertical_pull',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -80,7 +94,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-3',
         trainingName: 'レッグプレス',
-        bodyPart: '脚',
+        muscleTargets: [
+          { muscleId: 'quadriceps', role: 'primary' },
+          { muscleId: 'glute_max', role: 'secondary' }
+        ],
+        movementPattern: 'squat',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -98,7 +119,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-4',
         trainingName: 'ショルダープレス',
-        bodyPart: '肩',
+        muscleTargets: [
+          { muscleId: 'anterior_deltoid', role: 'primary' },
+          { muscleId: 'triceps', role: 'secondary' }
+        ],
+        movementPattern: 'vertical_push',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -116,7 +144,14 @@ function buildCoreMockData() {
       {
         trainingMenuItemId: 'm-5',
         trainingName: 'シーテッドロー',
-        bodyPart: '背中',
+        muscleTargets: [
+          { muscleId: 'upper_back', role: 'primary' },
+          { muscleId: 'biceps', role: 'secondary' }
+        ],
+        movementPattern: 'horizontal_pull',
+        laterality: 'bilateral',
+        loadModel: 'external_load',
+        classificationVersion: 1,
         equipment: 'マシン',
         weightInputMode: 'direct',
         loadMultiplier: 1,
@@ -192,7 +227,14 @@ function buildCoreMockData() {
           {
             trainingMenuItemId: 'm-1',
             trainingNameSnapshot: 'チェストプレス',
-            bodyPartSnapshot: '胸',
+            muscleTargetsSnapshot: [
+              { muscleId: 'chest_mid', role: 'primary' },
+              { muscleId: 'triceps', role: 'secondary' }
+            ],
+            movementPatternSnapshot: 'horizontal_push',
+            lateralitySnapshot: 'bilateral',
+            loadModelSnapshot: 'external_load',
+            classificationVersionSnapshot: 1,
             equipmentSnapshot: 'マシン',
             weightKg: 25,
             reps: 12,
@@ -502,12 +544,19 @@ async function attachCoreApiMock(page) {
       const item = {
         trainingMenuItemId: `mock-${mock.sequence}`,
         trainingName: String(input.trainingName ?? '').trim(),
-        bodyPart: String(input.bodyPart ?? ''),
-        equipment: input.equipment ?? 'その他',
+        exerciseFamilyId: input.exerciseFamilyId ?? input.trainingName,
+        muscleTargets: Array.isArray(input.muscleTargets) ? input.muscleTargets : [],
+        movementFamily: input.movementFamily ?? 'isolation',
+        jointActions: input.jointActions ?? [],
+        laterality: input.laterality ?? 'bilateral',
+        loadModel: input.loadModel ?? 'external_load',
+        classificationVersion: Number(input.classificationVersion ?? 2),
+        equipmentType: input.equipmentType ?? 'other',
+        equipmentProfileId: input.equipmentProfileId,
+        cableSettings: input.cableSettings,
         description: String(input.description ?? '').trim(),
         weightInputMode: input.weightInputMode ?? 'direct',
         loadMultiplier: Number(input.loadMultiplier ?? 1),
-        fixedWeightKg: Number(input.fixedWeightKg ?? 0),
         usageCount: 0,
         displayOrder: mock.menuItems.length + 1,
         isActive: true,
@@ -769,9 +818,54 @@ async function seedBackendData(authContext) {
   assert.equal(putProfileRes.status, 200);
 
   const menuPayloads = [
-    { trainingName: 'シーテッドロー', defaultWeightKg: 27.5, defaultRepsMin: 10, defaultRepsMax: 12, defaultSets: 3 },
-    { trainingName: 'チェストプレス', defaultWeightKg: 25, defaultRepsMin: 8, defaultRepsMax: 12, defaultSets: 3 },
-    { trainingName: 'ラットプルダウン', defaultWeightKg: 30, defaultRepsMin: 8, defaultRepsMax: 10, defaultSets: 3 }
+    {
+      trainingName: 'シーテッドロー',
+      exerciseFamilyId: 'seated_row',
+      muscleTargets: [
+        { muscleId: 'latissimus', role: 'primary', effectiveSetFactor: 1 },
+        { muscleId: 'biceps', role: 'secondary', effectiveSetFactor: 0.5 }
+      ],
+      movementFamily: 'pull',
+      jointActions: ['shoulder_horizontal_abduction', 'elbow_flexion'],
+      laterality: 'bilateral',
+      loadModel: 'external_load',
+      classificationVersion: 2,
+      equipmentType: 'selectorized_machine',
+      weightInputMode: 'direct',
+      loadMultiplier: 1
+    },
+    {
+      trainingName: 'チェストプレス',
+      exerciseFamilyId: 'chest_press',
+      muscleTargets: [
+        { muscleId: 'chest_mid', role: 'primary', effectiveSetFactor: 1 },
+        { muscleId: 'triceps', role: 'secondary', effectiveSetFactor: 0.5 }
+      ],
+      movementFamily: 'push',
+      jointActions: ['shoulder_horizontal_adduction', 'elbow_extension'],
+      laterality: 'bilateral',
+      loadModel: 'external_load',
+      classificationVersion: 2,
+      equipmentType: 'selectorized_machine',
+      weightInputMode: 'direct',
+      loadMultiplier: 1
+    },
+    {
+      trainingName: 'ラットプルダウン',
+      exerciseFamilyId: 'lat_pulldown',
+      muscleTargets: [
+        { muscleId: 'latissimus', role: 'primary', effectiveSetFactor: 1 },
+        { muscleId: 'biceps', role: 'secondary', effectiveSetFactor: 0.5 }
+      ],
+      movementFamily: 'pull',
+      jointActions: ['shoulder_adduction', 'elbow_flexion'],
+      laterality: 'bilateral',
+      loadModel: 'external_load',
+      classificationVersion: 2,
+      equipmentType: 'selectorized_machine',
+      weightInputMode: 'direct',
+      loadMultiplier: 1
+    }
   ];
 
   const createdMenuItems = [];
@@ -806,6 +900,13 @@ async function seedBackendData(authContext) {
         {
           trainingMenuItemId: createdMenuItems[0].trainingMenuItemId,
           trainingNameSnapshot: createdMenuItems[0].trainingName,
+          muscleTargetsSnapshot: createdMenuItems[0].muscleTargets,
+          movementFamilySnapshot: createdMenuItems[0].movementFamily,
+          jointActionsSnapshot: createdMenuItems[0].jointActions,
+          lateralitySnapshot: createdMenuItems[0].laterality,
+          loadModelSnapshot: createdMenuItems[0].loadModel,
+          classificationVersionSnapshot: createdMenuItems[0].classificationVersion,
+          equipmentTypeSnapshot: createdMenuItems[0].equipmentType,
           weightKg: 27.5,
           reps: 12,
           sets: 3,
@@ -971,10 +1072,12 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
   await createPanel.locator('summary').click();
   await createPanel.getByLabel('種目名').fill(uniqueName);
-  await createPanel.getByLabel('鍛える部位').fill('胸');
-  await createPanel.getByLabel('用具').selectOption('フリー');
+  await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
+  await createPanel.locator('.muscle-group-tabs').getByRole('button', { name: '腕' }).click();
+  await createPanel.getByRole('button', { name: '上腕三頭筋を補助筋にする' }).click();
+  await createPanel.getByRole('button', { name: '肩の水平内転' }).click();
+  await createPanel.getByLabel('使用する器具').selectOption('dumbbell');
   await createPanel.getByLabel('重量入力方式').selectOption('perSide');
-  await createPanel.getByLabel('バーなどの固定重量').fill('20');
   await createPanel.getByLabel('種目の説明').fill('胸を張ってゆっくり動かす。');
   await createPanel.getByRole('button', { name: '種目一覧へ登録' }).click();
 
@@ -982,9 +1085,11 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await expect(addedCard).toBeVisible();
   await addedCard.locator('summary').click();
   await expect(addedCard.getByLabel('種目の説明')).toHaveValue('胸を張ってゆっくり動かす。');
-  await addedCard.getByLabel('鍛える部位').fill('上胸');
+  await addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' }).click();
+  await addedCard.getByRole('button', { name: '胸（中部）を選択解除' }).click();
   await addedCard.getByRole('button', { name: '種目情報を保存' }).click();
-  await expect(addedCard.getByLabel('鍛える部位')).toHaveValue('上胸');
+  await expect(addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(addedCard.getByRole('button', { name: '胸（中部）を選択解除' })).toHaveAttribute('aria-pressed', 'true');
 
   page.once('dialog', (dialog) => dialog.accept());
   await addedCard.getByRole('button', { name: '種目自体を削除' }).click();
@@ -996,6 +1101,37 @@ test('トレーニングメニューで追加・編集・削除ができる', as
     () => document.documentElement.scrollWidth > window.innerWidth
   );
   assert.equal(hasHorizontalOverflow, false);
+});
+
+test('iPhone幅で筋肉と役割を見やすく選択できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await login(page);
+  await page.goto('/training-menu');
+  await page.getByRole('button', { name: '種目一覧' }).click();
+
+  const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
+  await createPanel.locator('summary').click();
+
+  await expect(createPanel.locator('.muscle-group-tab')).toHaveCount(6);
+  await expect(createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' })).toBeVisible();
+  await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
+  await expect(createPanel.locator('.muscle-target-chip.is-primary').filter({ hasText: '胸（中部）' })).toBeVisible();
+
+  const layout = await createPanel.locator('.muscle-target-fieldset').evaluate((fieldset) => ({
+    fitsWidth: fieldset.scrollWidth <= fieldset.clientWidth,
+    names: [...fieldset.querySelectorAll('.muscle-target-name')].map((name) => ({
+      text: name.textContent,
+      width: name.getBoundingClientRect().width,
+      height: name.getBoundingClientRect().height,
+      lineHeight: Number.parseFloat(getComputedStyle(name).lineHeight)
+    }))
+  }));
+  assert.equal(layout.fitsWidth, true);
+  assert.ok(layout.names.every((name) => name.width >= 80));
+  assert.ok(layout.names.every((name) => name.height <= name.lineHeight * 1.5));
+
+  await createPanel.screenshot({ path: 'test-results/muscle-target-mobile.png' });
 });
 
 test('カレンダーとDailyで記録の入力・参照ができる', async ({ page }) => {
@@ -1137,7 +1273,7 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 3);
+  assert.equal(exported.schemaVersion, 5);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);

@@ -15,8 +15,30 @@ import {
   updateTrainingMenuSet,
   updateTrainingMenuSetItem
 } from '../api/coreApi';
+import {
+  attachmentTypeOptions,
+  defaultEffectiveSetFactor,
+  equipmentTypeLabel,
+  equipmentTypeOptions,
+  formatMuscleTargets,
+  jointActionOptions,
+  lateralityOptions,
+  loadModelOptions,
+  movementFamilyOptions,
+  muscleGroups,
+  muscles,
+  pulleyPositionOptions,
+  type EquipmentType,
+  type JointAction,
+  type Laterality,
+  type LoadModel,
+  type MovementFamily,
+  type MuscleId,
+  type MuscleRole,
+  type MuscleTarget
+} from '../muscleTaxonomy';
 import type {
-  TrainingEquipment,
+  CableSettings,
   TrainingFrequencyDays,
   TrainingMenuItem,
   TrainingMenuSet,
@@ -28,7 +50,6 @@ import { formatTrainingLabel } from '../utils/training';
 type MenuTab = 'sets' | 'items';
 type SetItemDraft = TrainingMenuSetItem;
 
-const equipmentOptions: TrainingEquipment[] = ['マシン', 'フリー', '自重', 'その他'];
 const intervalOptions: TrainingFrequencyDays[] = [1, 2, 3, 4, 5, 6, 7, 8];
 
 function intervalLabel(value: TrainingFrequencyDays): string {
@@ -463,7 +484,7 @@ function SetEditor({
             <option value="">種目を選択</option>
             {addableItems.map((item) => (
               <option key={item.id} value={item.id}>
-                {formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}
+                {formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}
               </option>
             ))}
           </select>
@@ -500,7 +521,7 @@ function SetEditor({
               <div className="row-between">
                 <div>
                   <p className="priority-chip">#{index + 1}</p>
-                  <h3>{formatTrainingLabel(menuItem.trainingName, menuItem.bodyPart, menuItem.equipment, menuItem.isAiGenerated)}</h3>
+                  <h3>{formatTrainingLabel(menuItem.trainingName, menuItem.muscleTargets, menuItem.equipmentType, menuItem.isAiGenerated)}</h3>
                 </div>
                 <div className="row-wrap">
                   <button
@@ -643,7 +664,7 @@ function ItemLibrary({
   const [query, setQuery] = useState('');
   const filtered = items.filter((item) => {
     const needle = query.trim().toLowerCase();
-    return !needle || `${item.trainingName} ${item.bodyPart} ${item.equipment}`.toLowerCase().includes(needle);
+    return !needle || `${item.trainingName} ${formatMuscleTargets(item.muscleTargets)} ${equipmentTypeLabel(item.equipmentType)}`.toLowerCase().includes(needle);
   });
 
   return (
@@ -702,7 +723,7 @@ function MenuItemEditor({
   return (
     <details className="card menu-item-library-card">
       <summary>
-        <span>{formatTrainingLabel(item.trainingName, item.bodyPart, item.equipment, item.isAiGenerated)}</span>
+        <span>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</span>
         <small>{item.usageCount}セットで使用</small>
       </summary>
       <MenuItemForm
@@ -744,14 +765,71 @@ function MenuItemForm({
   disabled: boolean;
   onSubmit: (value: {
     trainingName: string;
-    bodyPart: string;
-    equipment: TrainingEquipment;
+    exerciseFamilyId: string;
+    muscleTargets: MuscleTarget[];
+    movementFamily: MovementFamily;
+    jointActions: JointAction[];
+    laterality: Laterality;
+    loadModel: LoadModel;
+    equipmentType: EquipmentType;
+    equipmentProfileId?: string;
+    cableSettings?: CableSettings;
     description: string;
     weightInputMode: WeightInputMode;
     loadMultiplier: 1 | 2;
-    fixedWeightKg: number;
   }) => Promise<void>;
 }) {
+  const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>(initial?.muscleTargets ?? []);
+  const [jointActions, setJointActions] = useState<JointAction[]>(initial?.jointActions ?? []);
+  const [equipmentType, setEquipmentType] = useState<EquipmentType>(initial?.equipmentType ?? 'other');
+  const [muscleSearch, setMuscleSearch] = useState('');
+  const [formError, setFormError] = useState('');
+  const firstSelectedMuscle = muscles.find((muscle) =>
+    initial?.muscleTargets.some((target) => target.muscleId === muscle.id)
+  );
+  const [activeMuscleGroupId, setActiveMuscleGroupId] = useState<(typeof muscleGroups)[number]['id']>(
+    firstSelectedMuscle?.groupId ?? muscleGroups[0].id
+  );
+
+  const setMuscleTarget = (muscleId: MuscleId, enabled: boolean, role?: MuscleRole) => {
+    setMuscleTargets((current) => {
+      const remaining = current.filter((target) => target.muscleId !== muscleId);
+      const resolvedRole = role ?? (current.some((target) => target.role === 'primary') ? 'secondary' : 'primary');
+      const existing = current.find((target) => target.muscleId === muscleId);
+      return enabled
+        ? [...remaining, {
+            muscleId,
+            role: resolvedRole,
+            effectiveSetFactor:
+              existing?.role === resolvedRole
+                ? existing.effectiveSetFactor
+                : defaultEffectiveSetFactor(resolvedRole)
+          }]
+        : remaining;
+    });
+  };
+  const activeMuscles = muscles.filter((muscle) => {
+    const needle = muscleSearch.trim();
+    return needle ? muscle.label.includes(needle) : muscle.groupId === activeMuscleGroupId;
+  });
+  const primaryTargets = muscleTargets.filter((target) => target.role === 'primary');
+  const secondaryTargets = muscleTargets.filter((target) => target.role === 'secondary');
+  const stabilizerTargets = muscleTargets.filter((target) => target.role === 'stabilizer');
+
+  const selectedTargetChip = (target: MuscleTarget, label: string) => (
+    <span className={`muscle-target-chip is-${target.role}`} key={target.muscleId}>
+      <strong>{label}</strong>
+      {muscles.find((muscle) => muscle.id === target.muscleId)?.label}
+      <button
+        type="button"
+        aria-label={`${muscles.find((muscle) => muscle.id === target.muscleId)?.label}を解除`}
+        onClick={() => setMuscleTarget(target.muscleId, false)}
+      >
+        ×
+      </button>
+    </span>
+  );
+
   return (
     <form
       className="stack-md menu-library-form"
@@ -759,50 +837,287 @@ function MenuItemForm({
         event.preventDefault();
         const form = new FormData(event.currentTarget);
         const mode = form.get('weightInputMode') === 'perSide' ? 'perSide' : 'direct';
+        if (!muscleTargets.some((target) => target.role === 'primary')) {
+          setFormError('主働筋を1つ以上選択してください。');
+          return;
+        }
+        if (jointActions.length === 0) {
+          setFormError('関節動作を1つ以上選択してください。');
+          return;
+        }
+        setFormError('');
+        const selectedEquipmentType = String(form.get('equipmentType') ?? 'other') as EquipmentType;
         void onSubmit({
           trainingName: String(form.get('trainingName') ?? '').trim(),
-          bodyPart: String(form.get('bodyPart') ?? '').trim(),
-          equipment: String(form.get('equipment') ?? 'その他') as TrainingEquipment,
+          exerciseFamilyId:
+            String(form.get('exerciseFamilyId') ?? '').trim() ||
+            String(form.get('trainingName') ?? '').trim(),
+          muscleTargets,
+          movementFamily: String(form.get('movementFamily') ?? 'isolation') as MovementFamily,
+          jointActions,
+          laterality: String(form.get('laterality') ?? 'bilateral') as Laterality,
+          loadModel: String(form.get('loadModel') ?? 'external_load') as LoadModel,
+          equipmentType: selectedEquipmentType,
+          equipmentProfileId: String(form.get('equipmentProfileId') ?? '').trim() || undefined,
+          cableSettings:
+            selectedEquipmentType === 'cable_machine'
+              ? {
+                  pulleyPosition: String(form.get('pulleyPosition') ?? 'adjustable') as CableSettings['pulleyPosition'],
+                  attachmentType: String(form.get('attachmentType') ?? 'other') as CableSettings['attachmentType'],
+                  cableSides: String(form.get('cableSides') ?? 'single') as CableSettings['cableSides']
+                }
+              : undefined,
           description: String(form.get('description') ?? '').trim(),
           weightInputMode: mode,
-          loadMultiplier: mode === 'perSide' ? 2 : 1,
-          fixedWeightKg: mode === 'perSide' ? Number(form.get('fixedWeightKg') ?? 0) : 0
+          loadMultiplier: mode === 'perSide' ? 2 : 1
         });
       }}
     >
-      <div className="menu-three-fields-row">
+      <div className="menu-form-basics">
         <label>
           種目名
-          <input name="trainingName" defaultValue={initial?.trainingName} required />
+          <input name="trainingName" defaultValue={initial?.trainingName} placeholder="例：ケーブル・サイドレイズ" required />
         </label>
         <label>
-          鍛える部位
-          <input name="bodyPart" defaultValue={initial?.bodyPart} />
-        </label>
-        <label>
-          用具
-          <select name="equipment" defaultValue={initial?.equipment ?? 'その他'}>
-            {equipmentOptions.map((value) => <option value={value} key={value}>{value}</option>)}
+          使用する器具
+          <select
+            name="equipmentType"
+            value={equipmentType}
+            onChange={(event) => setEquipmentType(event.target.value as EquipmentType)}
+          >
+            {equipmentTypeOptions.map((option) => <option value={option.value} key={option.value}>{option.label}</option>)}
           </select>
         </label>
       </div>
-      <div className="menu-three-fields-row">
+      <fieldset className="muscle-target-fieldset">
+        <legend>鍛える筋肉</legend>
+        <p className="muted muscle-target-help">部位タブから筋肉を選びます。主働・補助・安定のいずれかを押すだけで登録できます。</p>
+        <div className="muscle-target-summary" aria-live="polite">
+          {muscleTargets.length === 0 ? (
+            <span className="muscle-target-empty">まだ筋肉が選択されていません</span>
+          ) : (
+            <>
+              {primaryTargets.map((target) => selectedTargetChip(target, '主働'))}
+              {secondaryTargets.map((target) => selectedTargetChip(target, '補助'))}
+              {stabilizerTargets.map((target) => selectedTargetChip(target, '安定'))}
+            </>
+          )}
+        </div>
+        <input
+          className="muscle-search"
+          type="search"
+          value={muscleSearch}
+          onChange={(event) => setMuscleSearch(event.target.value)}
+          placeholder="筋肉名を検索"
+          aria-label="筋肉名を検索"
+        />
+        <div className="muscle-group-tabs" role="group" aria-label="筋肉の部位">
+          {muscleGroups.map((group) => {
+            const selectedCount = muscleTargets.filter((target) =>
+              muscles.some((muscle) => muscle.id === target.muscleId && muscle.groupId === group.id)
+            ).length;
+            const isActive = activeMuscleGroupId === group.id;
+            return (
+              <button
+                aria-pressed={isActive}
+                className={`muscle-group-tab${isActive ? ' is-active' : ''}`}
+                key={group.id}
+                onClick={() => {
+                  setActiveMuscleGroupId(group.id);
+                  setMuscleSearch('');
+                }}
+                type="button"
+              >
+                {group.label}
+                {selectedCount > 0 && <span className="muscle-group-count">{selectedCount}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <section
+          aria-label={`${muscleGroups.find((group) => group.id === activeMuscleGroupId)?.label}の筋肉`}
+          className="muscle-target-panel"
+        >
+          {activeMuscles.map((muscle) => {
+            const target = muscleTargets.find((candidate) => candidate.muscleId === muscle.id);
+            return (
+              <div className={`muscle-target-row${target ? ' is-selected' : ''}`} key={muscle.id}>
+                <span className="muscle-target-name">{muscle.label}</span>
+                <div className="muscle-role-options" role="group" aria-label={`${muscle.label}の役割`}>
+                  <button
+                    aria-label={`${muscle.label}を選択解除`}
+                    aria-pressed={!target}
+                    className={!target ? 'is-active is-none' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, false)}
+                    type="button"
+                  >
+                    なし
+                  </button>
+                  <button
+                    aria-label={`${muscle.label}を主働筋にする`}
+                    aria-pressed={target?.role === 'primary'}
+                    className={target?.role === 'primary' ? 'is-active is-primary' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, true, 'primary')}
+                    type="button"
+                  >
+                    主働
+                  </button>
+                  <button
+                    aria-label={`${muscle.label}を補助筋にする`}
+                    aria-pressed={target?.role === 'secondary'}
+                    className={target?.role === 'secondary' ? 'is-active is-secondary' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, true, 'secondary')}
+                    type="button"
+                  >
+                    補助
+                  </button>
+                  <button
+                    aria-label={`${muscle.label}を安定化筋にする`}
+                    aria-pressed={target?.role === 'stabilizer'}
+                    className={target?.role === 'stabilizer' ? 'is-active is-stabilizer' : ''}
+                    onClick={() => setMuscleTarget(muscle.id, true, 'stabilizer')}
+                    type="button"
+                  >
+                    安定
+                  </button>
+                </div>
+                {target && (
+                  <label className="muscle-factor-control">
+                    有効セット係数
+                    <input
+                      aria-label={`${muscle.label}の有効セット係数`}
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      value={target.effectiveSetFactor}
+                      onChange={(event) => {
+                        const factor = Math.max(0, Math.min(1, Number(event.target.value)));
+                        setMuscleTargets((current) => current.map((candidate) =>
+                          candidate.muscleId === muscle.id
+                            ? { ...candidate, effectiveSetFactor: factor }
+                            : candidate
+                        ));
+                      }}
+                    />
+                  </label>
+                )}
+              </div>
+            );
+          })}
+        </section>
+      </fieldset>
+      <fieldset className="joint-action-fieldset">
+        <legend>どんな動作か</legend>
+        <div className="menu-form-basics">
+          <label>
+            動作系統
+            <select name="movementFamily" defaultValue={initial?.movementFamily ?? 'isolation'}>
+              {movementFamilyOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            左右の実施方式
+            <select name="laterality" defaultValue={initial?.laterality ?? 'bilateral'}>
+              {lateralityOptions.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <p className="muted muscle-target-help">当てはまる関節動作をすべて選択してください。</p>
+        <div className="joint-action-grid">
+          {jointActionOptions.map((option) => {
+            const selected = jointActions.includes(option.value);
+            return (
+              <button
+                type="button"
+                key={option.value}
+                className={selected ? 'is-selected' : ''}
+                aria-pressed={selected}
+                onClick={() => setJointActions((current) =>
+                  selected ? current.filter((value) => value !== option.value) : [...current, option.value]
+                )}
+              >
+                {selected ? '✓ ' : ''}{option.label}
+              </button>
+            );
+          })}
+        </div>
+      </fieldset>
+      <div className="menu-form-basics">
         <label>
-          重量入力方式
-          <select name="weightInputMode" defaultValue={initial?.weightInputMode === 'perSide' ? 'perSide' : 'direct'}>
-            <option value="direct">入力値が総重量</option>
-            <option value="perSide">片側重量 × 2</option>
+          負荷方式
+          <select name="loadModel" defaultValue={initial?.loadModel ?? 'external_load'}>
+            {loadModelOptions.map((option) => (
+              <option key={option.value} value={option.value}>{option.label}</option>
+            ))}
           </select>
         </label>
-        <label>
-          バーなどの固定重量
-          <input name="fixedWeightKg" type="number" min={0} step={0.01} defaultValue={initial?.fixedWeightKg ?? 0} />
-        </label>
       </div>
+      {equipmentType === 'cable_machine' && (
+        <fieldset className="equipment-detail-fieldset">
+          <legend>ケーブル設定</legend>
+          <div className="menu-three-fields-row">
+            <label>
+              プーリー位置
+              <select name="pulleyPosition" defaultValue={initial?.cableSettings?.pulleyPosition ?? 'adjustable'}>
+                {pulleyPositionOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label>
+              アタッチメント
+              <select name="attachmentType" defaultValue={initial?.cableSettings?.attachmentType ?? 'other'}>
+                {attachmentTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+              </select>
+            </label>
+            <label>
+              ケーブル
+              <select name="cableSides" defaultValue={initial?.cableSettings?.cableSides ?? 'single'}>
+                <option value="single">片側スタック</option>
+                <option value="dual">左右独立スタック</option>
+              </select>
+            </label>
+          </div>
+        </fieldset>
+      )}
+      <section className="menu-form-advanced" aria-label="重量入力と分析用の詳細設定">
+        <strong>重量入力と分析用の詳細設定</strong>
+        <div className="menu-form-basics">
+          <label>
+            重量入力方式
+            <select name="weightInputMode" defaultValue={initial?.weightInputMode === 'perSide' ? 'perSide' : 'direct'}>
+              <option value="direct">入力値が表示・総重量</option>
+              <option value="perSide">片側重量 × 2</option>
+            </select>
+          </label>
+          <label>
+            種目ファミリー
+            <input
+              name="exerciseFamilyId"
+              defaultValue={initial?.exerciseFamilyId}
+              placeholder="未入力なら種目名を使用"
+              maxLength={80}
+            />
+          </label>
+          <label>
+            使用機器名（任意）
+            <input
+              name="equipmentProfileId"
+              defaultValue={initial?.equipmentProfileId}
+              placeholder="例：2階 ケーブルマシンA"
+              maxLength={80}
+            />
+          </label>
+        </div>
+      </section>
       <label>
         種目の説明
-        <textarea name="description" rows={2} maxLength={500} defaultValue={initial?.description} />
+        <textarea name="description" rows={3} maxLength={500} defaultValue={initial?.description} placeholder="フォームや左右の実施方法を記録" />
       </label>
+      {formError && <p className="form-error">{formError}</p>}
       <button className="btn primary" type="submit" disabled={disabled}>{submitLabel}</button>
     </form>
   );
