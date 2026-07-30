@@ -18,13 +18,15 @@ import {
   normalizeGoalForMcp,
   normalizeGymVisitWeightSnapshots,
   normalizeNonNegativeDecimal,
+  normalizeTrainingMenuItemForMcp,
   parseAnalysisExportSelection,
   parseLocalTime,
   parseYmd,
   resolveRecordDate,
   resolveTrainingMenuForHistory,
   resolveTimeZoneId,
-  saveBodyMetricsBatch
+  saveBodyMetricsBatch,
+  trainingMenuItemVersion
 } from "../amplify/functions/mcp-tools-api/handler.ts";
 
 type JsonObject = Record<string, unknown>;
@@ -221,6 +223,43 @@ test("MCP read responses expose only allowlisted database fields", () => {
     assert.equal(serialized.includes("secretInternalFlag"), false);
     assert.equal(serialized.includes("coachAvatarObjectKey"), false);
   }
+});
+
+test("exercise master MCP output exposes version and impact without internal identity", () => {
+  assert.equal(trainingMenuItemVersion(undefined), 0);
+  assert.equal(trainingMenuItemVersion(3), 3);
+  const normalized = normalizeTrainingMenuItemForMcp(
+    {
+      userId: "internal-user",
+      trainingMenuItemId: "menu-1",
+      trainingName: "ベンチプレス",
+      exerciseFamilyId: "bench_press",
+      muscleTargets: [{ muscleId: "chest_mid", role: "primary", effectiveSetFactor: 1 }],
+      movementFamily: "push",
+      jointActions: ["shoulder_horizontal_adduction", "elbow_extension"],
+      laterality: "bilateral",
+      loadModel: "external_load",
+      equipmentType: "barbell",
+      weightInputMode: "perSide",
+      loadMultiplier: 2,
+      fixedWeightKg: 20,
+      isActive: true,
+      version: 4,
+      updatedAt: "2026-07-30T00:00:00Z",
+      secretInternalFlag: "must-not-leak"
+    },
+    {
+      usageCount: 2,
+      activeMenuSetIds: ["set-1", "set-2"],
+      assignedPlanDates: ["2026-07-30", "2026-07-31"],
+      hasFutureAssignments: true
+    }
+  );
+  assert.equal(normalized.version, 4);
+  assert.equal(normalized.activeMenuSetCount, 2);
+  assert.equal(normalized.assignedPlanDateCount, 2);
+  assert.equal(JSON.stringify(normalized).includes("internal-user"), false);
+  assert.equal(JSON.stringify(normalized).includes("secretInternalFlag"), false);
 });
 
 test("training history resolves a registered menu name without requiring its ID", async () => {
@@ -435,6 +474,38 @@ test("temporary menu lifecycle schemas expose safe versioned mutations", async (
   assert.ok(Object.hasOwn(update.inputSchema.properties, "itemAdds"));
   assert.ok(Object.hasOwn(update.inputSchema.properties, "itemRemovals"));
   assert.ok(Object.hasOwn(update.inputSchema.properties, "itemOrder"));
+  const itemAdds = update.inputSchema.properties.itemAdds as {
+    items?: { properties?: Record<string, unknown> };
+  };
+  assert.ok(Object.hasOwn(itemAdds.items?.properties ?? {}, "newTrainingMenuItem"));
+});
+
+test("exercise master MCP schemas extend the existing list and require safe mutations", async () => {
+  const schemas = JSON.parse(
+    await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
+  ) as Array<{
+    name: string;
+    inputSchema: {
+      additionalProperties?: boolean;
+      properties: Record<string, { enum?: unknown[] }>;
+      required?: string[];
+    };
+  }>;
+  const list = schemas.find((candidate) => candidate.name === "list_training_menu_items");
+  assert.ok(list);
+  for (const property of ["query", "includeInactive", "onlyAiGenerated", "limit", "nextToken"]) {
+    assert.ok(Object.hasOwn(list.inputSchema.properties, property), `${property} is missing`);
+  }
+  for (const name of ["update_training_menu_item", "archive_training_menu_item"]) {
+    const schema = schemas.find((candidate) => candidate.name === name);
+    assert.ok(schema, `${name} schema is missing`);
+    assert.equal(schema.inputSchema.additionalProperties, false);
+    assert.ok(schema.inputSchema.required?.includes("trainingMenuItemId"));
+    assert.ok(schema.inputSchema.required?.includes("expectedVersion"));
+    assert.ok(schema.inputSchema.required?.includes("idempotencyKey"));
+    assert.deepEqual(schema.inputSchema.properties.userConfirmed.enum, [true]);
+    assert.ok(Object.hasOwn(schema.inputSchema.properties, "dryRun"));
+  }
 });
 
 test("analysis export selection requires a complete range or explicit all-available mode", () => {

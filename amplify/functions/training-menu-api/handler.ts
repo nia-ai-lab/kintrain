@@ -68,6 +68,8 @@ type MenuItemInput = {
   loadMultiplier?: 1 | 2;
   fixedWeightKg?: number;
   isActive?: boolean;
+  expectedVersion?: number;
+  updateReason?: string;
 };
 
 type MenuSetInput = {
@@ -275,9 +277,12 @@ function toMenuItemResponse(item: Record<string, unknown>, usageCount = 0): Reco
     loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
     fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg, weightInputMode),
     isActive: item.isActive !== false,
+    version: menuSetVersion(item.version),
     usageCount,
     createdAt: item.createdAt,
-    updatedAt: item.updatedAt
+    updatedAt: item.updatedAt,
+    updatedBy: item.updatedBy,
+    updateReason: item.updateReason
   };
 }
 
@@ -488,6 +493,9 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
     isAiGenerated: body.isAiGenerated === true,
     isActive: true,
     displayOrder,
+    version: 1,
+    updatedBy: "user",
+    updateReason: "Exercise master created",
     createdAt: ts,
     updatedAt: ts
   };
@@ -558,6 +566,26 @@ async function updateMenuItem(
     return response(400, { message: "invalid menu item." });
   }
   const updatedAt = nowIsoSeconds();
+  const currentVersion = menuSetVersion(current.version);
+  const expectedVersion =
+    body.expectedVersion === undefined ? currentVersion : body.expectedVersion;
+  if (
+    typeof expectedVersion !== "number" ||
+    !Number.isInteger(expectedVersion) ||
+    expectedVersion < 0 ||
+    expectedVersion !== currentVersion
+  ) {
+    return response(409, {
+      code: "VERSION_CONFLICT",
+      message: "training menu item changed.",
+      currentVersion
+    });
+  }
+  const nextVersion = currentVersion + 1;
+  const updateReason = trimmed(body.updateReason) ?? "Exercise master updated";
+  if (updateReason.length > 500) {
+    return response(400, { message: "updateReason must not exceed 500 characters." });
+  }
   const updated = {
     trainingName,
     normalizedTrainingName,
@@ -585,16 +613,37 @@ async function updateMenuItem(
     fixedWeightKg: normalizeFixedWeightKg(body.fixedWeightKg ?? current.fixedWeightKg, weightInputMode),
     isAiGenerated: body.isAiGenerated ?? (current.isAiGenerated === true),
     isActive: body.isActive ?? (current.isActive !== false),
+    version: nextVersion,
+    updatedBy: "user",
+    updateReason,
     updatedAt
   };
-  await ddb.send(new UpdateCommand({
-    TableName: trainingMenuTableName,
-    Key: { userId, trainingMenuItemId },
-    UpdateExpression:
-      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, exerciseFamilyId=:exerciseFamilyId, muscleTargets=:muscleTargets, movementFamily=:movementFamily, jointActions=:jointActions, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipmentType=:equipmentType, equipmentProfileId=:equipmentProfileId, cableSettings=:cableSettings, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE bodyPart, movementPattern, equipment, frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
-    ExpressionAttributeNames: { "#description": "description" },
-    ExpressionAttributeValues: Object.fromEntries(Object.entries(updated).map(([key, value]) => [`:${key}`, value]))
-  }));
+  const versionCondition =
+    expectedVersion === 0
+      ? "(attribute_not_exists(#version) OR #version = :expectedVersion)"
+      : "#version = :expectedVersion";
+  try {
+    await ddb.send(new UpdateCommand({
+      TableName: trainingMenuTableName,
+      Key: { userId, trainingMenuItemId },
+      UpdateExpression:
+        "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, exerciseFamilyId=:exerciseFamilyId, muscleTargets=:muscleTargets, movementFamily=:movementFamily, jointActions=:jointActions, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipmentType=:equipmentType, equipmentProfileId=:equipmentProfileId, cableSettings=:cableSettings, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, isAiGenerated=:isAiGenerated, isActive=:isActive, #version=:version, updatedBy=:updatedBy, updateReason=:updateReason, updatedAt=:updatedAt REMOVE bodyPart, movementPattern, equipment, frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
+      ConditionExpression: versionCondition,
+      ExpressionAttributeNames: {
+        "#description": "description",
+        "#version": "version"
+      },
+      ExpressionAttributeValues: {
+        ...Object.fromEntries(Object.entries(updated).map(([key, value]) => [`:${key}`, value])),
+        ":expectedVersion": expectedVersion
+      }
+    }));
+  } catch {
+    return response(409, {
+      code: "VERSION_CONFLICT",
+      message: "training menu item changed while it was being updated."
+    });
+  }
   return response(200, toMenuItemResponse({ ...current, ...updated }));
 }
 

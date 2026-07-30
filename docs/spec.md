@@ -344,9 +344,12 @@
 - `isAiGenerated: boolean`
 - `displayOrder: number`
 - `isActive: boolean`
+- `version: number`
 - `usageCount: number`
 - `createdAt: RFC3339 UTC`
 - `updatedAt: RFC3339 UTC`
+- `updatedBy: string`（任意）
+- `updateReason: string`（任意）
 - `POST /training-menu-items` リクエスト:
 - `trainingName`
 - `muscleTargets`（主働筋を1つ以上含む）
@@ -372,6 +375,8 @@
 - `fixedWeightKg`（任意、0以上）
 - `equipment`
 - `isActive`（任意）
+- `expectedVersion`（任意。指定時は現在の`version`と一致しない更新を拒否）
+- `updateReason`（任意、500文字以内）
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
@@ -754,7 +759,9 @@
 - `save_daily_readiness(date?, timeZoneId?, sleepHours?, sleepStartedAtLocal?, wokeUpAtLocal?, sleepQuality?, fatigueLevel?, motivationLevel?, muscleSorenessLevel?, restingHeartRate?, painAreas?)`
 - `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
-- `list_training_menu_items()`
+- `list_training_menu_items(query?, includeInactive?, onlyAiGenerated?, limit?, nextToken?)`
+- `update_training_menu_item(trainingMenuItemId, expectedVersion, idempotencyKey, ..., dryRun?, updateReason?, userConfirmed?)`
+- `archive_training_menu_item(trainingMenuItemId, expectedVersion, idempotencyKey, reason?, dryRun?, userConfirmed?)`
 - `list_training_menu_sets()`
 - `get_training_plan_for_date(date, timeZoneId?)`
 - `reschedule_temporary_training_plan(trainingMenuSetId, newValidFromDate, newValidToDate, expectedVersion, idempotencyKey, conflictPolicy?, dryRun?, updateReason?, userConfirmed?)`
@@ -770,6 +777,7 @@
 - 一括登録の確定要件は `docs/mcp-body-metrics-bulk-registration-requirements.md` を正とする。
 - コーチング方針の読み書きは `docs/coaching-context-requirements.md` を正とし、書き込みはユーザーの明示承認を必須とする。
 - 一時メニューの取得・更新・日程変更・キャンセルは `docs/mcp-temporary-menu-lifecycle.md` を正とする。
+- 種目マスターの検索・更新・アーカイブは `docs/mcp-training-menu-item-lifecycle.md` を正とする。
 - Dailyの回復状態保存、睡眠時間計算、日記・食事の振り分けは `docs/mcp-daily-readiness.md` を正とする。
 
 ### 9.3 連携方式

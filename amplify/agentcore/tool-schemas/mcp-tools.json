@@ -586,10 +586,37 @@
   },
   {
     "name": "list_training_menu_items",
-    "description": "ユーザーが登録済みのトレーニング種目マスタを一覧取得する。",
+    "description": "ユーザーのトレーニング種目マスタを検索・一覧取得する。種目マスタの見直し前に呼び出し、version、利用中セット数、割り当て日への影響を確認する。nextTokenがなくなるまで同じ条件で繰り返す。",
     "inputSchema": {
       "type": "object",
-      "properties": {}
+      "additionalProperties": false,
+      "properties": {
+        "query": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100,
+          "description": "種目名または説明に含まれる文字列。空白・英字大小を正規化して部分一致検索する。"
+        },
+        "includeInactive": {
+          "type": "boolean",
+          "description": "trueならアーカイブ済み種目も含める。既定はfalse。"
+        },
+        "onlyAiGenerated": {
+          "type": "boolean",
+          "description": "trueならAIが作成した種目だけを返す。既定はfalse。"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "description": "1ページの取得件数。既定は100。"
+        },
+        "nextToken": {
+          "type": "string",
+          "minLength": 1,
+          "description": "前回レスポンスのnextToken。検索条件を変えずに使用する。"
+        }
+      }
     }
   },
   {
@@ -712,7 +739,7 @@
   },
   {
     "name": "update_temporary_training_menu_set",
-    "description": "既存の一時メニューセットを部分更新する。未指定項目は保持し、itemAddsは登録済み種目マスタだけを参照する。日付だけの変更にはreschedule_temporary_training_planを優先する。",
+    "description": "登録済みの一時メニューセットを部分更新する。未指定項目は保持し、itemAddsでは登録済み種目の参照または新規種目マスタの同時作成ができる。内容変更は最初にdryRun=trueで差分を確認し、ユーザーへ提示して明示承認を得た後だけuserConfirmed=trueで確定する。日付だけの変更にはreschedule_temporary_training_planを優先する。",
     "inputSchema": {
       "type": "object",
       "additionalProperties": false,
@@ -724,7 +751,11 @@
         "validFromDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "validToDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
         "conflictPolicy": { "type": "string", "enum": ["reject", "replace"] },
-        "userConfirmed": { "type": "boolean", "enum": [true] },
+        "userConfirmed": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "dryRun結果を提示し、ユーザーが内容変更を明示承認した場合だけtrue。"
+        },
         "itemUpdates": {
           "type": "array",
           "maxItems": 12,
@@ -743,15 +774,98 @@
             "required": ["trainingMenuSetItemId"]
           }
         },
-        "itemAdds": {
-          "type": "array",
-          "maxItems": 12,
-          "items": {
-            "type": "object",
-            "additionalProperties": false,
-            "properties": {
-              "trainingMenuItemId": { "type": "string", "minLength": 1, "maxLength": 100 },
-              "prescription": {
+      "itemAdds": {
+        "type": "array",
+        "maxItems": 12,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "trainingMenuItemId": { "type": "string", "minLength": 1, "maxLength": 100 },
+            "newTrainingMenuItem": {
+              "type": "object",
+              "description": "登録済み種目がない場合に、この更新と同じトランザクションで作成する種目マスタ。",
+              "additionalProperties": false,
+              "properties": {
+                "trainingName": { "type": "string", "minLength": 1, "maxLength": 100 },
+                "exerciseFamilyId": { "type": "string", "minLength": 1, "maxLength": 80 },
+                "muscleTargets": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "muscleId": {
+                        "type": "string",
+                        "enum": [
+                          "chest_upper", "chest_mid", "chest_lower", "latissimus", "upper_back",
+                          "spinal_erectors", "anterior_deltoid", "lateral_deltoid", "posterior_deltoid",
+                          "biceps", "triceps", "forearms", "quadriceps", "hamstrings", "glute_max",
+                          "glute_med", "adductors", "calves", "rectus_abdominis", "obliques", "core_stability"
+                        ]
+                      },
+                      "role": { "type": "string", "enum": ["primary", "secondary", "stabilizer"] },
+                      "effectiveSetFactor": { "type": "number", "minimum": 0, "maximum": 1 }
+                    },
+                    "required": ["muscleId", "role", "effectiveSetFactor"]
+                  }
+                },
+                "movementFamily": { "type": "string", "enum": ["push", "pull", "squat", "hinge", "trunk", "isolation"] },
+                "jointActions": {
+                  "type": "array",
+                  "minItems": 1,
+                  "maxItems": 8,
+                  "uniqueItems": true,
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "shoulder_horizontal_adduction", "shoulder_horizontal_abduction", "shoulder_abduction",
+                      "shoulder_adduction", "shoulder_flexion", "elbow_flexion", "elbow_extension",
+                      "hip_extension", "hip_abduction", "hip_adduction", "knee_extension", "knee_flexion",
+                      "ankle_plantar_flexion", "trunk_flexion", "trunk_extension", "trunk_rotation",
+                      "trunk_anti_extension"
+                    ]
+                  }
+                },
+                "laterality": { "type": "string", "enum": ["bilateral", "unilateral", "alternating"] },
+                "loadModel": {
+                  "type": "string",
+                  "enum": ["external_load", "bodyweight", "bodyweight_plus_external_load", "assisted_bodyweight"]
+                },
+                "equipmentType": {
+                  "type": "string",
+                  "enum": [
+                    "barbell", "dumbbell", "kettlebell", "cable_machine", "smith_machine",
+                    "selectorized_machine", "plate_loaded_machine", "assisted_machine", "pullup_bar",
+                    "dip_station", "roman_chair", "bodyweight_space", "ab_wheel", "other"
+                  ]
+                },
+                "equipmentProfileId": { "type": "string", "maxLength": 80 },
+                "cableSettings": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "pulleyPosition": { "type": "string", "enum": ["high", "middle", "low", "adjustable"] },
+                    "attachmentType": {
+                      "type": "string",
+                      "enum": ["single_handle", "rope", "straight_bar", "ez_bar", "ankle_strap", "none", "other"]
+                    },
+                    "cableSides": { "type": "string", "enum": ["single", "dual"] }
+                  },
+                  "required": ["pulleyPosition", "attachmentType", "cableSides"]
+                },
+                "description": { "type": "string", "maxLength": 500 },
+                "weightInputMode": { "type": "string", "enum": ["direct", "perSide"] },
+                "fixedWeightKg": { "type": "number", "minimum": 0 }
+              },
+              "required": [
+                "trainingName", "exerciseFamilyId", "muscleTargets", "movementFamily",
+                "jointActions", "laterality", "loadModel", "equipmentType"
+              ]
+            },
+            "prescription": {
                 "type": "object",
                 "additionalProperties": false,
                 "properties": {
@@ -771,9 +885,9 @@
                 ]
               }
             },
-            "required": ["trainingMenuItemId", "prescription"]
-          }
-        },
+          "required": ["prescription"]
+        }
+      },
         "itemRemovals": {
           "type": "array",
           "maxItems": 12,
@@ -791,6 +905,120 @@
         "updateReason": { "type": "string", "minLength": 1, "maxLength": 500 }
       },
       "required": ["trainingMenuSetId", "expectedVersion", "idempotencyKey"]
+    }
+  },
+  {
+    "name": "update_training_menu_item",
+    "description": "登録済み種目マスタを部分更新する。最初にdryRun=trueで変更差分と利用中セット・割り当て日への影響を確認し、ユーザーへ提示して明示承認を得た後だけuserConfirmed=trueで確定する。",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trainingMenuItemId": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "expectedVersion": { "type": "integer", "minimum": 0 },
+        "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "trainingName": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "exerciseFamilyId": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "muscleTargets": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "muscleId": {
+                "type": "string",
+                "enum": [
+                  "chest_upper", "chest_mid", "chest_lower", "latissimus", "upper_back",
+                  "spinal_erectors", "anterior_deltoid", "lateral_deltoid", "posterior_deltoid",
+                  "biceps", "triceps", "forearms", "quadriceps", "hamstrings", "glute_max",
+                  "glute_med", "adductors", "calves", "rectus_abdominis", "obliques", "core_stability"
+                ]
+              },
+              "role": { "type": "string", "enum": ["primary", "secondary", "stabilizer"] },
+              "effectiveSetFactor": { "type": "number", "minimum": 0, "maximum": 1 }
+            },
+            "required": ["muscleId", "role", "effectiveSetFactor"]
+          }
+        },
+        "movementFamily": { "type": "string", "enum": ["push", "pull", "squat", "hinge", "trunk", "isolation"] },
+        "jointActions": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 8,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "shoulder_horizontal_adduction", "shoulder_horizontal_abduction", "shoulder_abduction",
+              "shoulder_adduction", "shoulder_flexion", "elbow_flexion", "elbow_extension",
+              "hip_extension", "hip_abduction", "hip_adduction", "knee_extension", "knee_flexion",
+              "ankle_plantar_flexion", "trunk_flexion", "trunk_extension", "trunk_rotation",
+              "trunk_anti_extension"
+            ]
+          }
+        },
+        "laterality": { "type": "string", "enum": ["bilateral", "unilateral", "alternating"] },
+        "loadModel": {
+          "type": "string",
+          "enum": ["external_load", "bodyweight", "bodyweight_plus_external_load", "assisted_bodyweight"]
+        },
+        "equipmentType": {
+          "type": "string",
+          "enum": [
+            "barbell", "dumbbell", "kettlebell", "cable_machine", "smith_machine",
+            "selectorized_machine", "plate_loaded_machine", "assisted_machine", "pullup_bar",
+            "dip_station", "roman_chair", "bodyweight_space", "ab_wheel", "other"
+          ]
+        },
+        "equipmentProfileId": { "type": "string", "maxLength": 80 },
+        "cableSettings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pulleyPosition": { "type": "string", "enum": ["high", "middle", "low", "adjustable"] },
+            "attachmentType": {
+              "type": "string",
+              "enum": ["single_handle", "rope", "straight_bar", "ez_bar", "ankle_strap", "none", "other"]
+            },
+            "cableSides": { "type": "string", "enum": ["single", "dual"] }
+          },
+          "required": ["pulleyPosition", "attachmentType", "cableSides"]
+        },
+        "description": { "type": "string", "maxLength": 500 },
+        "weightInputMode": { "type": "string", "enum": ["direct", "perSide"] },
+        "fixedWeightKg": { "type": "number", "minimum": 0 },
+        "dryRun": { "type": "boolean", "description": "trueなら書き込まず差分と影響範囲を返す。" },
+        "updateReason": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "userConfirmed": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "dryRun結果を提示し、ユーザーが変更を明示承認した場合だけtrue。"
+        }
+      },
+      "required": ["trainingMenuItemId", "expectedVersion", "idempotencyKey"]
+    }
+  },
+  {
+    "name": "archive_training_menu_item",
+    "description": "種目マスタを物理削除せずアーカイブする。最初にdryRun=trueで利用中セットと割り当て日への影響を確認し、ユーザーへ提示して明示承認を得た後だけuserConfirmed=trueで確定する。過去の実施履歴は保持する。",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trainingMenuItemId": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "expectedVersion": { "type": "integer", "minimum": 0 },
+        "idempotencyKey": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "reason": { "type": "string", "minLength": 1, "maxLength": 500 },
+        "dryRun": { "type": "boolean", "description": "trueなら書き込まず影響範囲を返す。" },
+        "userConfirmed": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "dryRun結果を提示し、ユーザーがアーカイブを明示承認した場合だけtrue。"
+        }
+      },
+      "required": ["trainingMenuItemId", "expectedVersion", "idempotencyKey"]
     }
   },
   {

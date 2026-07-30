@@ -479,6 +479,7 @@ function mapRemoteMenuItem(item: {
   loadMultiplier?: unknown;
   fixedWeightKg?: unknown;
   isActive: boolean;
+  version?: number;
   usageCount?: number;
 }): TrainingMenuItem {
   const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
@@ -507,6 +508,7 @@ function mapRemoteMenuItem(item: {
     defaultSets: 1,
     order: 0,
     isActive: Boolean(item.isActive),
+    version: Number(item.version ?? 0),
     usageCount: Number(item.usageCount ?? 0)
   };
 }
@@ -1530,13 +1532,22 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           weightInputMode: nextItem.weightInputMode,
           loadMultiplier: nextItem.loadMultiplier,
           fixedWeightKg:
-            nextItem.weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(nextItem.fixedWeightKg)
+            nextItem.weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(nextItem.fixedWeightKg),
+          expectedVersion: Number(currentItem.version ?? 0),
+          updateReason: 'Updated from KinTrain app'
         })
-          .then(() => {
+          .then((updated) => {
+            setData((prev) => ({
+              ...prev,
+              menuItems: prev.menuItems.map((item) =>
+                item.id === itemId ? { ...item, version: Number(updated.version ?? item.version ?? 0) } : item
+              )
+            }));
             setCoreDataError('');
           })
           .catch((error) => {
             setCoreDataError(toErrorMessage(error, 'トレーニングメニュー更新に失敗しました。'));
+            void refreshCoreData();
           });
       },
       deleteMenuItem: (itemId) => {

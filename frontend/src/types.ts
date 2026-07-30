@@ -45,6 +45,7 @@ export interface TrainingMenuItem {
   defaultSets: number;
   order: number;
   isActive: boolean;
+  version?: number;
   usageCount: number;
 }
 

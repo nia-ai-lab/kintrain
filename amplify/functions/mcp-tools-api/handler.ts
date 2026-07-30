@@ -127,23 +127,24 @@ export type SaveBodyMetricsBatchOptions = {
   send?: BodyMetricDdbSender;
   logger?: (entry: Record<string, unknown>) => void;
 };
+type AiNewTrainingMenuItemInput = {
+  trainingName?: unknown;
+  exerciseFamilyId?: unknown;
+  muscleTargets?: unknown;
+  movementFamily?: unknown;
+  jointActions?: unknown;
+  laterality?: unknown;
+  loadModel?: unknown;
+  equipmentType?: unknown;
+  equipmentProfileId?: unknown;
+  cableSettings?: unknown;
+  description?: unknown;
+  weightInputMode?: unknown;
+  fixedWeightKg?: unknown;
+};
 type AiMenuItemInput = {
   existingTrainingMenuItemId?: unknown;
-  newTrainingMenuItem?: {
-    trainingName?: unknown;
-    exerciseFamilyId?: unknown;
-    muscleTargets?: unknown;
-    movementFamily?: unknown;
-    jointActions?: unknown;
-    laterality?: unknown;
-    loadModel?: unknown;
-    equipmentType?: unknown;
-    equipmentProfileId?: unknown;
-    cableSettings?: unknown;
-    description?: unknown;
-    weightInputMode?: unknown;
-    fixedWeightKg?: unknown;
-  };
+  newTrainingMenuItem?: AiNewTrainingMenuItemInput;
   prescription?: {
     targetWeightKg?: unknown;
     targetRepsMin?: unknown;
@@ -168,11 +169,13 @@ type MenuSetItemUpdateInput = MenuSetPrescriptionInput & {
 };
 type MenuSetItemAddInput = {
   trainingMenuItemId?: unknown;
+  newTrainingMenuItem?: AiNewTrainingMenuItemInput;
   prescription?: MenuSetPrescriptionInput;
 };
 
 const menuSetByOrderIndex = "UserMenuSetByOrderIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
+const setItemsByMenuItemIndex = "UserSetItemsByMenuItemIndex";
 const trainingNameIndex = "UserTrainingNameIndex";
 const trainingPerformanceByMenuItemIndex = "UserTrainingMenuItemPerformedAtIndex";
 const trainingMenuByOrderIndex = "UserDisplayOrderIndex";
@@ -194,6 +197,10 @@ const bodyMetricBatchTopLevelFields = new Set([
 ]);
 
 function menuSetVersion(value: unknown): number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
+}
+
+export function trainingMenuItemVersion(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
 }
 
@@ -1304,6 +1311,125 @@ async function existsByTrainingName(userId: string, normalizedTrainingName: stri
     })
   );
   return Boolean(result.Items?.[0]);
+}
+
+function normalizeCableSettingsForMcp(value: unknown): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+  const input = value as Record<string, unknown>;
+  const pulleyPosition = input.pulleyPosition;
+  const attachmentType = input.attachmentType;
+  const cableSides = input.cableSides;
+  if (
+    !["high", "middle", "low", "adjustable"].includes(String(pulleyPosition)) ||
+    !["single_handle", "rope", "straight_bar", "ez_bar", "ankle_strap", "none", "other"].includes(
+      String(attachmentType)
+    ) ||
+    !["single", "dual"].includes(String(cableSides))
+  ) {
+    return undefined;
+  }
+  return {
+    pulleyPosition: String(pulleyPosition),
+    attachmentType: String(attachmentType),
+    cableSides: String(cableSides)
+  };
+}
+
+type NormalizedNewTrainingMenuItem = {
+  trainingMenuItemId: string;
+  normalizedTrainingName: string;
+  item: Record<string, unknown>;
+};
+
+async function normalizeNewTrainingMenuItemForMcp(
+  userId: string,
+  definition: AiNewTrainingMenuItemInput,
+  displayOrder: number,
+  reservedNames: Set<string>
+): Promise<NormalizedNewTrainingMenuItem | { error: string }> {
+  const trainingName = toNonEmptyString(definition.trainingName);
+  const equipmentType = normalizeEquipmentType(definition.equipmentType);
+  const exerciseFamilyId = toNonEmptyString(definition.exerciseFamilyId) ?? trainingName;
+  const description = normalizeDescription(definition.description);
+  const muscleTargets = normalizeMuscleTargets(definition.muscleTargets);
+  const movementFamily = normalizeMovementFamily(definition.movementFamily);
+  const jointActions = normalizeJointActions(definition.jointActions);
+  const laterality = normalizeLaterality(definition.laterality);
+  const loadModel = normalizeLoadModel(definition.loadModel);
+  const normalizedTrainingName = trainingName ? normalizeTrainingName(trainingName) : "";
+  const cableSettings =
+    equipmentType === "cable_machine"
+      ? normalizeCableSettingsForMcp(definition.cableSettings) ?? {
+          pulleyPosition: "adjustable",
+          attachmentType: "other",
+          cableSides: "single"
+        }
+      : null;
+  if (
+    !trainingName ||
+    trainingName.length > 100 ||
+    !equipmentType ||
+    !exerciseFamilyId ||
+    exerciseFamilyId.length > 80 ||
+    description === undefined ||
+    !muscleTargets ||
+    !movementFamily ||
+    !jointActions ||
+    !laterality ||
+    !loadModel ||
+    (equipmentType === "cable_machine" && !cableSettings)
+  ) {
+    return { error: "newTrainingMenuItem is invalid." };
+  }
+  if (
+    reservedNames.has(normalizedTrainingName) ||
+    await existsByTrainingName(userId, normalizedTrainingName)
+  ) {
+    return { error: "newTrainingMenuItem.trainingName already exists." };
+  }
+  reservedNames.add(normalizedTrainingName);
+  const weightInputMode = definition.weightInputMode === "perSide" ? "perSide" : "direct";
+  const parsedFixedWeightKg =
+    definition.fixedWeightKg === undefined
+      ? 0
+      : normalizeNonNegativeDecimal(definition.fixedWeightKg);
+  if (parsedFixedWeightKg === undefined) {
+    return { error: "newTrainingMenuItem.fixedWeightKg is invalid." };
+  }
+  const fixedWeightKg = parsedFixedWeightKg;
+  const trainingMenuItemId = randomUUID();
+  return {
+    trainingMenuItemId,
+    normalizedTrainingName,
+    item: {
+      userId,
+      trainingMenuItemId,
+      trainingName,
+      normalizedTrainingName,
+      exerciseFamilyId,
+      muscleTargets,
+      movementFamily,
+      jointActions,
+      laterality,
+      loadModel,
+      classificationVersion: MUSCLE_TAXONOMY_VERSION,
+      equipmentType,
+      equipmentProfileId: toNonEmptyString(definition.equipmentProfileId) ?? "",
+      cableSettings,
+      description,
+      weightInputMode,
+      loadMultiplier: weightInputMode === "perSide" ? 2 : 1,
+      fixedWeightKg: weightInputMode === "perSide" ? fixedWeightKg : 0,
+      isAiGenerated: true,
+      isActive: true,
+      displayOrder,
+      version: 1,
+      updatedBy: "mcp",
+      updateReason: "Created through MCP"
+    }
+  };
 }
 
 function requireUserId(args: ToolArgs): string | null {
@@ -3223,39 +3349,222 @@ export async function getTrainingPlanForDate(args: ToolArgs, userId: string): Pr
   });
 }
 
-async function listTrainingMenuItemsForAi(userId: string): Promise<McpToolResponse> {
+async function listAllMenuSetsAndLinksForUser(userId: string): Promise<{
+  sets: Record<string, unknown>[];
+  links: Record<string, unknown>[];
+}> {
+  const queryAll = async (
+    tableName: string,
+    indexName: string
+  ): Promise<Record<string, unknown>[]> => {
+    const items: Record<string, unknown>[] = [];
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    do {
+      const result = await ddb.send(
+        new QueryCommand({
+          TableName: tableName,
+          IndexName: indexName,
+          KeyConditionExpression: "userId = :userId",
+          ExpressionAttributeValues: { ":userId": userId },
+          ExclusiveStartKey: exclusiveStartKey
+        })
+      );
+      items.push(...((result.Items ?? []) as Record<string, unknown>[]));
+      exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    } while (exclusiveStartKey);
+    return items;
+  };
+  const [sets, links] = await Promise.all([
+    queryAll(trainingMenuSetTableName, menuSetByOrderIndex),
+    queryAll(trainingMenuSetItemTableName, setItemsBySetOrderIndex)
+  ]);
+  return { sets, links };
+}
+
+async function getUserTimeZoneIdForMcp(userId: string): Promise<string> {
   const result = await ddb.send(
-    new QueryCommand({
-      TableName: trainingMenuTableName,
-      IndexName: "UserDisplayOrderIndex",
-      KeyConditionExpression: "userId = :userId",
-      ExpressionAttributeValues: { ":userId": userId }
+    new GetCommand({
+      TableName: userProfileTableName,
+      Key: { userId }
     })
   );
+  return resolveTimeZoneId({ timeZoneId: result.Item?.timeZoneId }) ?? "Asia/Tokyo";
+}
+
+export function normalizeTrainingMenuItemForMcp(
+  item: Record<string, unknown>,
+  impact: {
+    usageCount: number;
+    activeMenuSetIds: string[];
+    assignedPlanDates: string[];
+    hasFutureAssignments: boolean;
+  }
+): Record<string, unknown> {
+  const weightInputMode =
+    item.weightInputMode === "direct" || item.weightInputMode === "perSide"
+      ? item.weightInputMode
+      : "legacyUnspecified";
+  return {
+    trainingMenuItemId: item.trainingMenuItemId,
+    trainingName: item.trainingName,
+    exerciseFamilyId: item.exerciseFamilyId,
+    muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
+    movementFamily: normalizeMovementFamily(item.movementFamily),
+    jointActions: normalizeJointActions(item.jointActions) ?? [],
+    laterality: normalizeLaterality(item.laterality),
+    loadModel: normalizeLoadModel(item.loadModel),
+    classificationVersion: item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION,
+    equipmentType: normalizeEquipmentType(item.equipmentType) ?? "other",
+    equipmentProfileId: item.equipmentProfileId ?? null,
+    cableSettings: item.cableSettings ?? null,
+    description: item.description ?? "",
+    weightInputMode,
+    loadMultiplier: weightInputMode === "perSide" ? 2 : 1,
+    fixedWeightKg:
+      weightInputMode === "legacyUnspecified" ? null : item.fixedWeightKg ?? 0,
+    isAiGenerated: item.isAiGenerated === true,
+    isActive: item.isActive !== false,
+    version: trainingMenuItemVersion(item.version),
+    updatedAt: item.updatedAt ?? null,
+    updatedBy: item.updatedBy ?? null,
+    updateReason: item.updateReason ?? null,
+    usageCount: impact.usageCount,
+    activeMenuSetCount: impact.activeMenuSetIds.length,
+    activeMenuSetIds: impact.activeMenuSetIds,
+    assignedPlanDateCount: impact.assignedPlanDates.length,
+    assignedPlanDates: impact.assignedPlanDates.slice(0, 31),
+    hasFutureAssignments: impact.hasFutureAssignments
+  };
+}
+
+async function listTrainingMenuItemsForAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const normalizeSearchText = (value: string): string =>
+    value.trim().toLowerCase().replace(/\s+/g, " ");
+  const query =
+    args.query === undefined
+      ? ""
+      : toNonEmptyString(args.query)
+        ? normalizeSearchText(String(args.query))
+        : undefined;
+  if (
+    (args.query !== undefined && (!query || query.length > 100)) ||
+    (args.includeInactive !== undefined && typeof args.includeInactive !== "boolean") ||
+    (args.onlyAiGenerated !== undefined && typeof args.onlyAiGenerated !== "boolean")
+  ) {
+    return mutationValidationError("query and filter arguments are invalid.");
+  }
+  const includeInactive = args.includeInactive === true;
+  const onlyAiGenerated = args.onlyAiGenerated === true;
+  const limit = args.limit === undefined ? 100 : args.limit;
+  if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+    return mutationValidationError("limit must be an integer between 1 and 100.");
+  }
+  const nextTokenContext = JSON.stringify([
+    "list_training_menu_items_v3",
+    query ?? "",
+    includeInactive,
+    onlyAiGenerated
+  ]);
+  let exclusiveStartKey = await decodeNextToken(args.nextToken, nextTokenContext, userId);
+  if (exclusiveStartKey === null) {
+    return mutationValidationError("nextToken is invalid for these search conditions.");
+  }
+  const matched: Record<string, unknown>[] = [];
+  let nextKey: Record<string, unknown> | undefined;
+  while (matched.length < limit) {
+    const result = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuTableName,
+        IndexName: trainingMenuByOrderIndex,
+        KeyConditionExpression: "userId = :userId",
+        ExpressionAttributeValues: { ":userId": userId },
+        Limit: Math.max(limit, 50),
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    const pageItems = (result.Items ?? []) as Record<string, unknown>[];
+    for (let index = 0; index < pageItems.length; index += 1) {
+      const item = pageItems[index];
+      const searchable = normalizeSearchText(
+        `${String(item.trainingName ?? "")} ${String(item.description ?? "")}`
+      );
+      const matches =
+        (includeInactive || item.isActive !== false) &&
+        (!onlyAiGenerated || item.isAiGenerated === true) &&
+        (!query || searchable.includes(query));
+      if (matches) {
+        matched.push(item);
+      }
+      if (matched.length === limit) {
+        const hasMoreItems =
+          index < pageItems.length - 1 || Boolean(result.LastEvaluatedKey);
+        nextKey = hasMoreItems
+          ? {
+              userId: item.userId,
+              trainingMenuItemId: item.trainingMenuItemId,
+              displayOrder: item.displayOrder
+            }
+          : undefined;
+        break;
+      }
+    }
+    if (matched.length === limit) {
+      break;
+    }
+    exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+    if (!exclusiveStartKey) {
+      nextKey = undefined;
+      break;
+    }
+  }
+
+  const [{ sets, links }, plans, timeZoneId] = await Promise.all([
+    listAllMenuSetsAndLinksForUser(userId),
+    listAllDailyPlansForUser(userId),
+    getUserTimeZoneIdForMcp(userId)
+  ]);
+  const activeSetIds = new Set(
+    sets
+      .filter((set) => set.isActive !== false)
+      .map((set) => String(set.trainingMenuSetId ?? ""))
+      .filter(Boolean)
+  );
+  const setIdsByMenuItemId = new Map<string, Set<string>>();
+  for (const link of links) {
+    const trainingMenuItemId = String(link.trainingMenuItemId ?? "");
+    const trainingMenuSetId = String(link.trainingMenuSetId ?? "");
+    if (!trainingMenuItemId || !activeSetIds.has(trainingMenuSetId)) {
+      continue;
+    }
+    const setIds = setIdsByMenuItemId.get(trainingMenuItemId) ?? new Set<string>();
+    setIds.add(trainingMenuSetId);
+    setIdsByMenuItemId.set(trainingMenuItemId, setIds);
+  }
+  const today = nowYmdInTimeZone(timeZoneId);
+  const normalizedItems = matched.map((item) => {
+    const trainingMenuItemId = String(item.trainingMenuItemId ?? "");
+    const itemSetIds = setIdsByMenuItemId.get(trainingMenuItemId) ?? new Set<string>();
+    const assignedPlanDates = plans
+      .filter((plan) => itemSetIds.has(String(plan.trainingMenuSetId ?? "")))
+      .map((plan) => String(plan.planDate ?? ""))
+      .filter(Boolean)
+      .sort();
+    return normalizeTrainingMenuItemForMcp(item, {
+      usageCount: links.filter(
+        (link) =>
+          link.trainingMenuItemId === trainingMenuItemId &&
+          activeSetIds.has(String(link.trainingMenuSetId ?? ""))
+      ).length,
+      activeMenuSetIds: Array.from(itemSetIds),
+      assignedPlanDates,
+      hasFutureAssignments: assignedPlanDates.some((date) => date >= today)
+    });
+  });
   return mcpToolResponse(200, {
     tool: "list_training_menu_items",
-    items: (result.Items ?? [])
-      .filter((item) => item.isActive !== false)
-      .map((item) => ({
-        trainingMenuItemId: item.trainingMenuItemId,
-        trainingName: item.trainingName,
-        exerciseFamilyId: item.exerciseFamilyId,
-        muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
-        movementFamily: normalizeMovementFamily(item.movementFamily),
-        jointActions: normalizeJointActions(item.jointActions) ?? [],
-        laterality: normalizeLaterality(item.laterality),
-        loadModel: normalizeLoadModel(item.loadModel),
-        classificationVersion: item.classificationVersion ?? MUSCLE_TAXONOMY_VERSION,
-        equipmentType: normalizeEquipmentType(item.equipmentType) ?? "other",
-        equipmentProfileId: item.equipmentProfileId ?? null,
-        cableSettings: item.cableSettings ?? null,
-        description: item.description ?? "",
-        weightInputMode: item.weightInputMode ?? "legacyUnspecified",
-        loadMultiplier: item.loadMultiplier,
-        fixedWeightKg:
-          item.weightInputMode === "legacyUnspecified" ? null : item.fixedWeightKg ?? 0,
-        isAiGenerated: item.isAiGenerated === true
-      }))
+    items: normalizedItems,
+    limit,
+    nextToken: (await encodeNextToken(nextKey, nextTokenContext, userId)) ?? null
   });
 }
 
@@ -3303,6 +3612,547 @@ async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolRespons
           instruction: item.instruction ?? ""
         }))
     }))
+  });
+}
+
+async function getTrainingMenuItemRecord(
+  userId: string,
+  trainingMenuItemId: string
+): Promise<Record<string, unknown> | undefined> {
+  const result = await ddb.send(
+    new GetCommand({
+      TableName: trainingMenuTableName,
+      Key: { userId, trainingMenuItemId }
+    })
+  );
+  return result.Item as Record<string, unknown> | undefined;
+}
+
+async function trainingMenuItemImpact(
+  userId: string,
+  trainingMenuItemId: string
+): Promise<Record<string, unknown>> {
+  const links: Record<string, unknown>[] = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const linksResult = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuSetItemTableName,
+        IndexName: setItemsByMenuItemIndex,
+        KeyConditionExpression: "userId = :userId AND trainingMenuItemId = :trainingMenuItemId",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":trainingMenuItemId": trainingMenuItemId
+        },
+        ExclusiveStartKey: exclusiveStartKey
+      })
+    );
+    links.push(...((linksResult.Items ?? []) as Record<string, unknown>[]));
+    exclusiveStartKey = linksResult.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+  const setIds = Array.from(
+    new Set(links.map((link) => String(link.trainingMenuSetId ?? "")).filter(Boolean))
+  );
+  const [sets, plans, timeZoneId] = await Promise.all([
+    Promise.all(setIds.map((setId) => getTrainingMenuSetRecord(userId, setId))),
+    listAllDailyPlansForUser(userId),
+    getUserTimeZoneIdForMcp(userId)
+  ]);
+  const activeSets = sets
+    .filter(
+      (set): set is Record<string, unknown> =>
+        Boolean(set) && set!.isActive !== false
+    )
+    .map((set) => temporaryMenuSetSummary(set));
+  const activeSetIds = new Set(
+    activeSets.map((set) => String(set.trainingMenuSetId ?? "")).filter(Boolean)
+  );
+  const assignedPlanDates = plans
+    .filter((plan) => activeSetIds.has(String(plan.trainingMenuSetId ?? "")))
+    .map((plan) => String(plan.planDate ?? ""))
+    .filter(Boolean)
+    .sort();
+  const today = nowYmdInTimeZone(timeZoneId);
+  return {
+    activeMenuSetCount: activeSets.length,
+    activeMenuSets: activeSets,
+    assignedPlanDateCount: assignedPlanDates.length,
+    assignedPlanDates: assignedPlanDates.slice(0, 31),
+    hasFutureAssignments: assignedPlanDates.some((date) => date >= today),
+    historyRecordsPreserved: true
+  };
+}
+
+function trainingMenuItemEditableSnapshot(item: Record<string, unknown>): Record<string, unknown> {
+  const weightInputMode =
+    item.weightInputMode === "direct" ||
+    item.weightInputMode === "perSide" ||
+    item.weightInputMode === "legacyUnspecified"
+      ? item.weightInputMode
+      : "legacyUnspecified";
+  return {
+    trainingName: item.trainingName ?? "",
+    exerciseFamilyId: item.exerciseFamilyId ?? "",
+    muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
+    movementFamily: normalizeMovementFamily(item.movementFamily),
+    jointActions: normalizeJointActions(item.jointActions) ?? [],
+    laterality: normalizeLaterality(item.laterality),
+    loadModel: normalizeLoadModel(item.loadModel),
+    equipmentType: normalizeEquipmentType(item.equipmentType) ?? "other",
+    equipmentProfileId: item.equipmentProfileId ?? "",
+    cableSettings: item.cableSettings ?? null,
+    description: item.description ?? "",
+    weightInputMode,
+    loadMultiplier: weightInputMode === "perSide" ? 2 : 1,
+    fixedWeightKg:
+      weightInputMode === "legacyUnspecified"
+        ? null
+        : weightInputMode === "perSide"
+          ? item.fixedWeightKg ?? 0
+          : 0
+  };
+}
+
+async function normalizeTrainingMenuItemUpdate(
+  args: ToolArgs,
+  current: Record<string, unknown>,
+  userId: string,
+  trainingMenuItemId: string
+): Promise<{ value?: Record<string, unknown>; error?: string }> {
+  const currentSnapshot = trainingMenuItemEditableSnapshot(current);
+  const trainingName =
+    args.trainingName === undefined
+      ? String(currentSnapshot.trainingName)
+      : toNonEmptyString(args.trainingName);
+  if (!trainingName || trainingName.length > 100) {
+    return { error: "trainingName is invalid." };
+  }
+  const normalizedTrainingName = normalizeTrainingName(trainingName);
+  if (normalizedTrainingName !== current.normalizedTrainingName) {
+    const duplicate = await ddb.send(
+      new QueryCommand({
+        TableName: trainingMenuTableName,
+        IndexName: trainingNameIndex,
+        KeyConditionExpression:
+          "userId = :userId AND normalizedTrainingName = :normalizedTrainingName",
+        ExpressionAttributeValues: {
+          ":userId": userId,
+          ":normalizedTrainingName": normalizedTrainingName
+        },
+        Limit: 1
+      })
+    );
+    const duplicateId = duplicate.Items?.[0]?.trainingMenuItemId;
+    if (duplicateId && duplicateId !== trainingMenuItemId) {
+      return { error: "trainingName already exists." };
+    }
+  }
+  const exerciseFamilyId =
+    args.exerciseFamilyId === undefined
+      ? String(currentSnapshot.exerciseFamilyId)
+      : toNonEmptyString(args.exerciseFamilyId);
+  const muscleTargets =
+    args.muscleTargets === undefined
+      ? currentSnapshot.muscleTargets
+      : normalizeMuscleTargets(args.muscleTargets);
+  const movementFamily =
+    args.movementFamily === undefined
+      ? currentSnapshot.movementFamily
+      : normalizeMovementFamily(args.movementFamily);
+  const jointActions =
+    args.jointActions === undefined
+      ? currentSnapshot.jointActions
+      : normalizeJointActions(args.jointActions);
+  const laterality =
+    args.laterality === undefined
+      ? currentSnapshot.laterality
+      : normalizeLaterality(args.laterality);
+  const loadModel =
+    args.loadModel === undefined
+      ? currentSnapshot.loadModel
+      : normalizeLoadModel(args.loadModel);
+  const equipmentType =
+    args.equipmentType === undefined
+      ? currentSnapshot.equipmentType
+      : normalizeEquipmentType(args.equipmentType);
+  const description =
+    args.description === undefined
+      ? String(currentSnapshot.description)
+      : normalizeDescription(args.description);
+  const equipmentProfileId =
+    args.equipmentProfileId === undefined
+      ? String(currentSnapshot.equipmentProfileId)
+      : typeof args.equipmentProfileId === "string"
+        ? args.equipmentProfileId.trim()
+        : undefined;
+  const weightInputMode =
+    args.weightInputMode === undefined
+      ? currentSnapshot.weightInputMode
+      : args.weightInputMode === "direct" || args.weightInputMode === "perSide"
+        ? args.weightInputMode
+        : undefined;
+  const fixedWeightKg =
+    weightInputMode === "direct"
+      ? 0
+      : weightInputMode === "legacyUnspecified"
+        ? 0
+        : normalizeNonNegativeDecimal(
+            args.fixedWeightKg === undefined ? currentSnapshot.fixedWeightKg : args.fixedWeightKg
+          );
+  const cableSettings =
+    equipmentType === "cable_machine"
+      ? normalizeCableSettingsForMcp(
+          args.cableSettings === undefined ? currentSnapshot.cableSettings : args.cableSettings
+        ) ??
+        (args.cableSettings === undefined
+          ? {
+              pulleyPosition: "adjustable",
+              attachmentType: "other",
+              cableSides: "single"
+            }
+          : undefined)
+      : null;
+  if (
+    !exerciseFamilyId ||
+    exerciseFamilyId.length > 80 ||
+    !muscleTargets ||
+    !movementFamily ||
+    !jointActions ||
+    !laterality ||
+    !loadModel ||
+    !equipmentType ||
+    description === undefined ||
+    equipmentProfileId === undefined ||
+    equipmentProfileId.length > 80 ||
+    !weightInputMode ||
+    fixedWeightKg === undefined ||
+    (equipmentType === "cable_machine" && !cableSettings)
+  ) {
+    return { error: "one or more exercise master fields are invalid." };
+  }
+  return {
+    value: {
+      trainingName,
+      normalizedTrainingName,
+      exerciseFamilyId,
+      muscleTargets,
+      movementFamily,
+      jointActions,
+      laterality,
+      loadModel,
+      classificationVersion: MUSCLE_TAXONOMY_VERSION,
+      equipmentType,
+      equipmentProfileId,
+      cableSettings,
+      description,
+      weightInputMode,
+      loadMultiplier: weightInputMode === "perSide" ? 2 : 1,
+      fixedWeightKg
+    }
+  };
+}
+
+function trainingMenuItemMutationReplay(
+  item: Record<string, unknown>,
+  idempotencyKey: string,
+  requestHash: string,
+  tool: string
+): McpToolResponse | undefined {
+  if (item.lastMutationKey !== idempotencyKey) {
+    return undefined;
+  }
+  if (item.lastMutationHash !== requestHash) {
+    return mcpToolResponse(409, {
+      code: "IDEMPOTENCY_KEY_REUSED",
+      message: "idempotencyKey was already used for a different request."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool,
+    trainingMenuItemId: item.trainingMenuItemId,
+    version: trainingMenuItemVersion(item.version),
+    changes: item.lastMutationChanges ?? {},
+    idempotentReplay: true
+  });
+}
+
+export async function updateTrainingMenuItemFromMcp(
+  args: ToolArgs,
+  userId: string
+): Promise<McpToolResponse> {
+  const trainingMenuItemId = parseBoundedText(args.trainingMenuItemId, 100);
+  const expectedVersion = parseExpectedVersion(args.expectedVersion);
+  const idempotencyKey = parseBoundedText(args.idempotencyKey, 100);
+  const updateReason =
+    parseBoundedText(args.updateReason, 500, true) ?? "Exercise master updated through MCP";
+  const dryRun = parseDryRun(args.dryRun);
+  const editableFields = [
+    "trainingName",
+    "exerciseFamilyId",
+    "muscleTargets",
+    "movementFamily",
+    "jointActions",
+    "laterality",
+    "loadModel",
+    "equipmentType",
+    "equipmentProfileId",
+    "cableSettings",
+    "description",
+    "weightInputMode",
+    "fixedWeightKg"
+  ];
+  if (
+    !trainingMenuItemId ||
+    expectedVersion === undefined ||
+    !idempotencyKey ||
+    dryRun === undefined ||
+    (args.updateReason !== undefined && !parseBoundedText(args.updateReason, 500)) ||
+    !editableFields.some((field) => args[field] !== undefined)
+  ) {
+    return mutationValidationError(
+      "trainingMenuItemId, expectedVersion, idempotencyKey, and at least one valid update field are required."
+    );
+  }
+  const current = await getTrainingMenuItemRecord(userId, trainingMenuItemId);
+  if (!current || current.isActive === false) {
+    return mcpToolResponse(404, {
+      code: "NOT_FOUND",
+      message: "The active training menu item was not found."
+    });
+  }
+  const normalized = await normalizeTrainingMenuItemUpdate(
+    args,
+    current,
+    userId,
+    trainingMenuItemId
+  );
+  if (!normalized.value) {
+    return mutationValidationError(normalized.error ?? "Exercise master update is invalid.");
+  }
+  const before = trainingMenuItemEditableSnapshot(current);
+  const after = trainingMenuItemEditableSnapshot({ ...current, ...normalized.value });
+  const changes = Object.fromEntries(
+    Object.keys(after)
+      .filter(
+        (field) =>
+          JSON.stringify(stableJsonValue(before[field])) !==
+          JSON.stringify(stableJsonValue(after[field]))
+      )
+      .map((field) => [field, { before: before[field], after: after[field] }])
+  );
+  if (Object.keys(changes).length === 0) {
+    return mutationValidationError("The requested update does not change the exercise master.");
+  }
+  const requestHash = mutationRequestHash({
+    tool: "update_training_menu_item",
+    trainingMenuItemId,
+    expectedVersion,
+    changes,
+    updateReason
+  });
+  const replay = trainingMenuItemMutationReplay(
+    current,
+    idempotencyKey,
+    requestHash,
+    "update_training_menu_item"
+  );
+  if (replay) {
+    return replay;
+  }
+  if (trainingMenuItemVersion(current.version) !== expectedVersion) {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The exercise master was updated after it was read.",
+      currentVersion: trainingMenuItemVersion(current.version)
+    });
+  }
+  const impact = await trainingMenuItemImpact(userId, trainingMenuItemId);
+  if (dryRun) {
+    return mcpToolResponse(200, {
+      tool: "update_training_menu_item",
+      dryRun: true,
+      trainingMenuItemId,
+      currentVersion: expectedVersion,
+      nextVersion: expectedVersion + 1,
+      changes,
+      impact
+    });
+  }
+  if (args.userConfirmed !== true) {
+    return mcpToolResponse(400, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Show the dry-run differences and impact, then obtain explicit user approval."
+    });
+  }
+  const condition = versionCondition(expectedVersion);
+  const updatedAt = nowIsoSeconds();
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: trainingMenuTableName,
+        Key: { userId, trainingMenuItemId },
+        UpdateExpression:
+          "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, exerciseFamilyId=:exerciseFamilyId, muscleTargets=:muscleTargets, movementFamily=:movementFamily, jointActions=:jointActions, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipmentType=:equipmentType, equipmentProfileId=:equipmentProfileId, cableSettings=:cableSettings, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, #version=:nextVersion, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges",
+        ConditionExpression:
+          `${condition.condition} AND (attribute_not_exists(isActive) OR isActive = :true)`,
+        ExpressionAttributeNames: {
+          "#description": "description",
+          "#version": "version"
+        },
+        ExpressionAttributeValues: {
+          ...condition.values,
+          ...Object.fromEntries(
+            Object.entries(normalized.value).map(([field, value]) => [`:${field}`, value])
+          ),
+          ":nextVersion": expectedVersion + 1,
+          ":updatedAt": updatedAt,
+          ":updatedBy": "mcp",
+          ":updateReason": updateReason,
+          ":lastMutationKey": idempotencyKey,
+          ":lastMutationHash": requestHash,
+          ":lastMutationChanges": changes,
+          ":true": true
+        }
+      })
+    );
+  } catch {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The exercise master changed while the update was being applied."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool: "update_training_menu_item",
+    trainingMenuItemId,
+    version: expectedVersion + 1,
+    changes,
+    impact,
+    updatedAt,
+    idempotentReplay: false
+  });
+}
+
+export async function archiveTrainingMenuItemFromMcp(
+  args: ToolArgs,
+  userId: string
+): Promise<McpToolResponse> {
+  const trainingMenuItemId = parseBoundedText(args.trainingMenuItemId, 100);
+  const expectedVersion = parseExpectedVersion(args.expectedVersion);
+  const idempotencyKey = parseBoundedText(args.idempotencyKey, 100);
+  const reason = parseBoundedText(args.reason, 500, true) ?? "Archived through MCP";
+  const dryRun = parseDryRun(args.dryRun);
+  if (
+    !trainingMenuItemId ||
+    expectedVersion === undefined ||
+    !idempotencyKey ||
+    dryRun === undefined ||
+    (args.reason !== undefined && !parseBoundedText(args.reason, 500))
+  ) {
+    return mutationValidationError(
+      "trainingMenuItemId, expectedVersion, idempotencyKey, and valid optional fields are required."
+    );
+  }
+  const current = await getTrainingMenuItemRecord(userId, trainingMenuItemId);
+  if (!current) {
+    return mcpToolResponse(404, {
+      code: "NOT_FOUND",
+      message: "The training menu item was not found."
+    });
+  }
+  const changes = {
+    isActive: { before: true, after: false },
+    archiveReason: { before: current.archiveReason ?? null, after: reason }
+  };
+  const requestHash = mutationRequestHash({
+    tool: "archive_training_menu_item",
+    trainingMenuItemId,
+    expectedVersion,
+    reason
+  });
+  const replay = trainingMenuItemMutationReplay(
+    current,
+    idempotencyKey,
+    requestHash,
+    "archive_training_menu_item"
+  );
+  if (replay) {
+    return replay;
+  }
+  if (current.isActive === false) {
+    return mcpToolResponse(409, {
+      code: "ITEM_ALREADY_ARCHIVED",
+      message: "The training menu item is already archived.",
+      currentVersion: trainingMenuItemVersion(current.version)
+    });
+  }
+  if (trainingMenuItemVersion(current.version) !== expectedVersion) {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The exercise master was updated after it was read.",
+      currentVersion: trainingMenuItemVersion(current.version)
+    });
+  }
+  const impact = await trainingMenuItemImpact(userId, trainingMenuItemId);
+  if (dryRun) {
+    return mcpToolResponse(200, {
+      tool: "archive_training_menu_item",
+      dryRun: true,
+      trainingMenuItemId,
+      currentVersion: expectedVersion,
+      nextVersion: expectedVersion + 1,
+      changes,
+      impact
+    });
+  }
+  if (args.userConfirmed !== true) {
+    return mcpToolResponse(400, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Show the dry-run impact, then obtain explicit user approval."
+    });
+  }
+  const condition = versionCondition(expectedVersion);
+  const archivedAt = nowIsoSeconds();
+  try {
+    await ddb.send(
+      new UpdateCommand({
+        TableName: trainingMenuTableName,
+        Key: { userId, trainingMenuItemId },
+        UpdateExpression:
+          "SET isActive=:false, #version=:nextVersion, archivedAt=:archivedAt, archivedBy=:archivedBy, archiveReason=:archiveReason, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges",
+        ConditionExpression:
+          `${condition.condition} AND (attribute_not_exists(isActive) OR isActive = :true)`,
+        ExpressionAttributeNames: { "#version": "version" },
+        ExpressionAttributeValues: {
+          ...condition.values,
+          ":false": false,
+          ":true": true,
+          ":nextVersion": expectedVersion + 1,
+          ":archivedAt": archivedAt,
+          ":archivedBy": "mcp",
+          ":archiveReason": reason,
+          ":updatedAt": archivedAt,
+          ":updatedBy": "mcp",
+          ":updateReason": reason,
+          ":lastMutationKey": idempotencyKey,
+          ":lastMutationHash": requestHash,
+          ":lastMutationChanges": changes
+        }
+      })
+    );
+  } catch {
+    return mcpToolResponse(409, {
+      code: "VERSION_CONFLICT",
+      message: "The exercise master changed while it was being archived."
+    });
+  }
+  return mcpToolResponse(200, {
+    tool: "archive_training_menu_item",
+    trainingMenuItemId,
+    version: expectedVersion + 1,
+    changes,
+    impact,
+    archivedAt,
+    idempotentReplay: false
   });
 }
 
@@ -3905,6 +4755,12 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
     return mutationValidationError("Item mutation fields must be arrays.");
   }
   const dryRun = parseDryRun(args.dryRun) === true;
+  if (!dryRun && args.userConfirmed !== true) {
+    return mcpToolResponse(400, {
+      code: "USER_CONFIRMATION_REQUIRED",
+      message: "Run a dry-run, show the differences, and obtain explicit user approval before updating."
+    });
+  }
   const requestHash = mutationRequestHash({
     tool: "update_temporary_training_menu_set",
     trainingMenuSetId,
@@ -3967,33 +4823,64 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
   if (normalizedUpdates.some((value) => !value)) {
     return mutationValidationError("One or more itemUpdates prescriptions are invalid.");
   }
-  const addMenuItemIds = itemAdds.map((value) => toNonEmptyString(value.trainingMenuItemId));
-  if (
-    addMenuItemIds.some((value) => !value) ||
-    new Set(addMenuItemIds).size !== addMenuItemIds.length
-  ) {
-    return mutationValidationError("itemAdds requires unique existing trainingMenuItemId values.");
+  const existingAddIds = itemAdds
+    .map((value) => toNonEmptyString(value.trainingMenuItemId))
+    .filter((value): value is string => Boolean(value));
+  if (new Set(existingAddIds).size !== existingAddIds.length) {
+    return mutationValidationError("itemAdds contains duplicate trainingMenuItemId values.");
   }
-  const addMenuItems = await getTrainingMenuItemsById(userId, addMenuItemIds as string[]);
-  const normalizedAdds = itemAdds.map((input, index) => {
-    const trainingMenuItemId = addMenuItemIds[index]!;
-    const menu = addMenuItems.get(trainingMenuItemId);
+  const addMenuItems = await getTrainingMenuItemsById(userId, existingAddIds);
+  const startingDisplayOrder = (await getMaxDisplayOrder(userId)) + 1;
+  const reservedNames = new Set<string>();
+  const normalizedAdds: Array<{
+    trainingMenuItemId: string;
+    newItem?: Record<string, unknown>;
+    prescription: Record<string, unknown>;
+  }> = [];
+  for (let index = 0; index < itemAdds.length; index += 1) {
+    const input = itemAdds[index];
+    const trainingMenuItemId = toNonEmptyString(input.trainingMenuItemId);
+    const newDefinition = input.newTrainingMenuItem;
+    if (Boolean(trainingMenuItemId) === Boolean(newDefinition)) {
+      return mutationValidationError(
+        `itemAdds[${index}] must specify exactly one trainingMenuItemId or newTrainingMenuItem.`
+      );
+    }
     const prescription = input.prescription
       ? normalizeMenuSetPrescription(input.prescription)
       : undefined;
-    return menu && menu.isActive !== false && prescription
-      ? { trainingMenuItemId, prescription }
-      : undefined;
-  });
-  if (normalizedAdds.some((value) => !value)) {
-    return mutationValidationError("itemAdds references a missing item or contains an invalid prescription.");
+    if (!prescription) {
+      return mutationValidationError(`itemAdds[${index}].prescription is invalid.`);
+    }
+    if (trainingMenuItemId) {
+      const menu = addMenuItems.get(trainingMenuItemId);
+      if (!menu || menu.isActive === false) {
+        return mutationValidationError(`itemAdds[${index}].trainingMenuItemId was not found.`);
+      }
+      normalizedAdds.push({ trainingMenuItemId, prescription });
+      continue;
+    }
+    const normalizedNewItem = await normalizeNewTrainingMenuItemForMcp(
+      userId,
+      newDefinition!,
+      startingDisplayOrder + index,
+      reservedNames
+    );
+    if ("error" in normalizedNewItem) {
+      return mutationValidationError(`itemAdds[${index}].${normalizedNewItem.error}`);
+    }
+    normalizedAdds.push({
+      trainingMenuItemId: normalizedNewItem.trainingMenuItemId,
+      newItem: normalizedNewItem.item,
+      prescription
+    });
   }
   const retained = currentLinks.filter(
     (item) => !removalIds.includes(String(item.trainingMenuSetItemId ?? ""))
   );
   const finalTrainingMenuItemIds = [
     ...retained.map((item) => String(item.trainingMenuItemId ?? "")),
-    ...(addMenuItemIds as string[])
+    ...normalizedAdds.map((item) => item.trainingMenuItemId)
   ];
   if (
     finalTrainingMenuItemIds.length < 1 ||
@@ -4048,11 +4935,11 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
       userId,
       trainingMenuSetItemId,
       trainingMenuSetId,
-      trainingMenuItemId: value!.trainingMenuItemId,
+      trainingMenuItemId: value.trainingMenuItemId,
       displayOrder,
       menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, displayOrder),
-      menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, value!.trainingMenuItemId),
-      ...value!.prescription,
+      menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, value.trainingMenuItemId),
+      ...value.prescription,
       createdBy: "ai",
       createdAt: ts,
       updatedAt: ts
@@ -4066,8 +4953,10 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
       after: value!.prescription
     })),
     added: normalizedAdds.map((value) => ({
-      trainingMenuItemId: value!.trainingMenuItemId,
-      prescription: value!.prescription
+      trainingMenuItemId: value.trainingMenuItemId,
+      createdTrainingMenuItem: Boolean(value.newItem),
+      trainingName: value.newItem?.trainingName ?? addMenuItems.get(value.trainingMenuItemId)?.trainingName ?? null,
+      prescription: value.prescription
     })),
     removed: removalIds.map((id) => ({
       trainingMenuSetItemId: id,
@@ -4090,7 +4979,7 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
       currentVersion: expectedVersion,
       nextVersion: expectedVersion + 1,
       changes,
-      unchanged: ["trainingMenuSetId", "trainingMenuItemMasterRecords", "validFromDate", "validToDate"]
+      unchanged: ["trainingMenuSetId", "validFromDate", "validToDate"]
     });
   }
 
@@ -4149,6 +5038,16 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
           }
         };
       }),
+    ...normalizedAdds
+      .filter((item) => item.newItem)
+      .map((item) => ({
+        Put: {
+          TableName: trainingMenuTableName,
+          Item: { ...item.newItem, createdAt: ts, updatedAt: ts },
+          ConditionExpression:
+            "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuItemId)"
+        }
+      })),
     ...newLinks.map((item) => ({
       Put: {
         TableName: trainingMenuSetItemTableName,
@@ -4171,7 +5070,7 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
     trainingMenuSetId,
     version: expectedVersion + 1,
     changes,
-    unchanged: ["trainingMenuSetId", "trainingMenuItemMasterRecords", "validFromDate", "validToDate"],
+    unchanged: ["trainingMenuSetId", "validFromDate", "validToDate"],
     updatedAt: ts,
     idempotentReplay: false
   });
@@ -4355,7 +5254,10 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
           fixedWeightKg: weightInputMode === "perSide" ? fixedWeightKg : 0,
           isAiGenerated: true,
           isActive: true,
-          displayOrder: startingDisplayOrder + index
+          displayOrder: startingDisplayOrder + index,
+          version: 1,
+          updatedBy: "mcp",
+          updateReason: "Created with temporary menu"
         },
         prescription: {
           targetWeightKg,
@@ -4546,7 +5448,13 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
       return appendCoachingNote(event, userId);
     }
     if (toolName === "list_training_menu_items") {
-      return listTrainingMenuItemsForAi(userId);
+      return listTrainingMenuItemsForAi(event, userId);
+    }
+    if (toolName === "update_training_menu_item") {
+      return updateTrainingMenuItemFromMcp(event, userId);
+    }
+    if (toolName === "archive_training_menu_item") {
+      return archiveTrainingMenuItemFromMcp(event, userId);
     }
     if (toolName === "list_training_menu_sets") {
       return listTrainingMenuSetsForAi(userId);

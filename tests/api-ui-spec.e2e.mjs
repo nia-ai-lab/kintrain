@@ -331,6 +331,7 @@ async function run() {
       ]);
       assert.equal(res.json.description, "肩をすくめず、胸を張って押す。");
       assert.equal(res.json.fixedWeightKg, 20);
+      assert.equal(res.json.version, 1);
       state.menuItemA = res.json.trainingMenuItemId;
     });
 
@@ -360,6 +361,7 @@ async function run() {
       assert.equal(res.status, 201);
       assert.ok(res.json.trainingMenuItemId);
       assert.equal(res.json.equipmentType, "bodyweight_space");
+      assert.equal(res.json.version, 1);
       state.menuItemB = res.json.trainingMenuItemId;
     });
 

@@ -10,6 +10,8 @@ test("menu updates preserve fixed weight and taxonomy migration does not strip i
 
   assert.match(menuHandler, /fixedWeightKg=:fixedWeightKg/);
   assert.doesNotMatch(menuHandler, /REMOVE[^\n"]*fixedWeightKg/);
+  assert.match(menuHandler, /version: 1/);
+  assert.match(menuHandler, /ConditionExpression: versionCondition/);
 
   const legacyMenuKeys = /const legacyMenuKeys = \[([\s\S]*?)\];/.exec(migration)?.[1] ?? "";
   const legacySnapshotKeys = /const legacySnapshotKeys = \[([\s\S]*?)\];/.exec(migration)?.[1] ?? "";

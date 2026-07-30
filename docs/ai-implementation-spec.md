@@ -41,7 +41,7 @@
 - Runtime の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` 読込
 - Runtime の `chatSessionId` 管理（UIと同一IDを `sessionId` に利用）
 - Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
-- AgentCore Gateway、MCP Lambda target、全24ツール
+- AgentCore Gateway、MCP Lambda target、全26ツール
 - Gateway REQUEST InterceptorによるJWT再検証、ユーザーID照合、内部identity注入
 - AIメニュー生成画面と `create_temporary_training_menu_set_from_ai`
 - AIキャラクター設定・アバターのCore API永続化
@@ -207,7 +207,9 @@
 - `get_coaching_context(date?, timeZoneId?)`
 - `update_coaching_context(goalSummary, constraints, preferences, trainingPolicy, nextReviewDate?, expectedVersion, source, changeReason, userConfirmed)`
 - `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
-- `list_training_menu_items()`
+- `list_training_menu_items(query?, includeInactive?, onlyAiGenerated?, limit?, nextToken?)`
+- `update_training_menu_item(trainingMenuItemId, expectedVersion, idempotencyKey, ..., dryRun?, updateReason?, userConfirmed?)`
+- `archive_training_menu_item(trainingMenuItemId, expectedVersion, idempotencyKey, reason?, dryRun?, userConfirmed?)`
 - `list_training_menu_sets()`
 - `get_training_plan_for_date(date, timeZoneId?)`
 - `reschedule_temporary_training_plan(trainingMenuSetId, newValidFromDate, newValidToDate, expectedVersion, idempotencyKey, conflictPolicy?, dryRun?, updateReason?, userConfirmed?)`

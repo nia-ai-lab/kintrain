@@ -311,6 +311,8 @@ erDiagram
 読取ツール:
 
 - `list_training_menu_items`
+- `update_training_menu_item`
+- `archive_training_menu_item`
 - `list_training_menu_sets`
 - `get_training_plan_for_date`
 - `get_training_coaching_summary`
@@ -326,6 +328,7 @@ erDiagram
 - `save_daily_readiness`（就寝・起床日時からの睡眠時間計算と回復状態の部分更新）
 
 更新・キャンセルの詳細は`docs/mcp-temporary-menu-lifecycle.md`を正とする。
+種目マスターの検索・更新・アーカイブは`docs/mcp-training-menu-item-lifecycle.md`を正とする。
 
 入力項目の概要:
 

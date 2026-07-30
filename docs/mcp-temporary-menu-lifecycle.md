@@ -50,11 +50,14 @@
 
 - 未指定のセット名・処方は保持する。
 - `itemUpdates`は既存`trainingMenuSetItemId`を更新する。
-- `itemAdds`は既存かつ有効な`trainingMenuItemId`だけを参照し、種目マスタを新規作成しない。
+- `itemAdds`は既存かつ有効な`trainingMenuItemId`を参照するか、`newTrainingMenuItem`を指定する。
+- `newTrainingMenuItem`を指定した場合、種目マスタ作成とセット項目追加を同一トランザクションで実行し、セット更新だけ、または種目マスタ作成だけが残る部分成功を許可しない。
 - `itemRemovals`はセット項目IDを明示する。
 - `itemOrder`は更新後に残る既存セット項目IDを全件、重複なく指定する。
 - 更新後のセットは1〜12件の一意な種目で構成する。
 - 日付変更と内容変更は1回の要求へ混在させず、日付変更専用ツールを先に使用する。
+- 内容変更は最初に`dryRun=true`で差分を取得し、ユーザーへ提示する。
+- 確定時はユーザーの明示承認を得て`userConfirmed=true`を指定する。通常の内容変更でも承認なしの書き込みを拒否する。
 
 ## 7. キャンセル
 

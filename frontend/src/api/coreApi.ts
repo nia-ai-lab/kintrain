@@ -37,9 +37,12 @@ export type TrainingMenuItemDto = {
   loadMultiplier?: WeightLoadMultiplier;
   fixedWeightKg?: number;
   isActive: boolean;
+  version: number;
   usageCount: number;
   createdAt: string;
   updatedAt: string;
+  updatedBy?: string;
+  updateReason?: string;
 };
 
 export type ListTrainingMenuItemsResponse = {
@@ -474,6 +477,8 @@ export async function updateTrainingMenuItem(
     loadMultiplier: WeightLoadMultiplier;
     fixedWeightKg: number;
     isActive: boolean;
+    expectedVersion: number;
+    updateReason: string;
   }>
 ): Promise<TrainingMenuItemDto> {
   return coreApiFetch<TrainingMenuItemDto>(`/training-menu-items/${trainingMenuItemId}`, {
