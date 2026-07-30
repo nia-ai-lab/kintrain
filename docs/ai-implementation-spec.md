@@ -188,6 +188,9 @@
 
 ## 6. Gateway実装方針（MCP）
 
+- GatewayはMCP `2025-06-18`と`2025-03-26`の両方を明示的に受け入れ、クライアントとの`initialize`時に共通バージョンを選択する。
+- `supportedVersions`を省略してAWS/CDKの既定値へ依存しない。新しいバージョンを追加する場合も、利用中クライアントの互換性を確認してから旧バージョンを外す。
+
 ### 6.1 公開ツール
 
 - `get_analysis_export_manifest(rangeMode, from?, to?, timeZoneId?)`

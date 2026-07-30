@@ -163,6 +163,7 @@ mainへコードとCognito ChatGPT用App Client、および上表の新形式Cal
 | ログイン後に「接続で失敗しました」 | Client Secretの設定、`client_secret_basic`、Callback URL、PKCE token交換 |
 | Gateway/Lambdaログが一切増えない | MCP到達前のOAuth discovery、認可、token交換を確認する |
 | Gatewayが401を返す | JWT issuer、期限、Client ID allowlist、`WWW-Authenticate`ヘッダー |
+| `no mutually supported protocol version` | Gatewayの`protocolConfiguration.mcp.supportedVersions`にChatGPTと共通のMCPバージョンがあるか。KinTrainは`2025-06-18`と`2025-03-26`を明示的に許可する |
 | 接続できるが別ユーザーのデータが見える／本人データが見えない | InterceptorがJWT `sub`を内部`userId`へ設定しているか、DynamoDB partition keyとの対応 |
 
 ## 11. 参照

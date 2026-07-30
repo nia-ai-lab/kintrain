@@ -132,3 +132,11 @@ test("backend provisions and allowlists a dedicated Claude OAuth app client", as
   );
   assert.match(source, /claudeOAuth:\s*\{\s*clientId: claudeOAuthClient\.userPoolClientId/);
 });
+
+test("gateway supports current and legacy MCP protocol versions", async () => {
+  const source = await readFile("amplify/backend.ts", "utf8");
+  assert.match(
+    source,
+    /supportedVersions:\s*\[\s*agentcore\.MCPProtocolVersion\.MCP_2025_06_18,\s*agentcore\.MCPProtocolVersion\.MCP_2025_03_26\s*\]/
+  );
+});
