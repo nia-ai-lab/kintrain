@@ -66,6 +66,7 @@ type MenuItemInput = {
   description?: string;
   weightInputMode?: WeightInputMode;
   loadMultiplier?: 1 | 2;
+  fixedWeightKg?: number;
   isActive?: boolean;
 };
 
@@ -120,6 +121,20 @@ function normalizeLoadMultiplier(value: unknown, mode: WeightInputMode): 1 | 2 {
     return 1;
   }
   return value === 1 || value === 2 ? value : mode === "perSide" ? 2 : 1;
+}
+
+function normalizeFixedWeightKg(value: unknown, mode: WeightInputMode): number {
+  if (mode === "direct") {
+    return 0;
+  }
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? Math.round(value * 100) / 100
+    : 0;
+}
+
+function isValidFixedWeightKg(value: unknown): boolean {
+  return value === undefined ||
+    (typeof value === "number" && Number.isFinite(value) && value >= 0);
 }
 
 function normalizeCableSettings(value: unknown) {
@@ -258,6 +273,7 @@ function toMenuItemResponse(item: Record<string, unknown>, usageCount = 0): Reco
     description: String(item.description ?? ""),
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+    fixedWeightKg: normalizeFixedWeightKg(item.fixedWeightKg, weightInputMode),
     isActive: item.isActive !== false,
     usageCount,
     createdAt: item.createdAt,
@@ -436,7 +452,8 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
     !laterality ||
     !loadModel ||
     description.length > 500 ||
-    !["direct", "perSide"].includes(weightInputMode)
+    !["direct", "perSide"].includes(weightInputMode) ||
+    !isValidFixedWeightKg(body.fixedWeightKg)
   ) {
     return response(400, { message: "invalid menu item." });
   }
@@ -467,6 +484,7 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
     description,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(body.loadMultiplier, weightInputMode),
+    fixedWeightKg: normalizeFixedWeightKg(body.fixedWeightKg, weightInputMode),
     isAiGenerated: body.isAiGenerated === true,
     isActive: true,
     displayOrder,
@@ -533,7 +551,9 @@ async function updateMenuItem(
     !jointActions ||
     !laterality ||
     !loadModel ||
-    description.length > 500
+    description.length > 500 ||
+    !["direct", "perSide"].includes(weightInputMode) ||
+    !isValidFixedWeightKg(body.fixedWeightKg)
   ) {
     return response(400, { message: "invalid menu item." });
   }
@@ -562,6 +582,7 @@ async function updateMenuItem(
     description,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(body.loadMultiplier ?? current.loadMultiplier, weightInputMode),
+    fixedWeightKg: normalizeFixedWeightKg(body.fixedWeightKg ?? current.fixedWeightKg, weightInputMode),
     isAiGenerated: body.isAiGenerated ?? (current.isAiGenerated === true),
     isActive: body.isActive ?? (current.isActive !== false),
     updatedAt
@@ -570,7 +591,7 @@ async function updateMenuItem(
     TableName: trainingMenuTableName,
     Key: { userId, trainingMenuItemId },
     UpdateExpression:
-      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, exerciseFamilyId=:exerciseFamilyId, muscleTargets=:muscleTargets, movementFamily=:movementFamily, jointActions=:jointActions, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipmentType=:equipmentType, equipmentProfileId=:equipmentProfileId, cableSettings=:cableSettings, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE bodyPart, movementPattern, equipment, fixedWeightKg, frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
+      "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, exerciseFamilyId=:exerciseFamilyId, muscleTargets=:muscleTargets, movementFamily=:movementFamily, jointActions=:jointActions, laterality=:laterality, loadModel=:loadModel, classificationVersion=:classificationVersion, equipmentType=:equipmentType, equipmentProfileId=:equipmentProfileId, cableSettings=:cableSettings, #description=:description, weightInputMode=:weightInputMode, loadMultiplier=:loadMultiplier, fixedWeightKg=:fixedWeightKg, isAiGenerated=:isAiGenerated, isActive=:isActive, updatedAt=:updatedAt REMOVE bodyPart, movementPattern, equipment, frequency, defaultWeightKg, defaultRepsMin, defaultRepsMax, defaultReps, defaultSets",
     ExpressionAttributeNames: { "#description": "description" },
     ExpressionAttributeValues: Object.fromEntries(Object.entries(updated).map(([key, value]) => [`:${key}`, value]))
   }));

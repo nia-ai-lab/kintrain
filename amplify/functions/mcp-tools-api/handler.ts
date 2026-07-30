@@ -142,6 +142,7 @@ type AiMenuItemInput = {
     cableSettings?: unknown;
     description?: unknown;
     weightInputMode?: unknown;
+    fixedWeightKg?: unknown;
   };
   prescription?: {
     targetWeightKg?: unknown;
@@ -738,6 +739,7 @@ function normalizeAnalysisGymVisit(item: Record<string, unknown>): Record<string
           ? entry.weightInputModeSnapshot
           : "legacyUnspecified",
         loadMultiplier: nullableNumber(entry.loadMultiplierSnapshot),
+        fixedWeightKg: nullableNumber(entry.fixedWeightKgSnapshot),
         calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg),
         reps: nullableNumber(entry.reps),
         sets: nullableNumber(entry.sets),
@@ -787,6 +789,7 @@ export function normalizeGymVisitWeightSnapshots(item: Record<string, unknown>):
             ? entry.weightInputModeSnapshot
             : "legacyUnspecified",
         loadMultiplierSnapshot: nullableNumber(entry.loadMultiplierSnapshot),
+        fixedWeightKgSnapshot: nullableNumber(entry.fixedWeightKgSnapshot),
         calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg),
         reps: nullableNumber(entry.reps),
         sets: nullableNumber(entry.sets),
@@ -824,6 +827,8 @@ function normalizeAnalysisTrainingMenu(item: Record<string, unknown>): Record<st
     defaultWeightKg: nullableNumber(item.defaultWeightKg),
     weightInputMode,
     loadMultiplier: weightInputMode === "legacyUnspecified" ? null : nullableNumber(item.loadMultiplier),
+    fixedWeightKg:
+      weightInputMode === "legacyUnspecified" ? null : nullableNumber(item.fixedWeightKg) ?? 0,
     defaultRepsMin: nullableNumber(item.defaultRepsMin) ?? legacyReps,
     defaultRepsMax: nullableNumber(item.defaultRepsMax) ?? legacyReps,
     defaultSets: nullableNumber(item.defaultSets),
@@ -1869,6 +1874,7 @@ async function getTrainingHistory(args: ToolArgs, userId: string): Promise<McpTo
     weightInputModeSnapshot:
       typeof item.weightInputModeSnapshot === "string" ? item.weightInputModeSnapshot : "legacyUnspecified",
     loadMultiplierSnapshot: item.loadMultiplierSnapshot ?? null,
+    fixedWeightKgSnapshot: item.fixedWeightKgSnapshot ?? null,
     calculatedTotalWeightKg: item.calculatedTotalWeightKg ?? null,
     reps: item.reps,
     sets: item.sets,
@@ -3154,6 +3160,8 @@ async function hydrateTrainingMenuSet(
         description: menu?.description ?? "",
         weightInputMode: menu?.weightInputMode ?? "legacyUnspecified",
         loadMultiplier: menu?.loadMultiplier ?? null,
+        fixedWeightKg:
+          menu?.weightInputMode === "legacyUnspecified" ? null : menu?.fixedWeightKg ?? 0,
         displayOrder: link.displayOrder,
         targetWeightKg: link.targetWeightKg,
         targetRepsMin: link.targetRepsMin,
@@ -3244,6 +3252,8 @@ async function listTrainingMenuItemsForAi(userId: string): Promise<McpToolRespon
         description: item.description ?? "",
         weightInputMode: item.weightInputMode ?? "legacyUnspecified",
         loadMultiplier: item.loadMultiplier,
+        fixedWeightKg:
+          item.weightInputMode === "legacyUnspecified" ? null : item.fixedWeightKg ?? 0,
         isAiGenerated: item.isAiGenerated === true
       }))
   });
@@ -4314,6 +4324,7 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
       }
       newNames.add(normalizedTrainingName);
       const weightInputMode = newDefinition?.weightInputMode === "perSide" ? "perSide" : "direct";
+      const fixedWeightKg = normalizeNonNegativeDecimal(newDefinition?.fixedWeightKg) ?? 0;
       const trainingMenuItemId = randomUUID();
       normalizedItems.push({
         trainingMenuItemId,
@@ -4341,6 +4352,7 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
           description,
           weightInputMode,
           loadMultiplier: weightInputMode === "perSide" ? 2 : 1,
+          fixedWeightKg: weightInputMode === "perSide" ? fixedWeightKg : 0,
           isAiGenerated: true,
           isActive: true,
           displayOrder: startingDisplayOrder + index

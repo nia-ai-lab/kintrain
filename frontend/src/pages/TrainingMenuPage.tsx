@@ -777,11 +777,15 @@ function MenuItemForm({
     description: string;
     weightInputMode: WeightInputMode;
     loadMultiplier: 1 | 2;
+    fixedWeightKg: number;
   }) => Promise<void>;
 }) {
   const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>(initial?.muscleTargets ?? []);
   const [jointActions, setJointActions] = useState<JointAction[]>(initial?.jointActions ?? []);
   const [equipmentType, setEquipmentType] = useState<EquipmentType>(initial?.equipmentType ?? 'other');
+  const [weightInputMode, setWeightInputMode] = useState<WeightInputMode>(
+    initial?.weightInputMode === 'perSide' ? 'perSide' : 'direct'
+  );
   const [muscleSearch, setMuscleSearch] = useState('');
   const [formError, setFormError] = useState('');
   const firstSelectedMuscle = muscles.find((muscle) =>
@@ -869,7 +873,8 @@ function MenuItemForm({
               : undefined,
           description: String(form.get('description') ?? '').trim(),
           weightInputMode: mode,
-          loadMultiplier: mode === 'perSide' ? 2 : 1
+          loadMultiplier: mode === 'perSide' ? 2 : 1,
+          fixedWeightKg: mode === 'perSide' ? Number(form.get('fixedWeightKg') ?? 0) : 0
         });
       }}
     >
@@ -1088,10 +1093,25 @@ function MenuItemForm({
         <div className="menu-form-basics">
           <label>
             重量入力方式
-            <select name="weightInputMode" defaultValue={initial?.weightInputMode === 'perSide' ? 'perSide' : 'direct'}>
+            <select
+              name="weightInputMode"
+              value={weightInputMode}
+              onChange={(event) => setWeightInputMode(event.target.value as WeightInputMode)}
+            >
               <option value="direct">入力値が表示・総重量</option>
               <option value="perSide">片側重量 × 2</option>
             </select>
+          </label>
+          <label>
+            バーなどの固定重量
+            <input
+              name="fixedWeightKg"
+              type="number"
+              min={0}
+              step={0.01}
+              defaultValue={initial?.fixedWeightKg ?? 0}
+              disabled={weightInputMode !== 'perSide'}
+            />
           </label>
           <label>
             種目ファミリー

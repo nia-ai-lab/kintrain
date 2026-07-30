@@ -61,6 +61,7 @@ type ExerciseEntry = {
   assistanceKg?: number | null;
   weightInputModeSnapshot?: "direct" | "perSide" | "legacyUnspecified";
   loadMultiplierSnapshot?: 1 | 2;
+  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -152,8 +153,15 @@ function normalizeLoadMultiplier(value: unknown, mode: WeightInputMode): 1 | 2 {
   return mode === "perSide" ? 2 : 1;
 }
 
-function calculateTotalWeightKg(weightKg: number, multiplier: number): number {
-  return Math.round(weightKg * multiplier * 100) / 100;
+function normalizeFixedWeightKg(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return 0;
+  }
+  return Math.round(value * 100) / 100;
+}
+
+function calculateTotalWeightKg(weightKg: number, multiplier: number, fixedWeightKg: number): number {
+  return Math.round((weightKg * multiplier + fixedWeightKg) * 100) / 100;
 }
 
 function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
@@ -174,6 +182,7 @@ function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
       (entry.loadMultiplierSnapshot === undefined ||
         entry.loadMultiplierSnapshot === 1 ||
         entry.loadMultiplierSnapshot === 2) &&
+      (entry.fixedWeightKgSnapshot === undefined || isNonNegativeNumber(entry.fixedWeightKgSnapshot)) &&
       (entry.additionalLoadKg === undefined || isNonNegativeNumber(entry.additionalLoadKg)) &&
       (entry.assistanceKg === undefined || entry.assistanceKg === null || isNonNegativeNumber(entry.assistanceKg)) &&
       isPositiveNumber(entry.reps) &&
@@ -234,11 +243,18 @@ export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
         : weightInputModeSnapshot === "direct"
           ? 1
           : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot);
+    const fixedWeightKgSnapshot =
+      weightInputModeSnapshot === "legacyUnspecified"
+        ? undefined
+        : weightInputModeSnapshot === "direct"
+          ? 0
+          : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot);
     const calculatedTotalWeightKg =
       weightInputModeSnapshot === "legacyUnspecified" ||
-      loadMultiplierSnapshot === undefined
+      loadMultiplierSnapshot === undefined ||
+      fixedWeightKgSnapshot === undefined
         ? undefined
-        : calculateTotalWeightKg(entry.weightKg, loadMultiplierSnapshot);
+        : calculateTotalWeightKg(entry.weightKg, loadMultiplierSnapshot, fixedWeightKgSnapshot);
     return {
       ...entry,
       trainingMenuItemId: entry.trainingMenuItemId.trim(),
@@ -266,6 +282,7 @@ export function normalizeEntries(entries: ExerciseEntry[]): ExerciseEntry[] {
           : undefined,
       weightInputModeSnapshot,
       loadMultiplierSnapshot,
+      fixedWeightKgSnapshot,
       additionalLoadKg:
         loadModelSnapshot === "bodyweight_plus_external_load"
           ? Math.round((entry.additionalLoadKg ?? entry.weightKg) * 100) / 100
@@ -319,6 +336,7 @@ type TrainingPerformanceItem = {
   assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: 1 | 2;
+  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -380,6 +398,7 @@ function buildTrainingPerformanceItems(params: {
     assistanceKg: entry.assistanceKg,
     weightInputModeSnapshot: entry.weightInputModeSnapshot ?? "legacyUnspecified",
     loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
+    fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
     calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
     reps: entry.reps,
     sets: entry.sets,
@@ -470,6 +489,7 @@ async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: 
     weightKg: item.weightKg,
     weightInputModeSnapshot: item.weightInputModeSnapshot ?? "legacyUnspecified",
     loadMultiplierSnapshot: item.loadMultiplierSnapshot,
+    fixedWeightKgSnapshot: item.fixedWeightKgSnapshot,
     additionalLoadKg: item.additionalLoadKg,
     assistanceKg: item.assistanceKg,
     calculatedTotalWeightKg: item.calculatedTotalWeightKg,
@@ -824,6 +844,8 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
         createdBy: menu.createdBy === "ai" ? "ai" : "manual",
         weightInputMode,
         loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
+        fixedWeightKg:
+          weightInputMode === "direct" ? 0 : normalizeFixedWeightKg(menu.fixedWeightKg),
         displayOrder: menu.displayOrder,
         isActive: menu.isActive,
         lastPerformanceSnapshot

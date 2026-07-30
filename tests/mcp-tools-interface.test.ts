@@ -391,6 +391,7 @@ test("analysis export schemas expose manifest and section paging without set det
   for (const field of [
     "weightInputMode",
     "loadMultiplier",
+    "fixedWeightKg",
     "additionalLoadKg",
     "assistanceKg",
     "calculatedTotalWeightKg"
@@ -522,6 +523,7 @@ test("AI menu schema declares zero as the minimum weight", async () => {
     | undefined;
   assert.equal(itemProperties?.prescription?.properties?.targetWeightKg?.minimum, 0);
   assert.equal(itemProperties?.newTrainingMenuItem?.properties?.description?.type, "string");
+  assert.equal(itemProperties?.newTrainingMenuItem?.properties?.fixedWeightKg?.minimum, 0);
   assert.equal(Object.hasOwn(schema.inputSchema.properties.items?.items?.properties ?? {}, "memo"), false);
 });
 

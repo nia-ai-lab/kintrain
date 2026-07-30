@@ -959,7 +959,8 @@
                   "weightInputMode": {
                     "type": "string",
                     "enum": ["direct", "perSide"]
-                  }
+                  },
+                  "fixedWeightKg": { "type": "number", "minimum": 0 }
                 },
                 "required": [
                   "trainingName",

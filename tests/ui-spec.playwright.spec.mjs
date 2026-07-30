@@ -557,6 +557,7 @@ async function attachCoreApiMock(page) {
         description: String(input.description ?? '').trim(),
         weightInputMode: input.weightInputMode ?? 'direct',
         loadMultiplier: Number(input.loadMultiplier ?? 1),
+        fixedWeightKg: Number(input.fixedWeightKg ?? 0),
         usageCount: 0,
         displayOrder: mock.menuItems.length + 1,
         isActive: true,
@@ -1078,6 +1079,7 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await createPanel.getByRole('button', { name: '肩の水平内転' }).click();
   await createPanel.getByLabel('使用する器具').selectOption('dumbbell');
   await createPanel.getByLabel('重量入力方式').selectOption('perSide');
+  await createPanel.getByLabel('バーなどの固定重量').fill('20');
   await createPanel.getByLabel('種目の説明').fill('胸を張ってゆっくり動かす。');
   await createPanel.getByRole('button', { name: '種目一覧へ登録' }).click();
 
@@ -1085,9 +1087,11 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await expect(addedCard).toBeVisible();
   await addedCard.locator('summary').click();
   await expect(addedCard.getByLabel('種目の説明')).toHaveValue('胸を張ってゆっくり動かす。');
+  await expect(addedCard.getByLabel('バーなどの固定重量')).toHaveValue('20');
   await addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' }).click();
   await addedCard.getByRole('button', { name: '胸（中部）を選択解除' }).click();
   await addedCard.getByRole('button', { name: '種目情報を保存' }).click();
+  await expect(addedCard.getByLabel('バーなどの固定重量')).toHaveValue('20');
   await expect(addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' })).toHaveAttribute('aria-pressed', 'true');
   await expect(addedCard.getByRole('button', { name: '胸（中部）を選択解除' })).toHaveAttribute('aria-pressed', 'true');
 

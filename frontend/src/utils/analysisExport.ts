@@ -106,6 +106,7 @@ function normalizeGymVisit(item: GymVisitDto) {
       assistanceKg: nullableNumber(entry.assistanceKg),
       weightInputMode: entry.weightInputModeSnapshot ?? 'legacyUnspecified',
       loadMultiplier: nullableNumber(entry.loadMultiplierSnapshot),
+      fixedWeightKg: nullableNumber(entry.fixedWeightKgSnapshot),
       calculatedTotalWeightKg: nullableNumber(entry.calculatedTotalWeightKg),
       reps: entry.reps,
       sets: entry.sets,
@@ -136,6 +137,8 @@ function normalizeTrainingMenu(item: TrainingMenuItemDto) {
     description: nullableString(item.description),
     weightInputMode,
     loadMultiplier: weightInputMode === 'legacyUnspecified' ? null : nullableNumber(item.loadMultiplier),
+    fixedWeightKg:
+      weightInputMode === 'legacyUnspecified' ? null : nullableNumber(item.fixedWeightKg),
     usageCount: item.usageCount,
     isActive: item.isActive,
     createdAtUtc: nullableString(item.createdAt),

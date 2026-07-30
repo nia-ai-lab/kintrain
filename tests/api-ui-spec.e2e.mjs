@@ -317,9 +317,10 @@ async function run() {
           loadModel: "external_load",
           classificationVersion: 2,
           description: "肩をすくめず、胸を張って押す。",
-          equipmentType: "selectorized_machine",
-          weightInputMode: "direct",
-          loadMultiplier: 1
+          equipmentType: "barbell",
+          weightInputMode: "perSide",
+          loadMultiplier: 2,
+          fixedWeightKg: 20
         }
       });
       assert.equal(res.status, 201);
@@ -329,6 +330,7 @@ async function run() {
         { muscleId: "triceps", role: "secondary", effectiveSetFactor: 0.5 }
       ]);
       assert.equal(res.json.description, "肩をすくめず、胸を張って押す。");
+      assert.equal(res.json.fixedWeightKg, 20);
       state.menuItemA = res.json.trainingMenuItemId;
     });
 
@@ -456,6 +458,7 @@ async function run() {
       assert.equal(res.json.trainingName, "チェストプレス改");
       assert.equal(res.json.muscleTargets?.[0]?.muscleId, "chest_mid");
       assert.equal(res.json.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
+      assert.equal(res.json.fixedWeightKg, 20);
     });
 
     await testCase("TrainingMenu: PUT /training-menu-items/{id} updates weight input metadata", async () => {
@@ -504,6 +507,7 @@ async function run() {
       assert.equal(res.json.resolvedFromDailyPlan, true);
       const chestPress = res.json.items.find((item) => item.trainingMenuItemId === state.menuItemA);
       assert.equal(chestPress?.description, "肩甲骨を寄せたまま、ゆっくり戻す。");
+      assert.equal(chestPress?.fixedWeightKg, 20);
       assert.equal(chestPress?.targetWeightKg, 25.25);
       assert.equal(Object.prototype.hasOwnProperty.call(chestPress ?? {}, "memo"), false);
     });

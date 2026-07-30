@@ -35,6 +35,7 @@ export type TrainingMenuItemDto = {
   description?: string;
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
+  fixedWeightKg?: number;
   isActive: boolean;
   usageCount: number;
   createdAt: string;
@@ -103,6 +104,7 @@ type GymVisitEntryInput = {
   assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: WeightLoadMultiplier;
+  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -169,6 +171,7 @@ export type TrainingSessionViewItemDto = {
   createdBy: 'manual' | 'ai';
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
+  fixedWeightKg?: number;
   displayOrder: number;
   isActive: boolean;
   lastPerformanceSnapshot?: {
@@ -176,6 +179,7 @@ export type TrainingSessionViewItemDto = {
     weightKg: number;
     weightInputModeSnapshot?: WeightInputMode;
     loadMultiplierSnapshot?: WeightLoadMultiplier;
+    fixedWeightKgSnapshot?: number;
     calculatedTotalWeightKg?: number;
     reps: number;
     sets: number;
@@ -443,6 +447,7 @@ export async function createTrainingMenuItem(input: {
   description?: string;
   weightInputMode: WeightInputMode;
   loadMultiplier: WeightLoadMultiplier;
+  fixedWeightKg: number;
 }): Promise<TrainingMenuItemDto> {
   return coreApiFetch<TrainingMenuItemDto>('/training-menu-items', {
     method: 'POST',
@@ -467,6 +472,7 @@ export async function updateTrainingMenuItem(
     description: string;
     weightInputMode: WeightInputMode;
     loadMultiplier: WeightLoadMultiplier;
+    fixedWeightKg: number;
     isActive: boolean;
   }>
 ): Promise<TrainingMenuItemDto> {

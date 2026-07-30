@@ -38,7 +38,12 @@ import {
 } from './muscleTaxonomy';
 import { toLocalIsoWithOffset, toYmd } from './utils/date';
 import { loadFromStorage, saveToStorage } from './utils/storage';
-import { calculateTotalWeightKg, normalizeLoadMultiplier, normalizeWeightInputMode } from './utils/weightLoad';
+import {
+  calculateTotalWeightKg,
+  normalizeFixedWeightKg,
+  normalizeLoadMultiplier,
+  normalizeWeightInputMode
+} from './utils/weightLoad';
 import type {
   AiCharacterProfile,
   AppData,
@@ -368,6 +373,7 @@ function normalizeAppData(rawData: AppData): AppData {
       frequency: normalizeTrainingFrequency(item.frequency),
       weightInputMode,
       loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+      fixedWeightKg: weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(item.fixedWeightKg),
       usageCount: Number(item.usageCount ?? 0),
       ...normalizeRepsRange(item)
     };
@@ -403,6 +409,12 @@ function normalizeAppData(rawData: AppData): AppData {
           weightInputModeSnapshot === 'legacyUnspecified'
             ? undefined
             : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot),
+        fixedWeightKgSnapshot:
+          weightInputModeSnapshot === 'legacyUnspecified'
+            ? undefined
+            : weightInputModeSnapshot === 'direct'
+              ? 0
+              : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot),
         calculatedTotalWeightKg:
           typeof entry.calculatedTotalWeightKg === 'number' && Number.isFinite(entry.calculatedTotalWeightKg)
             ? entry.calculatedTotalWeightKg
@@ -465,6 +477,7 @@ function mapRemoteMenuItem(item: {
   description?: string;
   weightInputMode?: unknown;
   loadMultiplier?: unknown;
+  fixedWeightKg?: unknown;
   isActive: boolean;
   usageCount?: number;
 }): TrainingMenuItem {
@@ -488,6 +501,7 @@ function mapRemoteMenuItem(item: {
     defaultWeightKg: 0,
     weightInputMode,
     loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+    fixedWeightKg: weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(item.fixedWeightKg),
     defaultRepsMin: 1,
     defaultRepsMax: 1,
     defaultSets: 1,
@@ -556,6 +570,7 @@ function mapRemoteGymVisit(visit: {
     weightKg?: number;
     weightInputModeSnapshot?: unknown;
     loadMultiplierSnapshot?: unknown;
+    fixedWeightKgSnapshot?: unknown;
     calculatedTotalWeightKg?: number;
     reps?: number;
     sets?: number;
@@ -583,6 +598,12 @@ function mapRemoteGymVisit(visit: {
       weightInputModeSnapshot === 'legacyUnspecified'
         ? undefined
         : normalizeLoadMultiplier(entry.loadMultiplierSnapshot, weightInputModeSnapshot);
+    const fixedWeightKgSnapshot =
+      weightInputModeSnapshot === 'legacyUnspecified'
+        ? undefined
+        : weightInputModeSnapshot === 'direct'
+          ? 0
+          : normalizeFixedWeightKg(entry.fixedWeightKgSnapshot);
     return {
       id: `${visit.visitId}-entry-${index + 1}`,
       menuItemId: entry.trainingMenuItemId ?? '',
@@ -602,6 +623,7 @@ function mapRemoteGymVisit(visit: {
       weightKg: Number(entry.weightKg ?? 0),
       weightInputModeSnapshot,
       loadMultiplierSnapshot,
+      fixedWeightKgSnapshot,
       calculatedTotalWeightKg:
         typeof entry.calculatedTotalWeightKg === 'number' && Number.isFinite(entry.calculatedTotalWeightKg)
           ? entry.calculatedTotalWeightKg
@@ -1125,11 +1147,14 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               weightInputModeSnapshot: menuItem?.weightInputMode ?? 'legacyUnspecified',
               loadMultiplierSnapshot:
                 menuItem?.weightInputMode === 'legacyUnspecified' ? undefined : menuItem?.loadMultiplier,
+              fixedWeightKgSnapshot:
+                menuItem?.weightInputMode === 'legacyUnspecified' ? undefined : menuItem?.fixedWeightKg,
               calculatedTotalWeightKg: menuItem
                 ? calculateTotalWeightKg(
                     entry.weightKg,
                     menuItem.weightInputMode,
-                    menuItem.loadMultiplier
+                    menuItem.loadMultiplier,
+                    menuItem.fixedWeightKg
                   )
                 : undefined,
               reps: entry.reps ?? 0,
@@ -1197,6 +1222,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
                   entry.loadModelSnapshot === 'assisted_bodyweight' ? entry.weightKg : undefined,
                 weightInputModeSnapshot: entry.weightInputModeSnapshot,
                 loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
+                fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
                 calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
                 reps: entry.reps,
                 sets: entry.sets,
@@ -1416,13 +1442,16 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           isAiGenerated: normalizeAiGeneratedFlag(item.isAiGenerated),
           description: normalizeTrainingDescription(item.description),
           weightInputMode: item.weightInputMode,
-          loadMultiplier: item.loadMultiplier
+          loadMultiplier: item.loadMultiplier,
+          fixedWeightKg: item.weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(item.fixedWeightKg)
         };
         if (
           !payload.trainingName ||
           !payload.muscleTargets.some((target) => target.role === 'primary') ||
           !Number.isFinite(item.defaultWeightKg) ||
           item.defaultWeightKg < 0 ||
+          !Number.isFinite(payload.fixedWeightKg) ||
+          payload.fixedWeightKg < 0 ||
           item.defaultRepsMin <= 0 ||
           item.defaultRepsMax <= 0 ||
           item.defaultRepsMin > item.defaultRepsMax ||
@@ -1476,6 +1505,8 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           !nextItem.trainingName.trim() ||
           !Number.isFinite(nextItem.defaultWeightKg) ||
           nextItem.defaultWeightKg < 0 ||
+          !Number.isFinite(nextItem.fixedWeightKg) ||
+          nextItem.fixedWeightKg < 0 ||
           nextItem.defaultRepsMin <= 0 ||
           nextItem.defaultRepsMax <= 0 ||
           nextItem.defaultRepsMin > nextItem.defaultRepsMax ||
@@ -1497,7 +1528,9 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           isAiGenerated: normalizeAiGeneratedFlag(nextItem.isAiGenerated),
           description: normalizeTrainingDescription(nextItem.description),
           weightInputMode: nextItem.weightInputMode,
-          loadMultiplier: nextItem.loadMultiplier
+          loadMultiplier: nextItem.loadMultiplier,
+          fixedWeightKg:
+            nextItem.weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(nextItem.fixedWeightKg)
         })
           .then(() => {
             setCoreDataError('');

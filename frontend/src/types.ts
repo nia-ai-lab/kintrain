@@ -39,6 +39,7 @@ export interface TrainingMenuItem {
   defaultWeightKg: number;
   weightInputMode: WeightInputMode;
   loadMultiplier: WeightLoadMultiplier;
+  fixedWeightKg: number;
   defaultRepsMin: number;
   defaultRepsMax: number;
   defaultSets: number;
@@ -107,6 +108,7 @@ export interface ExerciseEntry {
   assistanceKg?: number | null;
   weightInputModeSnapshot: WeightInputMode;
   loadMultiplierSnapshot?: WeightLoadMultiplier;
+  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;

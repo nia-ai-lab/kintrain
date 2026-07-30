@@ -175,7 +175,6 @@ const legacyMenuKeys = [
   "bodyPart",
   "movementPattern",
   "equipment",
-  "fixedWeightKg",
   "frequency",
   "defaultWeightKg",
   "defaultRepsMin",
@@ -186,8 +185,7 @@ const legacyMenuKeys = [
 const legacySnapshotKeys = [
   "bodyPartSnapshot",
   "movementPatternSnapshot",
-  "equipmentSnapshot",
-  "fixedWeightKgSnapshot"
+  "equipmentSnapshot"
 ];
 
 function migrateMenuItem(item: Record<string, unknown>, migratedAt: string): Record<string, unknown> {
@@ -286,6 +284,7 @@ function buildPerformanceItem(
     assistanceKg: entry.assistanceKg,
     weightInputModeSnapshot: entry.weightInputModeSnapshot ?? "legacyUnspecified",
     loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
+    fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
     calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
     reps: entry.reps,
     sets: entry.sets,
@@ -349,6 +348,7 @@ function newMenuTemplates(
       description: definition.description,
       weightInputMode: "direct",
       loadMultiplier: 1,
+      fixedWeightKg: 0,
       isAiGenerated: false,
       isActive: true,
       displayOrder: maxDisplayOrder + index + 1,

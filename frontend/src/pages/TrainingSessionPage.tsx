@@ -8,6 +8,7 @@ import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../util
 import {
   calculateTotalWeightKg,
   formatWeightLoad,
+  normalizeFixedWeightKg,
   normalizeLoadMultiplier,
   normalizeWeightInputMode
 } from '../utils/weightLoad';
@@ -21,6 +22,7 @@ type TrainingSessionLastPerformanceSnapshot = {
   weightKg: number;
   weightInputModeSnapshot?: 'direct' | 'perSide' | 'legacyUnspecified';
   loadMultiplierSnapshot?: 1 | 2;
+  fixedWeightKgSnapshot?: number;
   calculatedTotalWeightKg?: number;
   reps: number;
   sets: number;
@@ -165,6 +167,8 @@ export function TrainingSessionPage() {
             defaultWeightKg: Number(item.targetWeightKg),
             weightInputMode,
             loadMultiplier: normalizeLoadMultiplier(item.loadMultiplier, weightInputMode),
+            fixedWeightKg:
+              weightInputMode === 'direct' ? 0 : normalizeFixedWeightKg(item.fixedWeightKg),
             defaultRepsMin: Number(item.targetRepsMin),
             defaultRepsMax: Number(item.targetRepsMax),
             defaultSets: Number(item.targetSets),
@@ -185,6 +189,7 @@ export function TrainingSessionPage() {
                     item.lastPerformanceSnapshot.weightInputModeSnapshot
                   ),
                   loadMultiplierSnapshot: item.lastPerformanceSnapshot.loadMultiplierSnapshot,
+                  fixedWeightKgSnapshot: item.lastPerformanceSnapshot.fixedWeightKgSnapshot,
                   calculatedTotalWeightKg: item.lastPerformanceSnapshot.calculatedTotalWeightKg,
                   reps: Number(item.lastPerformanceSnapshot.reps),
                   sets: Number(item.lastPerformanceSnapshot.sets),
@@ -261,6 +266,7 @@ export function TrainingSessionPage() {
             defaultWeightKg: 0,
             weightInputMode: 'legacyUnspecified',
             loadMultiplier: 1,
+            fixedWeightKg: 0,
             defaultRepsMin: 1,
             defaultRepsMax: 1,
             defaultSets: 1,
@@ -437,10 +443,12 @@ export function TrainingSessionPage() {
                       weightKg: item.targetWeightKg,
                       weightInputModeSnapshot: item.weightInputMode,
                       loadMultiplierSnapshot: item.loadMultiplier,
+                      fixedWeightKgSnapshot: item.fixedWeightKg,
                       calculatedTotalWeightKg: calculateTotalWeightKg(
                         item.targetWeightKg,
                         item.weightInputMode,
-                        item.loadMultiplier
+                        item.loadMultiplier,
+                        item.fixedWeightKg
                       )
                     })} x {formatRepsTarget(item.targetRepsMin, item.targetRepsMax)} x {item.targetSets}set
                   </p>
@@ -451,16 +459,19 @@ export function TrainingSessionPage() {
                           weightKg: last.weightKg,
                           weightInputModeSnapshot: last.weightInputModeSnapshot,
                           loadMultiplierSnapshot: last.loadMultiplierSnapshot,
+                          fixedWeightKgSnapshot: last.fixedWeightKgSnapshot,
                           calculatedTotalWeightKg: last.calculatedTotalWeightKg
                         })} x ${last.reps}回 x ${last.sets}set`
                       : `未実施（メニュー: ${formatWeightLoad({
                           weightKg: item.defaultWeightKg,
                           weightInputModeSnapshot: item.weightInputMode,
                           loadMultiplierSnapshot: item.loadMultiplier,
+                          fixedWeightKgSnapshot: item.fixedWeightKg,
                           calculatedTotalWeightKg: calculateTotalWeightKg(
                             item.defaultWeightKg,
                             item.weightInputMode,
-                            item.loadMultiplier
+                            item.loadMultiplier,
+                            item.fixedWeightKg
                           )
                         })} x ${formatRepsTarget(item.defaultRepsMin, item.defaultRepsMax)} x ${item.defaultSets}set）`}
                   </p>
@@ -641,9 +652,10 @@ export function TrainingSessionPage() {
                           calculateTotalWeightKg(
                             weightValue,
                             item.weightInputMode,
-                            item.loadMultiplier
+                            item.loadMultiplier,
+                            item.fixedWeightKg
                           ) ?? '-'
-                        }kg（×${item.loadMultiplier}）`}
+                        }kg（×${item.loadMultiplier} + 固定${item.fixedWeightKg}kg）`}
                 </span>
               </div>
               <label>
@@ -697,10 +709,12 @@ export function TrainingSessionPage() {
                           weightKg: draft?.weightKg ?? 0,
                           weightInputModeSnapshot: item.weightInputMode,
                           loadMultiplierSnapshot: item.loadMultiplier,
+                          fixedWeightKgSnapshot: item.fixedWeightKg,
                           calculatedTotalWeightKg: calculateTotalWeightKg(
                             draft?.weightKg,
                             item.weightInputMode,
-                            item.loadMultiplier
+                            item.loadMultiplier,
+                            item.fixedWeightKg
                           )
                         })} x {draft?.reps}回 x {draft?.sets}set
                       </span>
