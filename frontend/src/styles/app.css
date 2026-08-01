@@ -691,6 +691,23 @@ a {
   font-size: 0.95rem;
 }
 
+.training-session-confirm-entry-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.training-session-confirm-entry-head strong {
+  overflow-wrap: anywhere;
+}
+
+.training-session-confirm-entry-action {
+  min-height: 38px;
+  padding: 7px 11px;
+  font-size: 0.86rem;
+}
+
 .training-session-confirm-warning {
   display: grid;
   gap: 8px;
@@ -704,6 +721,41 @@ a {
   color: var(--text);
 }
 
+.training-session-confirm-removed {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 118, 110, 0.2);
+  border-radius: 14px;
+  background: rgba(15, 118, 110, 0.06);
+}
+
+.training-session-confirm-removed p {
+  color: var(--text);
+}
+
+.training-session-confirm-removed li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.training-session-confirm-removed li > span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.training-session-confirm-removed strong,
+.training-session-confirm-removed small {
+  overflow-wrap: anywhere;
+}
+
+.training-session-confirm-removed small {
+  color: var(--muted);
+}
+
 .training-session-confirm-modal .overlay-modal-actions {
   position: sticky;
   bottom: -14px;
@@ -711,6 +763,13 @@ a {
   padding: 12px 14px 14px;
   background: linear-gradient(180deg, rgba(248, 247, 243, 0.82), rgba(248, 247, 243, 0.98));
   border-top: 1px solid var(--line);
+}
+
+.training-session-confirm-modal .overlay-modal-actions .btn.primary:disabled {
+  background: #dfe5e8;
+  border-color: #c8d2dc;
+  color: #66727f;
+  box-shadow: none;
 }
 
 .avatar-crop-modal-card {

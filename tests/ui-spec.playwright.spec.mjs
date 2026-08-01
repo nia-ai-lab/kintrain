@@ -1016,6 +1016,63 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await expect(page.getByRole('heading', { name: '当日の筋トレ内容' })).toBeVisible();
 });
 
+test('記録内容の確認画面で種目を除外・復元し、残した種目だけを保存できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-session');
+
+  const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  const latCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'ラットプルダウン' }) }).first();
+  await chestCard.getByRole('button', { name: '設定値を入力' }).click();
+  await latCard.getByRole('button', { name: '設定値を入力' }).click();
+
+  await page.getByRole('button', { name: '記録して終了' }).click();
+  const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
+  await dialog.getByRole('button', { name: 'チェストプレスを今回の記録から除外' }).click();
+  await expect(dialog.getByRole('button', { name: 'チェストプレスを元に戻す' })).toBeVisible();
+  await dialog.getByRole('button', { name: 'チェストプレスを元に戻す' }).click();
+  await expect(dialog.getByRole('button', { name: 'チェストプレスを今回の記録から除外' })).toBeVisible();
+
+  await dialog.getByRole('button', { name: 'チェストプレスを今回の記録から除外' }).click();
+  await dialog.getByRole('button', { name: 'キャンセル' }).click();
+  await expect(chestCard.getByLabel('重量')).toHaveValue('');
+  await expect(latCard.getByLabel('重量')).toHaveValue('30');
+
+  await page.getByRole('button', { name: '記録して終了' }).click();
+  const gymVisitRequestPromise = page.waitForRequest(
+    (request) => request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/gym-visits')
+  );
+  await page.getByRole('button', { name: 'この内容で記録' }).click();
+  const gymVisitRequest = await gymVisitRequestPromise;
+  const payload = gymVisitRequest.postDataJSON();
+  assert.equal(payload.entries.length, 1);
+  assert.equal(payload.entries[0].trainingNameSnapshot, 'ラットプルダウン');
+  await expect(page).toHaveURL(new RegExp(`/daily/${state.todayYmd}$`));
+});
+
+test('確認画面ですべての記録対象を除外すると保存できず、入力途中の内容は保存対象外と表示する', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-session');
+
+  const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  const latCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'ラットプルダウン' }) }).first();
+  await chestCard.getByRole('button', { name: '設定値を入力' }).click();
+  await latCard.getByLabel('重量').fill('30');
+
+  await page.getByRole('button', { name: '記録して終了' }).click();
+  const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
+  await expect(dialog.getByText('以下は入力途中のため、今回の保存対象には含まれません。')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'ラットプルダウンの入力を破棄' })).toHaveCount(0);
+
+  await dialog.getByRole('button', { name: 'チェストプレスを今回の記録から除外' }).click();
+  await expect(dialog.getByText('保存対象がありません。重量・回数・セットを入力してから記録してください。')).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'この内容で記録' })).toBeDisabled();
+
+  await dialog.getByRole('button', { name: 'チェストプレスを元に戻す' }).click();
+  await expect(dialog.getByRole('button', { name: 'この内容で記録' })).toBeEnabled();
+});
+
 test('トレーニング実施画面で入力を消すことができ、セット詳細入力を表示しない', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
@@ -1043,10 +1100,19 @@ test('iPhone幅の実施画面で操作と入力欄が横にはみ出さない',
   await expect(page.getByRole('button', { name: '設定値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '前回値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '入力を消す' }).first()).toBeVisible();
+  const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  await chestCard.getByRole('button', { name: '設定値を入力' }).click();
+  await page.getByRole('button', { name: '記録して終了' }).click();
+  const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
+  await expect(dialog.getByRole('button', { name: 'チェストプレスを今回の記録から除外' })).toBeVisible();
   const hasHorizontalOverflow = await page.evaluate(
     () => document.documentElement.scrollWidth > window.innerWidth
   );
   assert.equal(hasHorizontalOverflow, false);
+  const dialogHasHorizontalOverflow = await dialog.evaluate(
+    (element) => element.scrollWidth > element.clientWidth
+  );
+  assert.equal(dialogHasHorizontalOverflow, false);
 });
 
 test('トレーニングメニューで追加・編集・削除ができる', async ({ page }) => {

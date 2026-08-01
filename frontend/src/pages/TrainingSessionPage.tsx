@@ -40,6 +40,12 @@ type TrainingSessionMenuItem = TrainingMenuItem & {
   lastPerformanceSnapshot?: TrainingSessionLastPerformanceSnapshot;
 };
 
+type RemovedConfirmEntry = {
+  draftKey: string;
+  item: TrainingMenuItem;
+  draft: DraftEntry;
+};
+
 function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 8) {
     return value as TrainingFrequencyDays;
@@ -99,6 +105,7 @@ export function TrainingSessionPage() {
   const navigate = useNavigate();
   const [statusText, setStatusText] = useState('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
+  const [removedConfirmEntries, setRemovedConfirmEntries] = useState<RemovedConfirmEntry[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [toastMessage, setToastMessage] = useState('');
   const [sessionItems, setSessionItems] = useState<TrainingSessionMenuItem[]>([]);
@@ -333,6 +340,28 @@ export function TrainingSessionPage() {
     setStatusText(maxTrainingSessionEntryMessage);
     showToast(maxTrainingSessionEntryMessage);
     return false;
+  }
+
+  function removeConfirmEntry(entry: RemovedConfirmEntry) {
+    setRemovedConfirmEntries((current) => {
+      if (current.some((removed) => removed.draftKey === entry.draftKey)) {
+        return current;
+      }
+      return [...current, entry];
+    });
+    clearDraftEntry(entry.draftKey);
+  }
+
+  function restoreConfirmEntry(entry: RemovedConfirmEntry) {
+    setDraftEntry(entry.draftKey, entry.draft);
+    setRemovedConfirmEntries((current) =>
+      current.filter((removed) => removed.draftKey !== entry.draftKey)
+    );
+  }
+
+  function closeConfirmModal() {
+    setIsConfirmModalOpen(false);
+    setRemovedConfirmEntries([]);
   }
 
   return (
@@ -684,6 +713,7 @@ export function TrainingSessionPage() {
           type="button"
           className="btn primary large"
           onClick={() => {
+            setRemovedConfirmEntries([]);
             setIsConfirmModalOpen(true);
           }}
         >
@@ -703,7 +733,18 @@ export function TrainingSessionPage() {
                 <ul className="simple-list training-session-confirm-list">
                   {validEnteredItems.map(({ draftKey, item, draft }) => (
                     <li key={draftKey}>
-                      <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</strong>
+                      <div className="training-session-confirm-entry-head">
+                        <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</strong>
+                        <button
+                          type="button"
+                          className="btn danger training-session-confirm-entry-action"
+                          disabled={isSaving}
+                          aria-label={`${item.trainingName}を今回の記録から除外`}
+                          onClick={() => removeConfirmEntry({ draftKey, item, draft })}
+                        >
+                          記録から除外
+                        </button>
+                      </div>
                       <span>
                         {formatWeightLoad({
                           weightKg: draft?.weightKg ?? 0,
@@ -727,7 +768,7 @@ export function TrainingSessionPage() {
             {incompleteEnteredItems.length > 0 && (
               <div className="training-session-confirm-warning">
                 <p>以下は入力途中のため、今回の保存対象には含まれません。</p>
-                <ul className="simple-list">
+                <ul className="simple-list training-session-confirm-list">
                   {incompleteEnteredItems.map(({ draftKey, item, draft }) => (
                     <li key={draftKey}>
                       <strong>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</strong>
@@ -739,12 +780,43 @@ export function TrainingSessionPage() {
                 </ul>
               </div>
             )}
+            {removedConfirmEntries.length > 0 && (
+              <div className="training-session-confirm-removed">
+                <p role="status" aria-live="polite">今回の記録から除外しました。</p>
+                <ul className="simple-list">
+                  {removedConfirmEntries.map((entry) => (
+                    <li key={entry.draftKey}>
+                      <span>
+                        <strong>
+                          {formatTrainingLabel(
+                            entry.item.trainingName,
+                            entry.item.muscleTargets,
+                            entry.item.equipmentType,
+                            entry.item.isAiGenerated
+                          )}
+                        </strong>
+                        <small>記録対象から除外</small>
+                      </span>
+                      <button
+                        type="button"
+                        className="btn subtle training-session-confirm-entry-action"
+                        disabled={isSaving}
+                        aria-label={`${entry.item.trainingName}を元に戻す`}
+                        onClick={() => restoreConfirmEntry(entry)}
+                      >
+                        元に戻す
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
             <div className="overlay-modal-actions">
               <button
                 type="button"
                 className="btn subtle"
                 disabled={isSaving}
-                onClick={() => setIsConfirmModalOpen(false)}
+                onClick={closeConfirmModal}
               >
                 キャンセル
               </button>
@@ -757,11 +829,11 @@ export function TrainingSessionPage() {
                   const result = await finalizeTrainingSession(today);
                   setIsSaving(false);
                   if (!result.ok) {
-                    setIsConfirmModalOpen(false);
+                    closeConfirmModal();
                     setStatusText(result.message ?? '保存に失敗しました。');
                     return;
                   }
-                  setIsConfirmModalOpen(false);
+                  closeConfirmModal();
                   setStatusText('');
                   if (
                     resolvedMenuSet?.setType === 'temporary' &&
