@@ -8,9 +8,68 @@ import {
 } from "@aws-sdk/lib-dynamodb";
 import { ddb } from "../amplify/functions/shared/ddb";
 import {
+  createTemporaryTrainingMenuSetFromAi,
   getTrainingPlanForDate,
   rescheduleTemporaryTrainingPlan
 } from "../amplify/functions/mcp-tools-api/handler";
+
+test("AI temporary menu stores complete rest days as explicit daily plan types", async () => {
+  const originalSend = ddb.send.bind(ddb);
+  let writes: any[] = [];
+  (ddb as any).send = async (command: any) => {
+    if (command instanceof GetCommand) {
+      const key = command.input.Key as Record<string, string>;
+      if (key.planDate) return {};
+      if (key.trainingMenuItemId === "menu-1") {
+        return { Item: { userId: "user-1", trainingMenuItemId: "menu-1", isActive: true } };
+      }
+    }
+    if (command instanceof QueryCommand) {
+      return { Items: [] };
+    }
+    if (command instanceof TransactWriteCommand) {
+      writes = command.input.TransactItems ?? [];
+      return {};
+    }
+    throw new Error(`Unexpected command: ${command.constructor.name}`);
+  };
+
+  try {
+    const result = await createTemporaryTrainingMenuSetFromAi({
+      idempotencyKey: "weekly-plan-1",
+      validFromDate: "2026-08-01",
+      validToDate: "2026-08-03",
+      setName: "週間メニュー",
+      restDates: ["2026-08-02"],
+      items: [{
+        existingTrainingMenuItemId: "menu-1",
+        prescription: {
+          targetWeightKg: 50,
+          targetRepsMin: 8,
+          targetRepsMax: 12,
+          targetSets: 3,
+          recommendedIntervalDays: 2,
+          instruction: "フォーム優先"
+        }
+      }]
+    }, "user-1") as Record<string, any>;
+
+    assert.deepEqual(result.restDates, ["2026-08-02"]);
+    const setWrite = writes.find((write) => write.Put?.Item?.setType === "temporary");
+    assert.deepEqual(setWrite.Put.Item.restDates, ["2026-08-02"]);
+    const dailyPlans = writes
+      .map((write) => write.Put?.Item)
+      .filter((item) => item?.planDate)
+      .map((item) => [item.planDate, item.planType]);
+    assert.deepEqual(dailyPlans, [
+      ["2026-08-01", "training"],
+      ["2026-08-02", "rest"],
+      ["2026-08-03", "training"]
+    ]);
+  } finally {
+    (ddb as any).send = originalSend;
+  }
+});
 
 test("reschedule keeps the same set and item content, moves the date, and replays idempotently", async () => {
   const userId = "user-1";
@@ -129,6 +188,7 @@ test("reschedule keeps the same set and item content, moves the date, and replay
     assert.equal(result.version, 1);
     assert.equal(plans.has("2026-07-28"), false);
     assert.equal(plans.get("2026-07-29")?.trainingMenuSetId, "set-1");
+    assert.equal(plans.get("2026-07-29")?.planType, "training");
     assert.deepEqual(link, itemBefore);
 
     const resolved = await getTrainingPlanForDate({ date: "2026-07-29" }, userId) as Record<string, any>;
@@ -167,6 +227,18 @@ test("reschedule keeps the same set and item content, moves the date, and replay
     ) as Record<string, any>;
     assert.equal(conflict.error.code, "DATE_CONFLICT");
     assert.equal(plans.get("2026-07-29")?.trainingMenuSetId, "set-1");
+
+    plans.set("2026-07-31", {
+      userId,
+      planDate: "2026-07-31",
+      trainingMenuSetId: "set-1",
+      planType: "rest",
+      source: "ai"
+    });
+    const rest = await getTrainingPlanForDate({ date: "2026-07-31" }, userId) as Record<string, any>;
+    assert.equal(rest.plan.planType, "rest");
+    assert.equal(rest.plan.menuSet.trainingMenuSetId, "set-1");
+    assert.equal(Object.hasOwn(rest.plan, "items"), false);
   } finally {
     (ddb as any).send = originalSend;
   }

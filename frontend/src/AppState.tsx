@@ -267,6 +267,7 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
         source: set.source === 'ai' ? 'ai' : 'manual',
         validFromDate: set.validFromDate,
         validToDate: set.validToDate,
+        restDates: Array.isArray(set.restDates) ? set.restDates : [],
         isActive: true,
         itemIds: uniqueItemIds,
         items
@@ -524,6 +525,7 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
     source: item.source,
     validFromDate: item.validFromDate,
     validToDate: item.validToDate,
+    restDates: Array.isArray(item.restDates) ? item.restDates : [],
     isActive: item.isActive !== false,
     version: Number(item.version ?? 0),
     itemIds: item.items.map((setItem) => setItem.trainingMenuItemId),

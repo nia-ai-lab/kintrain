@@ -69,6 +69,7 @@ export interface TrainingMenuSet {
   source: 'manual' | 'ai';
   validFromDate?: string;
   validToDate?: string;
+  restDates: string[];
   isActive: boolean;
   version: number;
   itemIds: string[];

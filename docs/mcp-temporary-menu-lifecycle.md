@@ -32,6 +32,7 @@
 `get_training_plan_for_date(date, timeZoneId?)`は`DailyTrainingPlan`を割り当ての正本として参照する。
 
 - 未割り当てまたは無効セットの場合は`plan=null`を返す。
+- `planType=rest` は計画された完全休息日として返し、種目・処方は返さない。
 - セットID、名前、種別、有効期間、バージョン、種目マスタ情報、セット項目ID、表示順、処方を返す。
 - `date`は明示されたローカル日付であり、タイムゾーン変換で別の日付へ移動させない。
 
@@ -40,6 +41,7 @@
 `reschedule_temporary_training_plan`はセットID、セット項目、種目マスタ、処方を変更しない。
 
 - 最大有効期間は開始日を含め31日。
+- `restDates` は新しい有効期間内の日付だけを指定できる。省略時は新期間にも含まれる既存休息日を保持する。
 - `dryRun=true`では書き込みを行わず、日付差分と不変項目を返す。
 - `conflictPolicy=reject`を既定とする。
 - `conflictPolicy=replace`はユーザーの明示確認を必須とする。

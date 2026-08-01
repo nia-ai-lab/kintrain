@@ -59,6 +59,7 @@ export type TrainingMenuSetDto = {
   source: 'manual' | 'ai';
   validFromDate?: string;
   validToDate?: string;
+  restDates: string[];
   isActive: boolean;
   version: number;
   items: TrainingMenuSetItemDto[];
@@ -200,6 +201,7 @@ export type TrainingSessionViewItemDto = {
 };
 
 export type TrainingSessionViewResponse = {
+  planType: 'training' | 'rest';
   resolvedMenuSet: {
     trainingMenuSetId: string;
     setName: string;
@@ -604,7 +606,8 @@ export async function reorderTrainingMenuSetItems(
 
 export type DailyTrainingPlanDto = {
   planDate: string;
-  trainingMenuSetId: string;
+  planType: 'training' | 'rest';
+  trainingMenuSetId?: string;
   source: 'manual' | 'ai';
   createdAt: string;
   updatedAt: string;
@@ -630,7 +633,17 @@ export async function putDailyTrainingPlan(
 ): Promise<DailyTrainingPlanDto> {
   return coreApiFetch<DailyTrainingPlanDto>(`/daily-training-plans/${encodeURIComponent(date)}`, {
     method: 'PUT',
-    body: JSON.stringify({ trainingMenuSetId, source })
+    body: JSON.stringify({ planType: 'training', trainingMenuSetId, source })
+  });
+}
+
+export async function putDailyRestPlan(
+  date: string,
+  source: 'manual' | 'ai' = 'manual'
+): Promise<DailyTrainingPlanDto> {
+  return coreApiFetch<DailyTrainingPlanDto>(`/daily-training-plans/${encodeURIComponent(date)}`, {
+    method: 'PUT',
+    body: JSON.stringify({ planType: 'rest', source })
   });
 }
 

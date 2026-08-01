@@ -57,7 +57,8 @@ KinTrain のトレーニング関連データを、次の利用方法に適し�
 
 ### 2.4 今日のトレーニング計画（DailyTrainingPlan）
 
-ユーザーのローカル日付と、その日に最初に利用するメニューセットの関連を表す。
+ユーザーのローカル日付に対する計画を表す。`planType=training` は利用するメニューセット、
+`planType=rest` は計画された完全休息日を意味する。計画された休息と未登録日を区別する。
 
 ### 2.5 実施履歴
 
@@ -71,7 +72,7 @@ KinTrain のトレーニング関連データを、次の利用方法に適し�
 erDiagram
     TRAINING_MENU_ITEM ||--o{ TRAINING_MENU_SET_ITEM : "共有される"
     TRAINING_MENU_SET ||--o{ TRAINING_MENU_SET_ITEM : "処方を持つ"
-    DAILY_TRAINING_PLAN }o--|| TRAINING_MENU_SET : "日付に割り当てる"
+    DAILY_TRAINING_PLAN }o--o| TRAINING_MENU_SET : "トレーニング日または生成元計画として関連する"
     TRAINING_MENU_ITEM ||--o{ EXERCISE_ENTRY : "実施する"
     TRAINING_MENU_SET_ITEM ||--o{ EXERCISE_ENTRY : "処方をスナップショットする"
     GYM_VISIT ||--|{ EXERCISE_ENTRY : "含む"
@@ -108,6 +109,8 @@ erDiagram
 ### 4.3 今日のトレーニング計画
 
 - 1ユーザー、1ローカル日付につき、今日のトレーニング計画を最大1件保持すること。
+- 計画種別は `training | rest` とし、属性がない既存レコードは `training` と解釈すること。
+- 完全休息日はデフォルトセットへフォールバックせず、実施画面に休息日として表示すること。
 - 恒常セットまたは一時セットを今日の計画に指定できること。
 - 既に計画がある日付へ別セットを指定する場合は、ユーザー確認後に置き換えること。
 - 実施画面の初期セットは次の優先順で決定すること。
@@ -256,7 +259,8 @@ erDiagram
 
 主な属性:
 
-- `trainingMenuSetId`
+- `planType`: `training | rest`
+- `trainingMenuSetId`: トレーニング日は必須。AI生成の休息日は計画の関連付けとして保持できる
 - `source`: `manual | ai`
 - `createdAt`
 - `updatedAt`
@@ -299,6 +303,7 @@ erDiagram
 
 レスポンスに次を含める。
 
+- 計画種別 `training | rest`
 - 解決されたメニューセット情報
 - 今日の計画から解決したか
 - セット内項目ID
@@ -335,6 +340,7 @@ erDiagram
 - `idempotencyKey`
 - `validFromDate`
 - `validToDate`
+- `restDates`
 - `setName`
 - `items`
   - `existingTrainingMenuItemId` または `newTrainingMenuItem`

@@ -34,6 +34,7 @@ const userStartedAtIndex = "UserStartedAtIndex";
 const userTrainingMenuItemPerformedAtIndex = "UserTrainingMenuItemPerformedAtIndex";
 const userVisitIndex = "UserVisitIndex";
 const maxVisitEntryCount = 12;
+type DailyPlanType = "training" | "rest";
 
 function addYmdDays(value: string, days: number): string {
   const [year, month, day] = value.split("-").map(Number);
@@ -518,6 +519,7 @@ async function resolveTrainingSessionMenuSetId(
   trainingMenuSetId: string;
   notFound: boolean;
   resolvedFromDailyPlan: boolean;
+  planType: DailyPlanType;
   menuSet?: Record<string, unknown>;
 }> {
   if (requestedTrainingMenuSetId) {
@@ -531,12 +533,13 @@ async function resolveTrainingSessionMenuSetId(
       })
     );
     if (!result.Item || result.Item.isActive === false) {
-      return { trainingMenuSetId: "", notFound: true, resolvedFromDailyPlan: false };
+      return { trainingMenuSetId: "", notFound: true, resolvedFromDailyPlan: false, planType: "training" };
     }
     return {
       trainingMenuSetId: requestedTrainingMenuSetId,
       notFound: false,
       resolvedFromDailyPlan: false,
+      planType: "training",
       menuSet: result.Item as Record<string, unknown>
     };
   }
@@ -551,6 +554,25 @@ async function resolveTrainingSessionMenuSetId(
     typeof dailyPlanResult.Item?.trainingMenuSetId === "string"
       ? dailyPlanResult.Item.trainingMenuSetId
       : "";
+  if (dailyPlanResult.Item?.planType === "rest") {
+    const sourceSet = dailySetId
+      ? await ddb.send(
+          new GetCommand({
+            TableName: trainingMenuSetTableName,
+            Key: { userId, trainingMenuSetId: dailySetId }
+          })
+        )
+      : undefined;
+    return {
+      trainingMenuSetId: "",
+      notFound: false,
+      resolvedFromDailyPlan: true,
+      planType: "rest",
+      menuSet: sourceSet?.Item && sourceSet.Item.isActive !== false
+        ? sourceSet.Item as Record<string, unknown>
+        : undefined
+    };
+  }
   if (dailySetId) {
     const dailySetResult = await ddb.send(
       new GetCommand({
@@ -563,6 +585,7 @@ async function resolveTrainingSessionMenuSetId(
         trainingMenuSetId: dailySetId,
         notFound: false,
         resolvedFromDailyPlan: true,
+        planType: "training",
         menuSet: dailySetResult.Item as Record<string, unknown>
       };
     }
@@ -608,6 +631,7 @@ async function resolveTrainingSessionMenuSetId(
     trainingMenuSetId: typeof defaultMenuSetIdRaw === "string" ? defaultMenuSetIdRaw : "",
     notFound: false,
     resolvedFromDailyPlan: false,
+    planType: "training",
     menuSet: defaultMenuSet?.Item as Record<string, unknown> | undefined
   };
 }
@@ -854,9 +878,10 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   );
 
   return response(200, {
+    planType: resolvedMenuSet.planType,
     resolvedMenuSet: resolvedMenuSet.menuSet
       ? {
-          trainingMenuSetId: resolvedMenuSet.trainingMenuSetId,
+          trainingMenuSetId: String(resolvedMenuSet.menuSet.trainingMenuSetId ?? resolvedMenuSet.trainingMenuSetId),
           setName: String(resolvedMenuSet.menuSet.setName ?? ""),
           setType: resolvedMenuSet.menuSet.setType === "temporary" ? "temporary" : "reusable",
           source: resolvedMenuSet.menuSet.source === "ai" ? "ai" : "manual",

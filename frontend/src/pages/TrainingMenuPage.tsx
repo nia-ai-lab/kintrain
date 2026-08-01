@@ -239,6 +239,7 @@ function SetManagement({
                 {set.setType === 'temporary' && set.validFromDate && set.validToDate
                   ? `・${set.validFromDate}〜${set.validToDate}`
                   : ''}
+                {set.restDates.length > 0 ? `・休息${set.restDates.length}日` : ''}
               </small>
             </button>
           ))}
@@ -451,16 +452,21 @@ function SetEditor({
           <input value={name} onChange={(event) => setName(event.target.value)} maxLength={40} />
         </label>
         {set.setType === 'temporary' && (
-          <div className="menu-validity-grid">
-            <label>
-              有効開始日
-              <input type="date" value={validFromDate} onChange={(event) => setValidFromDate(event.target.value)} />
-            </label>
-            <label>
-              有効終了日
-              <input type="date" min={validFromDate} value={validToDate} onChange={(event) => setValidToDate(event.target.value)} />
-            </label>
-          </div>
+          <>
+            <div className="menu-validity-grid">
+              <label>
+                有効開始日
+                <input type="date" value={validFromDate} onChange={(event) => setValidFromDate(event.target.value)} />
+              </label>
+              <label>
+                有効終了日
+                <input type="date" min={validFromDate} value={validToDate} onChange={(event) => setValidToDate(event.target.value)} />
+              </label>
+            </div>
+            {set.restDates.length > 0 && (
+              <p className="muted">計画された完全休息日: {set.restDates.join(' / ')}</p>
+            )}
+          </>
         )}
         {set.setType === 'reusable' && !set.isDefault && (
           <label className="menu-set-default-check">

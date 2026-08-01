@@ -575,6 +575,10 @@ test("AI menu schema declares zero as the minimum weight", async () => {
     inputSchema: {
       required?: string[];
       properties: {
+        restDates?: {
+          uniqueItems?: boolean;
+          items?: { type?: string };
+        };
         items?: {
           items?: {
             properties?: Record<string, { minimum?: number; type?: string }>;
@@ -587,8 +591,10 @@ test("AI menu schema declares zero as the minimum weight", async () => {
   assert.ok(schema, "create_temporary_training_menu_set_from_ai schema is missing");
   assert.deepEqual(
     schema.inputSchema.required,
-    ["idempotencyKey", "validFromDate", "validToDate", "setName", "items"]
+    ["idempotencyKey", "validFromDate", "validToDate", "setName", "restDates", "items"]
   );
+  assert.equal(schema.inputSchema.properties.restDates?.items?.type, "string");
+  assert.equal(schema.inputSchema.properties.restDates?.uniqueItems, true);
   const itemProperties = schema.inputSchema.properties.items?.items?.properties as
     | Record<string, { properties?: Record<string, { minimum?: number; type?: string }> }>
     | undefined;

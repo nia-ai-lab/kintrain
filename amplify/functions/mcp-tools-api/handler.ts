@@ -156,6 +156,7 @@ type AiMenuItemInput = {
 };
 
 type TemporaryPlanConflictPolicy = "reject" | "replace";
+type DailyPlanType = "training" | "rest";
 type MenuSetPrescriptionInput = {
   targetWeightKg?: unknown;
   targetRepsMin?: unknown;
@@ -195,6 +196,53 @@ const bodyMetricBatchTopLevelFields = new Set([
   "dryRun",
   "__principalUserId"
 ]);
+
+function normalizeDailyPlanType(value: unknown): DailyPlanType {
+  return value === "rest" ? "rest" : "training";
+}
+
+function parseRestDates(value: unknown, validityDates: string[]): string[] | undefined {
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  const dates = value.map((date) => parseYmd(date));
+  if (
+    dates.some((date) => !date) ||
+    new Set(dates).size !== dates.length ||
+    dates.some((date) => !validityDates.includes(date!))
+  ) {
+    return undefined;
+  }
+  return dates as string[];
+}
+
+function dailyPlanWriteCondition(existing?: Record<string, unknown>): {
+  ConditionExpression: string;
+  ExpressionAttributeValues?: Record<string, unknown>;
+} {
+  if (!existing) {
+    return { ConditionExpression: "attribute_not_exists(userId)" };
+  }
+  if (typeof existing.updatedAt === "string") {
+    return {
+      ConditionExpression: "updatedAt = :expectedPlanUpdatedAt",
+      ExpressionAttributeValues: { ":expectedPlanUpdatedAt": existing.updatedAt }
+    };
+  }
+  if (typeof existing.trainingMenuSetId === "string") {
+    return {
+      ConditionExpression: "trainingMenuSetId = :expectedTrainingMenuSetId",
+      ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId }
+    };
+  }
+  return {
+    ConditionExpression: "planType = :expectedPlanType",
+    ExpressionAttributeValues: { ":expectedPlanType": normalizeDailyPlanType(existing.planType) }
+  };
+}
 
 function menuSetVersion(value: unknown): number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : 0;
@@ -1128,6 +1176,11 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
           isDefault: item.isDefault === true,
           isAiGenerated: item.isAiGenerated === true,
           isActive: item.isActive !== false,
+          setType: item.setType === "temporary" ? "temporary" : "reusable",
+          source: item.source === "ai" ? "ai" : "manual",
+          validFromDate: nullableString(item.validFromDate ?? item.scheduledDate),
+          validToDate: nullableString(item.validToDate ?? item.scheduledDate),
+          restDates: Array.isArray(item.restDates) ? item.restDates : [],
           trainingMenuItemIds: trainingMenuSetId
             ? await listAnalysisMenuSetItemIds(userId, trainingMenuSetId)
             : [],
@@ -3249,6 +3302,7 @@ function temporaryMenuSetSummary(set: Record<string, unknown>): Record<string, u
     source: set.source === "ai" ? "ai" : "manual",
     validFromDate: set.validFromDate ?? set.scheduledDate ?? null,
     validToDate: set.validToDate ?? set.scheduledDate ?? null,
+    restDates: Array.isArray(set.restDates) ? set.restDates : [],
     version: menuSetVersion(set.version),
     isActive: set.isActive !== false,
     updatedAt: set.updatedAt ?? null
@@ -3321,7 +3375,32 @@ export async function getTrainingPlanForDate(args: ToolArgs, userId: string): Pr
     })
   );
   const plan = planResult.Item as Record<string, unknown> | undefined;
-  if (!plan || typeof plan.trainingMenuSetId !== "string") {
+  if (!plan) {
+    return mcpToolResponse(200, {
+      tool: "get_training_plan_for_date",
+      date,
+      plan: null
+    });
+  }
+  const planType = normalizeDailyPlanType(plan.planType);
+  if (planType === "rest") {
+    const set = typeof plan.trainingMenuSetId === "string"
+      ? await getTrainingMenuSetRecord(userId, plan.trainingMenuSetId)
+      : undefined;
+    return mcpToolResponse(200, {
+      tool: "get_training_plan_for_date",
+      date,
+      plan: {
+        planDate: date,
+        planType: "rest",
+        planSource: plan.source === "ai" ? "ai" : "manual",
+        assignedAt: plan.createdAt ?? null,
+        assignmentUpdatedAt: plan.updatedAt ?? null,
+        ...(set && set.isActive !== false ? { menuSet: temporaryMenuSetSummary(set) } : {})
+      }
+    });
+  }
+  if (typeof plan.trainingMenuSetId !== "string") {
     return mcpToolResponse(200, {
       tool: "get_training_plan_for_date",
       date,
@@ -3341,6 +3420,7 @@ export async function getTrainingPlanForDate(args: ToolArgs, userId: string): Pr
     date,
     plan: {
       planDate: date,
+      planType: "training",
       planSource: plan.source === "ai" ? "ai" : "manual",
       assignedAt: plan.createdAt ?? null,
       assignmentUpdatedAt: plan.updatedAt ?? null,
@@ -3545,7 +3625,11 @@ async function listTrainingMenuItemsForAi(args: ToolArgs, userId: string): Promi
     const trainingMenuItemId = String(item.trainingMenuItemId ?? "");
     const itemSetIds = setIdsByMenuItemId.get(trainingMenuItemId) ?? new Set<string>();
     const assignedPlanDates = plans
-      .filter((plan) => itemSetIds.has(String(plan.trainingMenuSetId ?? "")))
+      .filter(
+        (plan) =>
+          normalizeDailyPlanType(plan.planType) === "training" &&
+          itemSetIds.has(String(plan.trainingMenuSetId ?? ""))
+      )
       .map((plan) => String(plan.planDate ?? ""))
       .filter(Boolean)
       .sort();
@@ -3596,6 +3680,7 @@ async function listTrainingMenuSetsForAi(userId: string): Promise<McpToolRespons
       source: set.source ?? "manual",
       validFromDate: set.validFromDate ?? set.scheduledDate,
       validToDate: set.validToDate ?? set.scheduledDate,
+      restDates: Array.isArray(set.restDates) ? set.restDates : [],
       version: menuSetVersion(set.version),
       isDefault: set.isDefault === true,
       items: (links.Items ?? [])
@@ -3668,7 +3753,11 @@ async function trainingMenuItemImpact(
     activeSets.map((set) => String(set.trainingMenuSetId ?? "")).filter(Boolean)
   );
   const assignedPlanDates = plans
-    .filter((plan) => activeSetIds.has(String(plan.trainingMenuSetId ?? "")))
+    .filter(
+      (plan) =>
+        normalizeDailyPlanType(plan.planType) === "training" &&
+        activeSetIds.has(String(plan.trainingMenuSetId ?? ""))
+    )
     .map((plan) => String(plan.planDate ?? ""))
     .filter(Boolean)
     .sort();
@@ -4229,6 +4318,9 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
   const validToDate = parseYmd(args.newValidToDate);
   const validityDates =
     validFromDate && validToDate ? enumerateYmdRange(validFromDate, validToDate) : undefined;
+  const requestedRestDates = validityDates && args.restDates !== undefined
+    ? parseRestDates(args.restDates, validityDates)
+    : undefined;
   const expectedVersion = parseExpectedVersion(args.expectedVersion);
   const idempotencyKey = parseBoundedText(args.idempotencyKey, 100);
   const updateReason = parseBoundedText(args.updateReason, 500, true) ?? "Rescheduled by AI";
@@ -4237,6 +4329,7 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
   if (
     !trainingMenuSetId ||
     !validityDates ||
+    (args.restDates !== undefined && requestedRestDates === undefined) ||
     expectedVersion === undefined ||
     !idempotencyKey ||
     (args.conflictPolicy !== undefined && args.conflictPolicy !== "reject" && args.conflictPolicy !== "replace") ||
@@ -4252,6 +4345,7 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
     trainingMenuSetId,
     validFromDate,
     validToDate,
+    restDates: requestedRestDates ?? "preserve_existing_rest_dates",
     expectedVersion,
     conflictPolicy,
     updateReason
@@ -4290,6 +4384,11 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
   const currentFrom = parseYmd(set.validFromDate ?? set.scheduledDate);
   const currentTo = parseYmd(set.validToDate ?? set.scheduledDate);
   const currentDates = currentFrom && currentTo ? enumerateYmdRange(currentFrom, currentTo) ?? [] : [];
+  const currentRestDates = parseRestDates(set.restDates, currentDates) ?? [];
+  const nextRestDates = requestedRestDates ?? currentRestDates.filter((date) => validityDates.includes(date));
+  if (nextRestDates.length === validityDates.length) {
+    return mutationValidationError("A temporary menu set must contain at least one training day.");
+  }
   const planResults = await Promise.all(
     validityDates.map((planDate) =>
       ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
@@ -4352,6 +4451,7 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
   const changes = {
     validFromDate: { before: currentFrom ?? null, after: validFromDate },
     validToDate: { before: currentTo ?? null, after: validToDate },
+    restDates: { before: currentRestDates, after: nextRestDates },
     planDates: { added: addedDates, removed: removedDates, retained: retainedDates },
     replacedMenuSetIds: conflictingSetIds
   };
@@ -4383,13 +4483,14 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
         TableName: trainingMenuSetTableName,
         Key: { userId, trainingMenuSetId },
         UpdateExpression:
-          "SET validFromDate=:validFromDate, validToDate=:validToDate, #version=:nextVersion, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges REMOVE scheduledDate",
+          "SET validFromDate=:validFromDate, validToDate=:validToDate, restDates=:restDates, #version=:nextVersion, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason, lastMutationKey=:lastMutationKey, lastMutationHash=:lastMutationHash, lastMutationChanges=:lastMutationChanges REMOVE scheduledDate",
         ConditionExpression: `${condition.condition} AND (attribute_not_exists(isActive) OR isActive = :true) AND setType = :temporary`,
         ExpressionAttributeNames: { "#version": "version" },
         ExpressionAttributeValues: {
           ...condition.values,
           ":validFromDate": validFromDate,
           ":validToDate": validToDate,
+          ":restDates": nextRestDates,
           ":nextVersion": expectedVersion + 1,
           ":updatedAt": ts,
           ":updatedBy": "mcp",
@@ -4446,21 +4547,13 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
           userId,
           planDate,
           trainingMenuSetId,
+          planType: nextRestDates.includes(planDate) ? "rest" : "training",
           source: set.source === "ai" ? "ai" : "manual",
           idempotencyKey,
           createdAt: existing?.createdAt ?? ts,
           updatedAt: ts
         },
-        ConditionExpression: existing
-          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
-          : "attribute_not_exists(userId)",
-        ...(existing
-          ? {
-              ExpressionAttributeValues: {
-                ":expectedTrainingMenuSetId": existing.trainingMenuSetId
-              }
-            }
-          : {})
+        ...dailyPlanWriteCondition(existing as Record<string, unknown> | undefined)
       }
     });
   });
@@ -4475,6 +4568,7 @@ export async function rescheduleTemporaryTrainingPlan(args: ToolArgs, userId: st
   return mcpToolResponse(200, {
     tool: "reschedule_temporary_training_plan",
     trainingMenuSetId,
+    restDates: nextRestDates,
     version: expectedVersion + 1,
     changes,
     unchanged: [
@@ -5076,18 +5170,22 @@ export async function updateTemporaryTrainingMenuSet(args: ToolArgs, userId: str
   });
 }
 
-async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+export async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: string): Promise<McpToolResponse> {
   const setName = toNonEmptyString(args.setName);
   const validFromDate = parseYmd(args.validFromDate);
   const validToDate = parseYmd(args.validToDate);
   const validityDates =
     validFromDate && validToDate ? enumerateYmdRange(validFromDate, validToDate) : undefined;
+  const restDates = validityDates ? parseRestDates(args.restDates, validityDates) : undefined;
   const idempotencyKey = toNonEmptyString(args.idempotencyKey);
   const rawItems = Array.isArray(args.items) ? (args.items as AiMenuItemInput[]) : null;
-  if (!setName || !validityDates || !idempotencyKey || !rawItems?.length) {
+  if (!setName || !validityDates || restDates === undefined || !idempotencyKey || !rawItems?.length) {
     return mcpToolResponse(400, {
-      message: "idempotencyKey, validFromDate, validToDate, setName and items are required; validity is limited to 31 days."
+      message: "idempotencyKey, validFromDate, validToDate, setName, valid restDates, and items are required; validity is limited to 31 days."
     });
+  }
+  if (restDates.length === validityDates.length) {
+    return mcpToolResponse(400, { message: "A temporary menu set must contain at least one training day." });
   }
   if (rawItems.length > 12) {
     return mcpToolResponse(400, { message: "items cannot exceed 12." });
@@ -5116,6 +5214,7 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
       trainingMenuSetId: replayTrainingMenuSetId,
       validFromDate,
       validToDate,
+      restDates: Array.isArray(replaySet?.restDates) ? replaySet.restDates : [],
       version: menuSetVersion(replaySet?.version),
       idempotentReplay: true
     });
@@ -5293,6 +5392,7 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
           source: "ai",
           validFromDate,
           validToDate,
+          restDates,
           isDefault: false,
           isActive: true,
           version: 1,
@@ -5347,17 +5447,13 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
             userId,
             planDate,
             trainingMenuSetId,
+            planType: restDates.includes(planDate) ? "rest" : "training",
             source: "ai",
             idempotencyKey,
             createdAt: currentPlan?.createdAt ?? ts,
             updatedAt: ts
           },
-          ConditionExpression: currentPlan
-            ? "trainingMenuSetId = :expectedTrainingMenuSetId"
-            : "attribute_not_exists(userId)",
-          ...(currentPlan
-            ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": currentPlan.trainingMenuSetId } }
-            : {})
+          ...dailyPlanWriteCondition(currentPlan as Record<string, unknown> | undefined)
         }
       };
     })
@@ -5369,6 +5465,7 @@ async function createTemporaryTrainingMenuSetFromAi(args: ToolArgs, userId: stri
     trainingMenuSetId,
     validFromDate,
     validToDate,
+    restDates,
     setName,
     version: 1,
     reusedItemCount: normalizedItems.filter((item) => !item.newItem).length,

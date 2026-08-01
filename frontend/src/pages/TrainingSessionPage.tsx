@@ -111,6 +111,7 @@ export function TrainingSessionPage() {
   const [sessionItems, setSessionItems] = useState<TrainingSessionMenuItem[]>([]);
   const [isSessionViewLoading, setIsSessionViewLoading] = useState(true);
   const [sessionViewError, setSessionViewError] = useState('');
+  const [planType, setPlanType] = useState<'training' | 'rest'>('training');
   const [resolvedMenuSet, setResolvedMenuSet] = useState<{
     trainingMenuSetId: string;
     setName: string;
@@ -207,7 +208,8 @@ export function TrainingSessionPage() {
             };
           });
         setResolvedMenuSet(remote.resolvedMenuSet);
-        if (!selectedMenuSetId && remote.resolvedMenuSet?.trainingMenuSetId) {
+        setPlanType(remote.planType === 'rest' ? 'rest' : 'training');
+        if (remote.planType !== 'rest' && !selectedMenuSetId && remote.resolvedMenuSet?.trainingMenuSetId) {
           setSelectedMenuSetId(remote.resolvedMenuSet.trainingMenuSetId);
         }
         setSessionItems(items);
@@ -217,6 +219,7 @@ export function TrainingSessionPage() {
         }
         const message = error instanceof Error ? error.message : '実施メニューの取得に失敗しました。';
         setSessionViewError(message);
+        setPlanType('training');
         setResolvedMenuSet(null);
         setSessionItems([]);
       } finally {
@@ -373,26 +376,30 @@ export function TrainingSessionPage() {
             <p className="session-date">{ymdToDisplay(today)}</p>
             <label className="session-menu-set-select">
               <span>
-                今日のメニュー
+                {planType === 'rest' ? '今日の計画 ・ 完全休息' : '今日のメニュー'}
                 {resolvedMenuSet?.setType === 'temporary' ? ' ・ 一時' : ''}
                 {resolvedMenuSet?.source === 'ai' ? ' ・ AI作成' : ''}
               </span>
               <select
-                value={resolvedMenuSet?.trainingMenuSetId ?? effectiveSelectedMenuSetId}
+                value={planType === 'rest' ? '' : (resolvedMenuSet?.trainingMenuSetId ?? effectiveSelectedMenuSetId)}
                 disabled={menuSets.length === 0}
                 onChange={(event) => {
+                  setPlanType('training');
                   setSelectedMenuSetId(event.target.value);
                 }}
               >
                 {menuSets.length === 0 ? (
                   <option value="">メニューセットなし</option>
                 ) : (
-                  menuSets.map((set) => (
-                    <option value={set.id} key={set.id}>
-                      {set.setName}
-                      {set.isDefault ? ' (デフォルト)' : ''}
-                    </option>
-                  ))
+                  <>
+                    {planType === 'rest' && <option value="">完全休息日</option>}
+                    {menuSets.map((set) => (
+                      <option value={set.id} key={set.id}>
+                        {set.setName}
+                        {set.isDefault ? ' (デフォルト)' : ''}
+                      </option>
+                    ))}
+                  </>
                 )}
               </select>
             </label>
@@ -428,7 +435,11 @@ export function TrainingSessionPage() {
 
         {!isSessionViewLoading && !sessionViewError && prioritized.length === 0 && (
           <article className="card training-session-card">
-            <p className="muted">選択中のメニューセットに有効な種目がありません。</p>
+            <p className="muted">
+              {planType === 'rest'
+                ? '今日は計画された完全休息日です。しっかり回復しましょう。'
+                : '選択中のメニューセットに有効な種目がありません。'}
+            </p>
           </article>
         )}
 

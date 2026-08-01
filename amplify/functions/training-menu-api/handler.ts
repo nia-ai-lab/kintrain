@@ -46,6 +46,7 @@ const defaultSetMarker = "DEFAULT";
 type WeightInputMode = "direct" | "perSide" | "legacyUnspecified";
 type MenuSetType = "reusable" | "temporary";
 type DataSource = "manual" | "ai";
+type DailyPlanType = "training" | "rest";
 
 type MenuItemInput = {
   trainingName: string;
@@ -201,6 +202,41 @@ function normalizeSource(value: unknown): DataSource {
   return value === "ai" ? "ai" : "manual";
 }
 
+function normalizeDailyPlanType(value: unknown): DailyPlanType {
+  return value === "rest" ? "rest" : "training";
+}
+
+function normalizeRestDates(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((date): date is string => typeof date === "string" && Boolean(parseYmd(date)))
+    : [];
+}
+
+function dailyPlanWriteCondition(existing?: Record<string, unknown>): {
+  ConditionExpression: string;
+  ExpressionAttributeValues?: Record<string, unknown>;
+} {
+  if (!existing) {
+    return { ConditionExpression: "attribute_not_exists(userId)" };
+  }
+  if (typeof existing.updatedAt === "string") {
+    return {
+      ConditionExpression: "updatedAt = :expectedPlanUpdatedAt",
+      ExpressionAttributeValues: { ":expectedPlanUpdatedAt": existing.updatedAt }
+    };
+  }
+  if (typeof existing.trainingMenuSetId === "string") {
+    return {
+      ConditionExpression: "trainingMenuSetId = :expectedTrainingMenuSetId",
+      ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId }
+    };
+  }
+  return {
+    ConditionExpression: "planType = :expectedPlanType",
+    ExpressionAttributeValues: { ":expectedPlanType": normalizeDailyPlanType(existing.planType) }
+  };
+}
+
 function validityFromSet(set: Record<string, unknown>): { validFromDate?: string; validToDate?: string } {
   const legacyDate = typeof set.scheduledDate === "string" ? set.scheduledDate : undefined;
   return {
@@ -313,6 +349,7 @@ function toMenuSetResponse(set: Record<string, unknown>, items: Record<string, u
     setType: normalizeSetType(set.setType),
     source: normalizeSource(set.source),
     ...validity,
+    restDates: normalizeRestDates(set.restDates),
     isDefault: set.isDefault === true,
     isActive: set.isActive !== false,
     version: menuSetVersion(set.version),
@@ -753,6 +790,7 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     source,
     ...(validFromDate ? { validFromDate } : {}),
     ...(validToDate ? { validToDate } : {}),
+    ...(setType === "temporary" ? { restDates: [] } : {}),
     isDefault,
     ...(isDefault ? { defaultSetMarker } : {}),
     isActive: true,
@@ -792,16 +830,12 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
           userId,
           planDate,
           trainingMenuSetId,
+          planType: "training",
           source,
           createdAt: existing?.createdAt ?? ts,
           updatedAt: ts
         },
-        ConditionExpression: existing
-          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
-          : "attribute_not_exists(userId)",
-        ...(existing
-          ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId } }
-          : {})
+        ...dailyPlanWriteCondition(existing as Record<string, unknown> | undefined)
       }
     });
   });
@@ -857,14 +891,17 @@ async function updateMenuSet(
     return response(400, { message: "choose another reusable set as default first." });
   }
   const ts = nowIsoSeconds();
+  const restDates = setType === "temporary"
+    ? normalizeRestDates(current.restDates).filter((date) => validityDates.includes(date))
+    : [];
   const existingPlans = await Promise.all(
     validityDates.map((planDate) =>
       ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
     )
   );
   const conflicts = validityDates.filter((_, index) => {
-    const assignedSetId = existingPlans[index].Item?.trainingMenuSetId;
-    return typeof assignedSetId === "string" && assignedSetId !== trainingMenuSetId;
+    const plan = existingPlans[index].Item;
+    return Boolean(plan) && plan?.trainingMenuSetId !== trainingMenuSetId;
   });
   if (conflicts.length && body.replaceExistingPlan !== true) {
     return response(409, {
@@ -917,9 +954,9 @@ async function updateMenuSet(
   ];
   const removeParts: string[] = [];
   if (validFromDate && validToDate) {
-    setParts.push("validFromDate=:validFromDate", "validToDate=:validToDate");
+    setParts.push("validFromDate=:validFromDate", "validToDate=:validToDate", "restDates=:restDates");
   } else {
-    removeParts.push("validFromDate", "validToDate");
+    removeParts.push("validFromDate", "validToDate", "restDates");
   }
   removeParts.push("scheduledDate");
   if (isDefault) {
@@ -945,7 +982,7 @@ async function updateMenuSet(
         ":updateReason": "Menu set updated",
         ":updatedAt": ts,
         ...(validFromDate && validToDate
-          ? { ":validFromDate": validFromDate, ":validToDate": validToDate }
+          ? { ":validFromDate": validFromDate, ":validToDate": validToDate, ":restDates": restDates }
           : {}),
         ...(isDefault ? { ":defaultSetMarker": defaultSetMarker } : {})
       }
@@ -972,16 +1009,12 @@ async function updateMenuSet(
           userId,
           planDate,
           trainingMenuSetId,
+          planType: restDates.includes(planDate) ? "rest" : "training",
           source,
           createdAt: existing?.createdAt ?? ts,
           updatedAt: ts
         },
-        ConditionExpression: existing
-          ? "trainingMenuSetId = :expectedTrainingMenuSetId"
-          : "attribute_not_exists(userId)",
-        ...(existing
-          ? { ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId } }
-          : {})
+        ...dailyPlanWriteCondition(existing as Record<string, unknown> | undefined)
       }
     });
   });
@@ -1000,6 +1033,7 @@ async function updateMenuSet(
     source,
     validFromDate,
     validToDate,
+    restDates,
     isDefault,
     version: currentVersion + 1,
     updatedBy: "user",
@@ -1285,6 +1319,7 @@ async function getDailyPlan(userId: string, planDate: string): Promise<APIGatewa
   return result.Item
     ? response(200, {
         planDate: result.Item.planDate,
+        planType: normalizeDailyPlanType(result.Item.planType),
         trainingMenuSetId: result.Item.trainingMenuSetId,
         source: normalizeSource(result.Item.source),
         createdAt: result.Item.createdAt,
@@ -1298,10 +1333,19 @@ async function putDailyPlan(
   userId: string,
   planDate: string
 ): Promise<APIGatewayProxyResult> {
-  const body = parseBody<{ trainingMenuSetId: string; source?: DataSource }>(event);
+  const body = parseBody<{ trainingMenuSetId?: string; planType?: DailyPlanType; source?: DataSource }>(event);
+  const planType = normalizeDailyPlanType(body?.planType);
   const trainingMenuSetId = toNonEmptyString(body?.trainingMenuSetId);
-  const set = trainingMenuSetId ? await getMenuSet(userId, trainingMenuSetId) : null;
-  if (!body || !trainingMenuSetId || !set || set.isActive === false) {
+  const set = planType === "training" && trainingMenuSetId
+    ? await getMenuSet(userId, trainingMenuSetId)
+    : null;
+  if (!body || (body.planType !== undefined && body.planType !== "training" && body.planType !== "rest")) {
+    return response(400, { message: "planType must be training or rest." });
+  }
+  if (planType === "rest" && trainingMenuSetId) {
+    return response(400, { message: "rest plan must not specify a training menu set." });
+  }
+  if (planType === "training" && (!trainingMenuSetId || !set || set.isActive === false)) {
     return response(404, { message: "training menu set not found." });
   }
   const existing = await ddb.send(new GetCommand({
@@ -1312,7 +1356,8 @@ async function putDailyPlan(
   const item = {
     userId,
     planDate,
-    trainingMenuSetId,
+    planType,
+    ...(trainingMenuSetId ? { trainingMenuSetId } : {}),
     source: normalizeSource(body.source),
     createdAt: existing.Item?.createdAt ?? ts,
     updatedAt: ts
@@ -1320,7 +1365,8 @@ async function putDailyPlan(
   await ddb.send(new PutCommand({ TableName: dailyTrainingPlanTableName, Item: item }));
   return response(existing.Item ? 200 : 201, {
     planDate,
-    trainingMenuSetId,
+    planType,
+    ...(trainingMenuSetId ? { trainingMenuSetId } : {}),
     source: item.source,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt
