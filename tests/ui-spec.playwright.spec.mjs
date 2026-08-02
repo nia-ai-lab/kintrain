@@ -1141,7 +1141,7 @@ test('トレーニング実施画面で入力を消すことができ、セッ�
   await expect(page.locator('.set-detail-list')).toHaveCount(0);
 });
 
-test('iPhone幅の実施画面で操作と入力欄が横にはみ出さない', async ({ page }) => {
+test('iPhone幅の実施画面で操作ボタンと主要入力欄がそれぞれ一行に収まる', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await attachCoreApiMock(page);
   await login(page);
@@ -1152,6 +1152,20 @@ test('iPhone幅の実施画面で操作と入力欄が横にはみ出さない',
   await expect(page.getByRole('button', { name: '前回値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '入力を消す' }).first()).toBeVisible();
   const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  const actionBoxes = await Promise.all([
+    chestCard.getByRole('button', { name: '設定値を入力' }).boundingBox(),
+    chestCard.getByRole('button', { name: '前回値を入力' }).boundingBox(),
+    chestCard.getByRole('button', { name: '入力を消す' }).boundingBox()
+  ]);
+  const metricBoxes = await Promise.all([
+    chestCard.getByLabel('重量').boundingBox(),
+    chestCard.getByLabel('回数').boundingBox(),
+    chestCard.getByLabel('セット').boundingBox()
+  ]);
+  assert.equal(actionBoxes.every((box) => box !== null), true);
+  assert.equal(metricBoxes.every((box) => box !== null), true);
+  assert.equal(new Set(actionBoxes.map((box) => Math.round(box.y))).size, 1);
+  assert.equal(new Set(metricBoxes.map((box) => Math.round(box.y))).size, 1);
   await chestCard.getByRole('button', { name: '設定値を入力' }).click();
   await page.getByRole('button', { name: '記録して終了' }).click();
   const dialog = page.getByRole('dialog', { name: '記録内容の確認' });

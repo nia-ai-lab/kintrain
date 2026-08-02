@@ -1463,18 +1463,16 @@ a {
 
   .session-actions {
     display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
     width: 100%;
   }
 
   .session-actions .btn {
     min-height: 46px;
     width: 100%;
-    padding-inline: 8px;
-  }
-
-  .session-actions .btn:last-child {
-    grid-column: 1 / -1;
+    padding-inline: 4px;
+    font-size: clamp(0.7rem, 3.1vw, 0.82rem);
   }
 
   .top-header {
@@ -1554,18 +1552,14 @@ a {
   }
 
   .input-grid.training-metrics-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 8px;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 6px;
     align-items: start;
-  }
-
-  .input-grid.training-metrics-grid > label:nth-of-type(3) {
-    grid-column: 1 / -1;
   }
 
   .input-grid.training-metrics-grid > label {
     align-content: start;
-    font-size: 0.8rem;
+    font-size: clamp(0.66rem, 2.8vw, 0.76rem);
   }
 
   .training-metric-title {
