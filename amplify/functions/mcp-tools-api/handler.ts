@@ -90,18 +90,21 @@ type BodyMetricsConflictPolicy = "reject" | "overwrite";
 type BodyMetricWritableField =
   | "bodyWeightKg"
   | "bodyFatPercent"
+  | "muscleMassKg"
   | "bodyMetricMeasuredTimeLocal"
   | "timeZoneId";
 type BodyMetricInput = {
   date: string;
   bodyWeightKg?: number;
   bodyFatPercent?: number;
+  muscleMassKg?: number;
   bodyMetricMeasuredTimeLocal?: string;
 };
 type BodyMetricResultInput = {
   date?: unknown;
   bodyWeightKg?: unknown;
   bodyFatPercent?: unknown;
+  muscleMassKg?: unknown;
   bodyMetricMeasuredTimeLocal?: unknown;
   raw?: unknown;
 };
@@ -121,7 +124,10 @@ type BodyMetricBatchResult = {
 export type BodyMetricDdbCommand = GetCommand | UpdateCommand;
 export type BodyMetricDdbSender = (
   command: BodyMetricDdbCommand
-) => Promise<{ Item?: Record<string, unknown> }>;
+) => Promise<{ Item?: Record<string, unknown>; Attributes?: Record<string, unknown> }>;
+export type SaveBodyMetricsOptions = {
+  send?: BodyMetricDdbSender;
+};
 export type SaveBodyMetricsBatchOptions = {
   now?: Date;
   send?: BodyMetricDdbSender;
@@ -188,6 +194,7 @@ const bodyMetricRecordFields = new Set([
   "date",
   "bodyWeightKg",
   "bodyFatPercent",
+  "muscleMassKg",
   "bodyMetricMeasuredTimeLocal"
 ]);
 const bodyMetricBatchTopLevelFields = new Set([
@@ -522,6 +529,16 @@ export function isValidBodyFatPercent(value: unknown): value is number {
   );
 }
 
+export function isValidMuscleMassKg(value: unknown): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isFinite(value) &&
+    value > 0 &&
+    value <= 500 &&
+    hasAtMostTwoDecimalPlaces(value)
+  );
+}
+
 function hasAtMostTwoDecimalPlaces(value: number): boolean {
   return Math.abs(value * 100 - Math.round(value * 100)) < 1e-9;
 }
@@ -733,6 +750,7 @@ function normalizeAnalysisDailyRecord(item: Record<string, unknown>): Record<str
     timeZoneId: nullableString(item.timeZoneId),
     bodyWeightKg: nullableNumber(item.bodyWeightKg),
     bodyFatPercent: nullableNumber(item.bodyFatPercent),
+    muscleMassKg: nullableNumber(item.muscleMassKg),
     bodyMetricMeasuredTimeLocal: nullableString(item.bodyMetricMeasuredTimeLocal),
     conditionRating: nullableNumber(item.conditionRating),
     moodRating: nullableNumber(item.moodRating),
@@ -942,6 +960,7 @@ export function normalizeDailyRecordForMcp(item: Record<string, unknown>): Recor
     timeZoneId: nullableString(item.timeZoneId),
     bodyWeightKg: nullableNumber(item.bodyWeightKg),
     bodyFatPercent: nullableNumber(item.bodyFatPercent),
+    muscleMassKg: nullableNumber(item.muscleMassKg),
     bodyMetricMeasuredTimeLocal: nullableString(item.bodyMetricMeasuredTimeLocal),
     conditionRating: nullableNumber(item.conditionRating),
     moodRating: nullableNumber(item.moodRating),
@@ -1037,7 +1056,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   return mcpToolResponse(200, {
     tool: "get_analysis_export_manifest",
     schema: "kintrain.analysis-export",
-    schemaVersion: 6,
+    schemaVersion: 7,
     generatedAtUtc: new Date().toISOString(),
     selection: analysisExportSelectionResponse(selection),
     currentContext: {
@@ -1250,7 +1269,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   return mcpToolResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
-    schemaVersion: 6,
+    schemaVersion: 7,
     selection: analysisExportSelectionResponse(selection),
     section: typedSection,
     items,
@@ -1645,7 +1664,7 @@ function rounded(value: number, digits = 2): number {
 
 function rollingAverage(
   records: Record<string, unknown>[],
-  field: "bodyWeightKg" | "bodyFatPercent",
+  field: "bodyWeightKg" | "bodyFatPercent" | "muscleMassKg",
   to: string,
   days: number
 ): Record<string, unknown> {
@@ -1901,6 +1920,10 @@ export function buildTrainingCoachingSummary(
       bodyFatPercent: {
         sevenDay: rollingAverage(dailyRecords, "bodyFatPercent", to, 7),
         twentyEightDay: rollingAverage(dailyRecords, "bodyFatPercent", to, 28)
+      },
+      muscleMassKg: {
+        sevenDay: rollingAverage(dailyRecords, "muscleMassKg", to, 7),
+        twentyEightDay: rollingAverage(dailyRecords, "muscleMassKg", to, 28)
       }
     },
     recentReadiness
@@ -2564,71 +2587,128 @@ export async function saveDailyReadiness(args: ToolArgs, userId: string): Promis
   });
 }
 
-async function saveBodyMetrics(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+export async function saveBodyMetrics(
+  args: ToolArgs,
+  userId: string,
+  options: SaveBodyMetricsOptions = {}
+): Promise<McpToolResponse> {
   const date = parseYmd(args.date);
   if (!date) {
     return mcpToolResponse(400, { message: "date must be a valid date in YYYY-MM-DD format." });
   }
-  const measuredTimeLocal = parseLocalTime(args.bodyMetricMeasuredTimeLocal);
-  if (!measuredTimeLocal) {
-    return mcpToolResponse(400, { message: "bodyMetricMeasuredTimeLocal must be HH:mm in 24-hour format." });
+  const hasBodyWeight = Object.hasOwn(args, "bodyWeightKg");
+  const hasBodyFat = Object.hasOwn(args, "bodyFatPercent");
+  const hasMuscleMass = Object.hasOwn(args, "muscleMassKg");
+  if (!hasBodyWeight && !hasBodyFat && !hasMuscleMass) {
+    return mcpToolResponse(400, {
+      message: "At least one of bodyWeightKg, bodyFatPercent, or muscleMassKg is required."
+    });
   }
-  const bodyWeightKg = args.bodyWeightKg;
-  if (!isValidBodyWeightKg(bodyWeightKg)) {
+  if (hasBodyWeight && !isValidBodyWeightKg(args.bodyWeightKg)) {
     return mcpToolResponse(400, {
       message: "bodyWeightKg must be a number greater than 0 and at most 500 with no more than 2 decimal places."
     });
   }
-  const bodyFatPercent = args.bodyFatPercent;
-  if (!isValidBodyFatPercent(bodyFatPercent)) {
+  if (hasBodyFat && !isValidBodyFatPercent(args.bodyFatPercent)) {
     return mcpToolResponse(400, {
       message: "bodyFatPercent must be a number between 0 and 100 with no more than 2 decimal places."
     });
   }
+  if (hasMuscleMass && !isValidMuscleMassKg(args.muscleMassKg)) {
+    return mcpToolResponse(400, {
+      message: "muscleMassKg must be a number greater than 0 and at most 500 with no more than 2 decimal places."
+    });
+  }
+  if (
+    hasBodyWeight &&
+    hasMuscleMass &&
+    (args.muscleMassKg as number) > (args.bodyWeightKg as number)
+  ) {
+    return mcpToolResponse(400, { message: "muscleMassKg must not be greater than bodyWeightKg." });
+  }
+  const hasMeasuredTime = Object.hasOwn(args, "bodyMetricMeasuredTimeLocal");
+  const measuredTimeLocal = hasMeasuredTime ? parseLocalTime(args.bodyMetricMeasuredTimeLocal) : undefined;
+  if (hasMeasuredTime && !measuredTimeLocal) {
+    return mcpToolResponse(400, { message: "bodyMetricMeasuredTimeLocal must be HH:mm in 24-hour format." });
+  }
+  const hasTimeZone = Object.hasOwn(args, "timeZoneId");
   const timeZoneId = resolveTimeZoneId(args);
   if (!timeZoneId) {
     return mcpToolResponse(400, { message: "timeZoneId must be a valid IANA time zone ID." });
   }
 
-  const current = await ddb.send(
-    new GetCommand({
-      TableName: dailyRecordTableName,
-      Key: {
-        userId,
-        recordDate: date
-      }
-    })
-  );
-  const currentItem = (current.Item as Record<string, unknown> | undefined) ?? {};
   const ts = nowIsoSeconds();
-  const item = {
-    otherActivities: [],
-    ...currentItem,
-    userId,
-    recordDate: date,
-    bodyWeightKg,
-    bodyFatPercent,
-    bodyMetricMeasuredTimeLocal: measuredTimeLocal,
-    timeZoneId,
-    updatedAt: ts,
-    createdAt: (currentItem.createdAt as string | undefined) ?? ts
+  const updates: Partial<Record<BodyMetricWritableField, number | string>> = {
+    ...(hasBodyWeight ? { bodyWeightKg: args.bodyWeightKg as number } : {}),
+    ...(hasBodyFat ? { bodyFatPercent: args.bodyFatPercent as number } : {}),
+    ...(hasMuscleMass ? { muscleMassKg: args.muscleMassKg as number } : {}),
+    ...(measuredTimeLocal ? { bodyMetricMeasuredTimeLocal: measuredTimeLocal } : {}),
+    ...(hasTimeZone ? { timeZoneId } : {})
   };
+  const expressionAttributeNames: Record<string, string> = {
+    "#createdAt": "createdAt",
+    "#updatedAt": "updatedAt",
+    "#otherActivities": "otherActivities"
+  };
+  const expressionAttributeValues: Record<string, unknown> = {
+    ":timestamp": ts,
+    ":emptyActivities": []
+  };
+  if (!hasTimeZone) {
+    expressionAttributeNames["#timeZoneId"] = "timeZoneId";
+    expressionAttributeValues[":defaultTimeZoneId"] = timeZoneId;
+  }
+  const setExpressions = [
+    "#createdAt = if_not_exists(#createdAt, :timestamp)",
+    "#updatedAt = :timestamp",
+    "#otherActivities = if_not_exists(#otherActivities, :emptyActivities)",
+    ...(hasTimeZone ? [] : ["#timeZoneId = if_not_exists(#timeZoneId, :defaultTimeZoneId)"])
+  ];
+  Object.entries(updates).forEach(([field, value], index) => {
+    expressionAttributeNames[`#field${index}`] = field;
+    expressionAttributeValues[`:field${index}`] = value;
+    setExpressions.push(`#field${index} = :field${index}`);
+  });
 
-  await ddb.send(
-    new PutCommand({
-      TableName: dailyRecordTableName,
-      Item: item
-    })
-  );
+  const conditionExpressions: string[] = [];
+  if (hasMuscleMass && !hasBodyWeight) {
+    expressionAttributeNames["#bodyWeightKg"] = "bodyWeightKg";
+    expressionAttributeValues[":muscleMassKg"] = args.muscleMassKg;
+    conditionExpressions.push("attribute_not_exists(#bodyWeightKg) OR #bodyWeightKg >= :muscleMassKg");
+  }
+  if (hasBodyWeight && !hasMuscleMass) {
+    expressionAttributeNames["#muscleMassKg"] = "muscleMassKg";
+    expressionAttributeValues[":bodyWeightKg"] = args.bodyWeightKg;
+    conditionExpressions.push("attribute_not_exists(#muscleMassKg) OR #muscleMassKg <= :bodyWeightKg");
+  }
+
+  let result;
+  try {
+    result = await (options.send ?? defaultBodyMetricDdbSender)(
+      new UpdateCommand({
+        TableName: dailyRecordTableName,
+        Key: { userId, recordDate: date },
+        UpdateExpression: `SET ${setExpressions.join(", ")}`,
+        ...(conditionExpressions.length ? { ConditionExpression: conditionExpressions.join(" AND ") } : {}),
+        ExpressionAttributeNames: expressionAttributeNames,
+        ExpressionAttributeValues: expressionAttributeValues,
+        ReturnValues: "ALL_NEW"
+      })
+    );
+  } catch (error) {
+    if (isConditionalCheckFailure(error)) {
+      return mcpToolResponse(409, {
+        message: "muscleMassKg must not be greater than bodyWeightKg for the same date."
+      });
+    }
+    throw error;
+  }
 
   return mcpToolResponse(200, {
     tool: "save_body_metrics",
     recordDate: date,
-    bodyWeightKg,
-    bodyFatPercent,
-    bodyMetricMeasuredTimeLocal: measuredTimeLocal,
-    timeZoneId,
-    updatedAt: ts
+    updatedFields: Object.keys(updates),
+    item: normalizeDailyRecordForMcp((result.Attributes ?? {}) as Record<string, unknown>)
   });
 }
 
@@ -2662,7 +2742,7 @@ function failedBodyMetricResult(
 }
 
 function bodyMetricNumberError(
-  field: "bodyWeightKg" | "bodyFatPercent",
+  field: "bodyWeightKg" | "bodyFatPercent" | "muscleMassKg",
   value: unknown
 ): BodyMetricRecordError | undefined {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -2672,15 +2752,15 @@ function bodyMetricNumberError(
       message: `${field} must be a finite JSON number.`
     };
   }
-  const inRange = field === "bodyWeightKg" ? value > 0 && value <= 500 : value >= 0 && value <= 100;
+  const inRange = field === "bodyFatPercent" ? value >= 0 && value <= 100 : value > 0 && value <= 500;
   if (!inRange) {
     return {
       field,
       code: "OUT_OF_RANGE",
       message:
-        field === "bodyWeightKg"
-          ? "bodyWeightKg must be greater than 0 and at most 500."
-          : "bodyFatPercent must be between 0 and 100."
+        field === "bodyFatPercent"
+          ? "bodyFatPercent must be between 0 and 100."
+          : `${field} must be greater than 0 and at most 500.`
     };
   }
   if (!hasAtMostTwoDecimalPlaces(value)) {
@@ -2763,7 +2843,8 @@ function normalizeBodyMetricInput(
 
   const hasBodyWeight = Object.hasOwn(record, "bodyWeightKg");
   const hasBodyFat = Object.hasOwn(record, "bodyFatPercent");
-  if (!hasBodyWeight && !hasBodyFat) {
+  const hasMuscleMass = Object.hasOwn(record, "muscleMassKg");
+  if (!hasBodyWeight && !hasBodyFat && !hasMuscleMass) {
     return {
       result: failedBodyMetricResult(
         index,
@@ -2771,7 +2852,7 @@ function normalizeBodyMetricInput(
         {
           field: "record",
           code: "INVALID_RECORD",
-          message: "At least one of bodyWeightKg or bodyFatPercent is required."
+          message: "At least one of bodyWeightKg, bodyFatPercent, or muscleMassKg is required."
         },
         date
       )
@@ -2789,6 +2870,30 @@ function normalizeBodyMetricInput(
     if (error) {
       return { result: failedBodyMetricResult(index, input, error, date) };
     }
+  }
+  if (hasMuscleMass) {
+    const error = bodyMetricNumberError("muscleMassKg", record.muscleMassKg);
+    if (error) {
+      return { result: failedBodyMetricResult(index, input, error, date) };
+    }
+  }
+  if (
+    hasBodyWeight &&
+    hasMuscleMass &&
+    (record.muscleMassKg as number) > (record.bodyWeightKg as number)
+  ) {
+    return {
+      result: failedBodyMetricResult(
+        index,
+        input,
+        {
+          field: "muscleMassKg",
+          code: "INCONSISTENT_BODY_METRICS",
+          message: "muscleMassKg must not be greater than bodyWeightKg."
+        },
+        date
+      )
+    };
   }
 
   let measuredTimeLocal: string | undefined;
@@ -2815,6 +2920,7 @@ function normalizeBodyMetricInput(
       date,
       ...(hasBodyWeight ? { bodyWeightKg: record.bodyWeightKg as number } : {}),
       ...(hasBodyFat ? { bodyFatPercent: record.bodyFatPercent as number } : {}),
+      ...(hasMuscleMass ? { muscleMassKg: record.muscleMassKg as number } : {}),
       ...(measuredTimeLocal ? { bodyMetricMeasuredTimeLocal: measuredTimeLocal } : {})
     }
   };
@@ -2822,13 +2928,13 @@ function normalizeBodyMetricInput(
 
 async function defaultBodyMetricDdbSender(
   command: BodyMetricDdbCommand
-): Promise<{ Item?: Record<string, unknown> }> {
+): Promise<{ Item?: Record<string, unknown>; Attributes?: Record<string, unknown> }> {
   if (command instanceof GetCommand) {
     const result = await ddb.send(command);
     return { Item: result.Item as Record<string, unknown> | undefined };
   }
-  await ddb.send(command);
-  return {};
+  const result = await ddb.send(command);
+  return { Attributes: result.Attributes as Record<string, unknown> | undefined };
 }
 
 async function mapWithConcurrency<T, R>(
@@ -2858,6 +2964,9 @@ function conditionFieldAlias(field: BodyMetricWritableField): string {
   }
   if (field === "bodyFatPercent") {
     return "bodyFat";
+  }
+  if (field === "muscleMassKg") {
+    return "muscleMass";
   }
   if (field === "bodyMetricMeasuredTimeLocal") {
     return "measuredTime";
@@ -2914,12 +3023,38 @@ async function processBodyMetricRecord(
   const nextValues: Partial<Record<BodyMetricWritableField, number | string>> & { timeZoneId: string } = {
     ...(input.bodyWeightKg !== undefined ? { bodyWeightKg: input.bodyWeightKg } : {}),
     ...(input.bodyFatPercent !== undefined ? { bodyFatPercent: input.bodyFatPercent } : {}),
+    ...(input.muscleMassKg !== undefined ? { muscleMassKg: input.muscleMassKg } : {}),
     ...(input.bodyMetricMeasuredTimeLocal !== undefined
       ? { bodyMetricMeasuredTimeLocal: input.bodyMetricMeasuredTimeLocal }
       : {}),
     timeZoneId
   };
   const observedFields = Object.keys(nextValues) as BodyMetricWritableField[];
+  const conditionObservedFields = new Set(observedFields);
+  if (input.muscleMassKg !== undefined && input.bodyWeightKg === undefined) {
+    conditionObservedFields.add("bodyWeightKg");
+  }
+  if (input.bodyWeightKg !== undefined && input.muscleMassKg === undefined) {
+    conditionObservedFields.add("muscleMassKg");
+  }
+  const finalBodyWeightKg = input.bodyWeightKg ?? finiteNumber(currentItem.bodyWeightKg);
+  const finalMuscleMassKg = input.muscleMassKg ?? finiteNumber(currentItem.muscleMassKg);
+  if (
+    finalBodyWeightKg !== undefined &&
+    finalMuscleMassKg !== undefined &&
+    finalMuscleMassKg > finalBodyWeightKg
+  ) {
+    return failedBodyMetricResult(
+      index,
+      resultInput,
+      {
+        field: "muscleMassKg",
+        code: "INCONSISTENT_BODY_METRICS",
+        message: "muscleMassKg must not be greater than bodyWeightKg for the same date."
+      },
+      input.date
+    );
+  }
   const conflicts = observedFields.filter(
     (field) => Object.hasOwn(currentItem, field) && currentItem[field] !== nextValues[field]
   );
@@ -2953,6 +3088,7 @@ async function processBodyMetricRecord(
   const hasExistingBodyMetric = [
     "bodyWeightKg",
     "bodyFatPercent",
+    "muscleMassKg",
     "bodyMetricMeasuredTimeLocal"
   ].some((field) => Object.hasOwn(currentItem, field));
   const baseAction = hasExistingBodyMetric ? "updated" : "created";
@@ -2988,7 +3124,7 @@ async function processBodyMetricRecord(
   }
 
   const conditionExpressions: string[] = [];
-  for (const field of observedFields) {
+  for (const field of conditionObservedFields) {
     const alias = conditionFieldAlias(field);
     expressionAttributeNames[`#${alias}`] = field;
     if (Object.hasOwn(currentItem, field)) {

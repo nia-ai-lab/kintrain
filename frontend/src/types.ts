@@ -166,9 +166,10 @@ export interface TrainingSessionDraft {
 export interface DailyRecord {
   date: string;
   timeZoneId: string;
-  bodyWeightKg?: number;
-  bodyFatPercent?: number;
-  bodyMetricMeasuredTime?: string;
+  bodyWeightKg?: number | null;
+  bodyFatPercent?: number | null;
+  muscleMassKg?: number | null;
+  bodyMetricMeasuredTime?: string | null;
   conditionRating?: ConditionRating;
   moodRating?: MoodRating;
   conditionComment?: string;

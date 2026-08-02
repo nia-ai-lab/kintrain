@@ -237,6 +237,7 @@ function buildCoreMockData() {
         timeZoneId: 'Asia/Tokyo',
         bodyWeightKg: 69.8,
         bodyFatPercent: 17.5,
+        muscleMassKg: 52.1,
         bodyMetricMeasuredTimeLocal: '07:30',
         conditionRating: 7,
         moodRating: 8,
@@ -392,6 +393,9 @@ async function attachCoreApiMock(page) {
         createdAt: existingIndex >= 0 ? mock.dailyRecords[existingIndex].createdAt : now,
         updatedAt: now
       };
+      for (const field of ['bodyWeightKg', 'bodyFatPercent', 'muscleMassKg', 'bodyMetricMeasuredTimeLocal']) {
+        if (next[field] === null) delete record[field];
+      }
       if (existingIndex >= 0) {
         mock.dailyRecords[existingIndex] = record;
       } else {
@@ -1293,6 +1297,7 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
 
   await page.getByLabel('体重 (kg)').fill('69.8');
   await page.getByLabel('体脂肪率 (%)').fill('17.5');
+  await page.getByLabel('筋肉量 (kg)').fill('52.1');
   await page.getByLabel('測定時刻').fill('07:30');
   await page.getByRole('slider', { name: '体調' }).fill('7');
   await page.getByRole('slider', { name: '気分' }).fill('8');
@@ -1312,6 +1317,56 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
     .filter({ has: page.locator('.day-number', { hasText: String(dayNumber) }) })
     .first();
   await expect(todayCellAfter.locator('.calendar-rating-stripe').first()).toHaveAttribute('title', '体調 7/10');
+});
+
+test('iPhone幅で体重・体脂肪率・筋肉量が横一列に収まる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  for (const width of [320, 375, 390, 430]) {
+    await page.setViewportSize({ width, height: 844 });
+    await page.goto(`/daily/${state.todayYmd}`);
+
+    const metricInputs = page.locator('.body-metric-value-field input');
+    await expect(metricInputs).toHaveCount(3);
+    await expect(page.getByLabel('測定時刻')).toBeVisible();
+    const layout = await page.evaluate(() => {
+      const toBox = (element) => {
+        const { x, y, width: boxWidth, height } = element.getBoundingClientRect();
+        return { x, y, width: boxWidth, height };
+      };
+      return {
+        boxes: [...document.querySelectorAll('.body-metric-value-field input')].map(toBox),
+        timeBox: toBox(document.querySelector('.body-metrics-time-row input')),
+        viewportWidth: document.documentElement.clientWidth,
+        contentWidth: document.documentElement.scrollWidth
+      };
+    });
+    const { boxes, timeBox } = layout;
+    assert.ok(
+      Math.max(...boxes.map((box) => box.y)) - Math.min(...boxes.map((box) => box.y)) < 2,
+      `metric input alignment failed at ${width}px: ${JSON.stringify(boxes)}`
+    );
+    assert.ok(boxes.every((box) => box.width >= 72));
+    assert.ok(layout.contentWidth <= layout.viewportWidth);
+    assert.ok(timeBox.y > boxes[0].y + boxes[0].height);
+  }
+});
+
+test('Dailyで筋肉量を空欄に戻すと削除要求を送る', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto(`/daily/${state.todayYmd}`);
+
+  const requestPromise = page.waitForRequest((request) => {
+    if (request.method() !== 'PUT') return false;
+    if (!new URL(request.url()).pathname.endsWith(`/daily-records/${state.todayYmd}`)) return false;
+    return request.postDataJSON().muscleMassKg === null;
+  });
+  await page.getByLabel('筋肉量 (kg)').fill('');
+  await page.getByRole('button', { name: '保存', exact: true }).click();
+  const request = await requestPromise;
+  assert.equal(request.postDataJSON().muscleMassKg, null);
+  await expect(page.getByText('保存しました。')).toBeVisible();
 });
 
 test('AIチャットで送信とモック応答の表示ができる', async ({ page }) => {
@@ -1416,12 +1471,13 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 6);
+  assert.equal(exported.schemaVersion, 7);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);
   assert.equal(exported.coverage.recoveryExecutionCount, 0);
   assert.equal(exported.history.dailyRecords[0].bodyWeightKg, 69.8);
+  assert.equal(exported.history.dailyRecords[0].muscleMassKg, 52.1);
   assert.equal(exported.history.dailyRecords[0].mealNotes, '朝：卵とヨーグルト');
   assert.equal(exported.history.gymVisits[0].entries[0].trainingName, 'チェストプレス');
   assert.equal(exported.history.gymVisits[0].entries[0].weightInputMode, 'legacyUnspecified');

@@ -209,7 +209,7 @@ function ensureDailyRecord(data: AppData, date: string): DailyRecord {
   );
 }
 
-function normalizeMeasuredTime(value?: string): string | undefined {
+function normalizeMeasuredTime(value?: string | null): string | undefined {
   if (!value) {
     return undefined;
   }
@@ -669,6 +669,7 @@ function mapRemoteDailyRecord(
     timeZoneId?: string;
     bodyWeightKg?: number;
     bodyFatPercent?: number;
+    muscleMassKg?: number;
     bodyMetricMeasuredTimeLocal?: string;
     conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -697,6 +698,7 @@ function mapRemoteDailyRecord(
     timeZoneId: item.timeZoneId ?? fallbackTimeZoneId,
     bodyWeightKg: typeof item.bodyWeightKg === 'number' ? item.bodyWeightKg : undefined,
     bodyFatPercent: typeof item.bodyFatPercent === 'number' ? item.bodyFatPercent : undefined,
+    muscleMassKg: typeof item.muscleMassKg === 'number' ? item.muscleMassKg : undefined,
     bodyMetricMeasuredTime: normalizeMeasuredTime(item.bodyMetricMeasuredTimeLocal),
     conditionRating: normalizedConditionRating,
     moodRating: normalizedMoodRating,
@@ -771,9 +773,10 @@ function mapRemoteAiCharacterProfile(item: {
 }
 
 function toDailyRecordPayload(record: DailyRecord): {
-  bodyWeightKg?: number;
-  bodyFatPercent?: number;
-  bodyMetricMeasuredTimeLocal?: string;
+  bodyWeightKg?: number | null;
+  bodyFatPercent?: number | null;
+  muscleMassKg?: number | null;
+  bodyMetricMeasuredTimeLocal?: string | null;
   timeZoneId: string;
   conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -792,6 +795,7 @@ function toDailyRecordPayload(record: DailyRecord): {
   return {
     bodyWeightKg: record.bodyWeightKg,
     bodyFatPercent: record.bodyFatPercent,
+    muscleMassKg: record.muscleMassKg,
     bodyMetricMeasuredTimeLocal: record.bodyMetricMeasuredTime,
     timeZoneId: record.timeZoneId,
     conditionRating: record.conditionRating,
@@ -1149,7 +1153,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
               loadModelSnapshot: menuItem?.loadModel ?? 'external_load',
               classificationVersionSnapshot:
                 menuItem?.classificationVersion ?? MUSCLE_TAXONOMY_VERSION,
-              bodyWeightKgSnapshot: data.dailyRecords[date]?.bodyWeightKg,
+              bodyWeightKgSnapshot: data.dailyRecords[date]?.bodyWeightKg ?? undefined,
               equipmentTypeSnapshot: menuItem?.equipmentType ?? 'other',
               equipmentProfileIdSnapshot: menuItem?.equipmentProfileId,
               cableSettingsSnapshot: menuItem?.cableSettings,

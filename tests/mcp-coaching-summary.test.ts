@@ -51,10 +51,11 @@ test("coaching summary aggregates sets, streaks, trends, and recorded-sample ave
       }
     ],
     [
-      { recordDate: "2026-07-22", bodyWeightKg: 70 },
+      { recordDate: "2026-07-22", bodyWeightKg: 70, muscleMassKg: 52 },
       {
         recordDate: "2026-07-28",
         bodyWeightKg: 72,
+        muscleMassKg: 53,
         sleepHours: 7.5,
         fatigueLevel: 4,
         painAreas: [],
@@ -93,6 +94,8 @@ test("coaching summary aggregates sets, streaks, trends, and recorded-sample ave
   assert.equal(summary.exercises[0].elapsedDaysSinceLastPerformance, 0);
   assert.equal(summary.bodyMetrics.bodyWeightKg.sevenDay.average, 71);
   assert.equal(summary.bodyMetrics.bodyWeightKg.sevenDay.sampleCount, 2);
+  assert.equal(summary.bodyMetrics.muscleMassKg.sevenDay.average, 52.5);
+  assert.equal(summary.bodyMetrics.muscleMassKg.sevenDay.sampleCount, 2);
   assert.equal(summary.recentReadiness[0].sleepHours, 7.5);
   assert.equal(summary.recentReadiness[0].mealNotes, "昼：鶏肉とご飯");
 });

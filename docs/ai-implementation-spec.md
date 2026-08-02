@@ -203,7 +203,7 @@
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_daily_meal_notes(mealNotes, date?, timeZoneId?, mode?)`
 - `save_daily_readiness(date?, timeZoneId?, sleepHours?, sleepStartedAtLocal?, wokeUpAtLocal?, sleepQuality?, fatigueLevel?, motivationLevel?, muscleSorenessLevel?, restingHeartRate?, painAreas?)`
-- `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
+- `save_body_metrics(date, bodyWeightKg?, bodyFatPercent?, muscleMassKg?, bodyMetricMeasuredTimeLocal?, timeZoneId?)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `get_goal()`
 - `get_ai_character_profile()`
@@ -223,6 +223,7 @@
 `save_body_metrics_batch`:
 
 - 1回1〜100件の構造化レコードを受け付ける。
+- 各レコードは `bodyWeightKg`、`bodyFatPercent`、`muscleMassKg` の少なくとも1つを含み、省略項目は既存値を保持する。
 - AIは実登録前に `dryRun=true` で予定結果を確認する。
 - 正常レコードは保存し、入力不正・既存値との競合・個別書き込み失敗はレコード単位で失敗させる。
 - 応答は入力と同じ件数・順序の `results` を持ち、各行の `success` / `failed` と処理内容または失敗理由を返す。

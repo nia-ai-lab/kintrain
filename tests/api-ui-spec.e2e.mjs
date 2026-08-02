@@ -647,6 +647,7 @@ async function run() {
         body: {
           bodyWeightKg: 69.8,
           bodyFatPercent: 17.5,
+          muscleMassKg: 52.1,
           bodyMetricMeasuredTimeLocal: "18:45",
           bodyMetricMeasuredAtUtc: nowIsoSeconds(),
           bodyMetricMeasuredAtLocal: `${state.date}T18:45:00+09:00`,
@@ -660,6 +661,7 @@ async function run() {
       });
       assert.equal(res.status, 200);
       assert.equal(res.json.conditionRating, 4);
+      assert.equal(res.json.muscleMassKg, 52.1);
       assert.equal(res.json.mealNotes, "朝：卵とヨーグルト\n昼：鶏肉とご飯");
     });
 

@@ -1282,6 +1282,7 @@ a {
 }
 
 .input-grid.body-metrics-grid {
+  align-items: end;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 6px;
   width: 100%;
@@ -1290,6 +1291,22 @@ a {
 
 .input-grid.body-metrics-grid > label {
   min-width: 0;
+}
+
+.body-metric-label {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+}
+
+.body-metric-unit {
+  color: var(--muted);
+  font-size: 0.85em;
+}
+
+.input-grid.body-metrics-grid > .body-metrics-time-row {
+  grid-column: 1 / -1;
+  max-width: 220px;
 }
 
 .input-grid.body-metrics-grid input {
@@ -1397,8 +1414,29 @@ a {
     font-size: 0.8rem;
   }
 
+  .input-grid.body-metrics-grid .body-metric-value-field {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .input-grid.body-metrics-grid .body-metric-label {
+    display: grid;
+    align-content: end;
+    flex: 0 0 2.4em;
+    gap: 0;
+    height: 2.4em;
+    min-height: 2.4em;
+    line-height: 1.15;
+  }
+
   .input-grid.body-metrics-grid input {
     padding: 8px 8px;
+    min-height: 44px;
+  }
+
+  .input-grid.body-metrics-grid > .body-metrics-time-row {
+    max-width: none;
   }
 
   .ai-menu-generation-grid {

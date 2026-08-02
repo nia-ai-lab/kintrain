@@ -109,44 +109,70 @@ export function DailyPage() {
       </section>
 
       <section className="card daily-section-card">
-        <h2>体重・体脂肪率</h2>
+        <h2>体組成</h2>
         <div className="input-grid body-metrics-grid">
-          <label>
-            体重 (kg)
+          <label className="body-metric-value-field">
+            <span className="body-metric-label">
+              <span>体重</span>
+              <span className="body-metric-unit"> (kg)</span>
+            </span>
             <input
               type="number"
-              min={0}
+              min={0.01}
               step={0.1}
+              inputMode="decimal"
               value={record.bodyWeightKg ?? ''}
               onChange={(e) =>
                 saveDailyRecord(targetDate, {
-                  bodyWeightKg: e.target.value ? Number(e.target.value) : undefined
+                  bodyWeightKg: e.target.value ? Number(e.target.value) : null
                 })
               }
             />
           </label>
-          <label>
-            体脂肪率 (%)
+          <label className="body-metric-value-field">
+            <span className="body-metric-label">
+              <span>体脂肪率</span>
+              <span className="body-metric-unit"> (%)</span>
+            </span>
             <input
               type="number"
               min={0}
               step={0.1}
+              inputMode="decimal"
               value={record.bodyFatPercent ?? ''}
               onChange={(e) =>
                 saveDailyRecord(targetDate, {
-                  bodyFatPercent: e.target.value ? Number(e.target.value) : undefined
+                  bodyFatPercent: e.target.value ? Number(e.target.value) : null
                 })
               }
             />
           </label>
-          <label className="body-time-field">
+          <label className="body-metric-value-field">
+            <span className="body-metric-label">
+              <span>筋肉量</span>
+              <span className="body-metric-unit"> (kg)</span>
+            </span>
+            <input
+              type="number"
+              min={0.01}
+              step={0.1}
+              inputMode="decimal"
+              value={record.muscleMassKg ?? ''}
+              onChange={(e) =>
+                saveDailyRecord(targetDate, {
+                  muscleMassKg: e.target.value ? Number(e.target.value) : null
+                })
+              }
+            />
+          </label>
+          <label className="body-time-field body-metrics-time-row">
             測定時刻
             <input
               type="time"
               value={record.bodyMetricMeasuredTime ?? ''}
               onChange={(e) =>
                 saveDailyRecord(targetDate, {
-                  bodyMetricMeasuredTime: e.target.value || undefined
+                  bodyMetricMeasuredTime: e.target.value || null
                 })
               }
             />

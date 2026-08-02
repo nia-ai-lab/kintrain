@@ -61,6 +61,7 @@ function normalizeDailyRecord(item: DailyRecordDto) {
     timeZoneId: nullableString(item.timeZoneId),
     bodyWeightKg: nullableNumber(item.bodyWeightKg),
     bodyFatPercent: nullableNumber(item.bodyFatPercent),
+    muscleMassKg: nullableNumber(item.muscleMassKg),
     bodyMetricMeasuredTimeLocal: nullableString(item.bodyMetricMeasuredTimeLocal),
     conditionRating: nullableNumber(item.conditionRating),
     moodRating: nullableNumber(item.moodRating),
@@ -239,7 +240,7 @@ export async function createAnalysisExport(
 
   const result = {
     schema: 'kintrain.analysis-export',
-    schemaVersion: 6,
+    schemaVersion: 7,
     generatedAtUtc: new Date().toISOString(),
     selection: {
       rangeMode: range.rangeMode,

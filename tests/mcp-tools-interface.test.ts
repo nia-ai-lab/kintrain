@@ -9,6 +9,7 @@ import {
   type TrainingMenuLookupSender,
   decodeNextToken,
   isValidBodyFatPercent,
+  isValidMuscleMassKg,
   isValidBodyWeightKg,
   localDateInclusiveUpperKey,
   localDateStartUtc,
@@ -25,6 +26,7 @@ import {
   resolveRecordDate,
   resolveTrainingMenuForHistory,
   resolveTimeZoneId,
+  saveBodyMetrics,
   saveBodyMetricsBatch,
   trainingMenuItemVersion
 } from "../amplify/functions/mcp-tools-api/handler.ts";
@@ -77,12 +79,19 @@ function createMemoryBodyMetricSender(
       if (Object.hasOwn(values, nextKey)) {
         item[field] = values[nextKey];
       }
+      if (/^#field\d+$/.test(alias)) {
+        const fieldValueKey = `:${shortAlias}`;
+        if (Object.hasOwn(values, fieldValueKey)) {
+          item[field] = values[fieldValueKey];
+        }
+      }
     }
     item.createdAt ??= values[":timestamp"];
     item.updatedAt = values[":timestamp"];
     item.otherActivities ??= values[":emptyActivities"];
+    item.timeZoneId ??= values[":defaultTimeZoneId"];
     records.set(date, item);
-    return {};
+    return { Attributes: structuredClone(item) };
   };
   return {
     records,
@@ -125,6 +134,10 @@ test("body metric values enforce the supported numeric ranges", () => {
   assert.equal(isValidBodyFatPercent(100), true);
   assert.equal(isValidBodyFatPercent(100.1), false);
   assert.equal(isValidBodyFatPercent(14.123), false);
+  assert.equal(isValidMuscleMassKg(52.1), true);
+  assert.equal(isValidMuscleMassKg(0), false);
+  assert.equal(isValidMuscleMassKg(500.01), false);
+  assert.equal(isValidMuscleMassKg(52.123), false);
 });
 
 test("AI menu weight accepts zero and rejects negative values", () => {
@@ -189,8 +202,10 @@ test("MCP read responses expose only allowlisted database fields", () => {
     ...internalFields,
     recordDate: "2026-07-26",
     bodyWeightKg: 70,
+    muscleMassKg: 52.1,
     diary: "記録"
   });
+  assert.equal(daily.muscleMassKg, 52.1);
   const goal = normalizeGoalForMcp({
     ...internalFields,
     targetWeightKg: 68,
@@ -422,7 +437,7 @@ test("analysis export schemas expose manifest and section paging without set det
   ]);
   assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
   const handlerSource = await readFile("amplify/functions/mcp-tools-api/handler.ts", "utf8");
-  assert.match(handlerSource, /schemaVersion: 6/);
+  assert.match(handlerSource, /schemaVersion: 7/);
   assert.match(handlerSource, /actualDurationMinutes/);
   assert.match(handlerSource, /planRelationAtRegistration/);
   assert.match(handlerSource, /muscleTargets/);
@@ -552,7 +567,7 @@ test("analysis export selection requires a complete range or explicit all-availa
   assert.ok("response" in reversed);
 });
 
-test("body metrics schema requires the four Core API measurement fields", async () => {
+test("single body metrics schema supports partial muscle-mass updates", async () => {
   const schemas = JSON.parse(
     await readFile("amplify/agentcore/tool-schemas/mcp-tools.json", "utf8")
   ) as Array<{
@@ -561,13 +576,31 @@ test("body metrics schema requires the four Core API measurement fields", async 
   }>;
   const schema = schemas.find((candidate) => candidate.name === "save_body_metrics");
   assert.ok(schema, "save_body_metrics schema is missing");
-  assert.deepEqual(schema.inputSchema.required, [
-    "bodyWeightKg",
-    "bodyFatPercent",
-    "date",
-    "bodyMetricMeasuredTimeLocal"
-  ]);
+  assert.deepEqual(schema.inputSchema.required, ["date"]);
+  assert.ok(Object.hasOwn(schema.inputSchema.properties, "muscleMassKg"));
   assert.ok(Object.hasOwn(schema.inputSchema.properties, "timeZoneId"));
+});
+
+test("single body metrics adds muscle mass without replacing existing Daily fields", async () => {
+  const memory = createMemoryBodyMetricSender({
+    "2026-07-20": {
+      bodyWeightKg: 70,
+      bodyFatPercent: 18,
+      diary: "keep this diary"
+    }
+  });
+
+  const response = await saveBodyMetrics(
+    { date: "2026-07-20", muscleMassKg: 52.1 },
+    "user-a",
+    { send: memory.send }
+  );
+  const item = response.item as JsonObject;
+
+  assert.equal(item.muscleMassKg, 52.1);
+  assert.equal(memory.records.get("2026-07-20")?.bodyWeightKg, 70);
+  assert.equal(memory.records.get("2026-07-20")?.bodyFatPercent, 18);
+  assert.equal(memory.records.get("2026-07-20")?.diary, "keep this diary");
 });
 
 test("AI menu schema declares zero as the minimum weight", async () => {
@@ -634,6 +667,7 @@ test("batch body metrics schema exposes partial-success inputs without public id
   assert.equal(schema.inputSchema.properties.records.items?.type, "object");
   assert.equal(schema.inputSchema.properties.records.items?.additionalProperties, true);
   assert.ok(Object.hasOwn(schema.inputSchema.properties.records.items?.properties ?? {}, "date"));
+  assert.ok(Object.hasOwn(schema.inputSchema.properties.records.items?.properties ?? {}, "muscleMassKg"));
   for (const property of ["records", "timeZoneId", "conflictPolicy", "dryRun"]) {
     assert.ok(Object.hasOwn(schema.inputSchema.properties, property), `${property} is missing`);
   }
@@ -765,6 +799,59 @@ test("batch body metrics overwrite is idempotent and keeps unrelated Daily field
   assert.equal(memory.records.get("2026-07-20")?.bodyFatPercent, 18);
   assert.equal(memory.records.get("2026-07-20")?.diary, "keep this diary");
   assert.equal(memory.records.get("2026-07-20")?.moodRating, 8);
+});
+
+test("batch body metrics adds muscle mass to existing weight and fat records", async () => {
+  const memory = createMemoryBodyMetricSender({
+    "2026-07-20": {
+      bodyWeightKg: 70,
+      bodyFatPercent: 18,
+      timeZoneId: "Asia/Tokyo",
+      diary: "keep this diary"
+    }
+  });
+  const response = await saveBodyMetricsBatch(
+    {
+      records: [{ date: "2026-07-20", muscleMassKg: 52.1 }],
+      conflictPolicy: "reject",
+      dryRun: false
+    },
+    "user-a",
+    {
+      now: new Date("2026-07-23T03:00:00Z"),
+      send: memory.send,
+      logger: silentLogger
+    }
+  );
+
+  assert.equal((response.results as Array<JsonObject>)[0].action, "updated");
+  assert.equal(memory.records.get("2026-07-20")?.muscleMassKg, 52.1);
+  assert.equal(memory.records.get("2026-07-20")?.bodyWeightKg, 70);
+  assert.equal(memory.records.get("2026-07-20")?.bodyFatPercent, 18);
+  assert.equal(memory.records.get("2026-07-20")?.diary, "keep this diary");
+});
+
+test("batch body metrics rejects muscle mass greater than the same-day weight", async () => {
+  const memory = createMemoryBodyMetricSender({
+    "2026-07-20": { bodyWeightKg: 70, timeZoneId: "Asia/Tokyo" }
+  });
+  const response = await saveBodyMetricsBatch(
+    {
+      records: [{ date: "2026-07-20", muscleMassKg: 71 }],
+      dryRun: true
+    },
+    "user-a",
+    {
+      now: new Date("2026-07-23T03:00:00Z"),
+      send: memory.send,
+      logger: silentLogger
+    }
+  );
+
+  const result = (response.results as Array<JsonObject>)[0];
+  assert.equal(result.status, "failed");
+  assert.equal((result.error as JsonObject).code, "INCONSISTENT_BODY_METRICS");
+  assert.equal(memory.updateCount(), 0);
 });
 
 test("batch body metrics rejects request-level errors before processing records", async () => {

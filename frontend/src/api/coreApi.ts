@@ -228,6 +228,7 @@ export type DailyRecordDto = {
   timeZoneId?: string;
   bodyWeightKg?: number;
   bodyFatPercent?: number;
+  muscleMassKg?: number;
   bodyMetricMeasuredTimeLocal?: string;
   conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -772,9 +773,10 @@ export async function getTrainingSessionView(date: string, trainingMenuSetId?: s
 export async function putDailyRecord(
   date: string,
   input: Partial<{
-    bodyWeightKg: number;
-    bodyFatPercent: number;
-    bodyMetricMeasuredTimeLocal: string;
+    bodyWeightKg: number | null;
+    bodyFatPercent: number | null;
+    muscleMassKg: number | null;
+    bodyMetricMeasuredTimeLocal: string | null;
     timeZoneId: string;
     conditionRating: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
     moodRating: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;

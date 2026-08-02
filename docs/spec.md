@@ -89,8 +89,8 @@
 - `TrainingHistory`: 確定済みトレーニング実施履歴の集合（`GymVisit` + `ExerciseEntry`）
 - `TrainingPerformance`: 確定済み `ExerciseEntry` を1種目1件で保持する読取最適化モデル
 - `LastPerformanceSnapshot`: 各 `TrainingMenuItem` の直近実績を保持する読取最適化用サマリ
-- `BodyMetric`: 体重・体脂肪率の記録
-- `DailyRecord`: 日付単位の総合記録（体重/体脂肪率、体調、気分、回復状態、食事メモ、日記、その他トレーニング）
+- `BodyMetric`: 体重・体脂肪率・筋肉量の記録
+- `DailyRecord`: 日付単位の総合記録（体重/体脂肪率/筋肉量、体調、気分、回復状態、食事メモ、日記、その他トレーニング）
 - `OtherActivity`: フリー入力のその他トレーニング記録（例: ジョギング1km）
 - `Goal`: 目標体重・目標体脂肪率
 - `Advice`: AI提案結果
@@ -206,7 +206,7 @@
 
 ### 5.5 体組成管理
 
-- 体重・体脂肪率を日次記録できること。
+- 体重・体脂肪率・筋肉量を日次記録できること。
 - 目標体重・目標体脂肪率を保持できること。
 - 体組成推移を参照できること。
 
@@ -216,6 +216,7 @@
 - `DailyRecord` は以下を保持できること。
 - `bodyWeightKg`（任意）
 - `bodyFatPercent`（任意）
+- `muscleMassKg`（任意、kg）
 - `bodyMetricMeasuredTimeLocal`（`HH:mm`、UI入力値）
 - `timeZoneId`（IANA、例: `Asia/Tokyo`）
 - 体調10段階評価（1:低い, 10:高い）
@@ -238,7 +239,7 @@
 - 1ヶ月単位カレンダーで「筋トレ実施日」のみ識別できること。
 - カレンダーセルに体調・気分を上下2本の色バーで表示できること。
 - 日付タップで `Daily` 画面へ遷移できること。
-- `Daily` 画面で当日の筋トレ内容、体重・体脂肪率、日記、食事メモ、体調、気分、その他トレーニングを確認/更新できること。
+- `Daily` 画面で当日の筋トレ内容、体重・体脂肪率・筋肉量、日記、食事メモ、体調、気分、その他トレーニングを確認/更新できること。
 - カレンダー上で体調・気分を色で視覚的に確認できること。
 
 ### 5.8 AIアドバイス/チャット
@@ -545,6 +546,7 @@
 - 主な属性:
 - `bodyWeightKg`
 - `bodyFatPercent`
+- `muscleMassKg`
 - `bodyMetricMeasuredAtUtc`
 - `bodyMetricMeasuredAtLocal`
 - `bodyMetricMeasuredTimeLocal`
@@ -700,7 +702,7 @@
 - MCPの履歴一覧3ツールは `from/to/timeZoneId/limit/nextToken` を共通採用し、`limit <= 100`（既定100）でページングする。
 - Core APIとMCPの`nextToken`は署名付きversion 2形式を共通採用し、内部`userId`を格納しない。署名を認証済みユーザーと検索条件に関連付け、改ざん・別ユーザー・別条件への流用および旧形式を拒否する。
 - 分析用エクスポート:
-- ブラウザーはCore APIを全ページ取得し、`kintrain.analysis-export` schema version 1のJSONを生成する。
+- ブラウザーはCore APIを全ページ取得し、`kintrain.analysis-export` schema version 7のJSONを生成する。
 - MCPは`get_analysis_export_manifest`と`get_analysis_export_page`を提供し、セクションごとに`limit <= 50`でページングする。
 - 詳細は`docs/analysis-export-spec.md`を正本とする。
 - 次フェーズの目標:
@@ -757,7 +759,7 @@
 - `save_daily_diary(date, diary, mode, timeZoneId)`
 - `save_daily_meal_notes(mealNotes, date?, timeZoneId?, mode?)`
 - `save_daily_readiness(date?, timeZoneId?, sleepHours?, sleepStartedAtLocal?, wokeUpAtLocal?, sleepQuality?, fatigueLevel?, motivationLevel?, muscleSorenessLevel?, restingHeartRate?, painAreas?)`
-- `save_body_metrics(bodyWeightKg, bodyFatPercent, date, bodyMetricMeasuredTimeLocal, timeZoneId)`
+- `save_body_metrics(date, bodyWeightKg?, bodyFatPercent?, muscleMassKg?, bodyMetricMeasuredTimeLocal?, timeZoneId?)`
 - `save_body_metrics_batch(records, timeZoneId, conflictPolicy, dryRun)`
 - `list_training_menu_items(query?, includeInactive?, onlyAiGenerated?, limit?, nextToken?)`
 - `update_training_menu_item(trainingMenuItemId, expectedVersion, idempotencyKey, ..., dryRun?, updateReason?, userConfirmed?)`
@@ -839,9 +841,9 @@
 - カレンダーで日別の実施内容を確認できること。
 - 体調・気分を10段階+コメントで記録できること。
 - 体調・気分をグラデーションスライダーで記録できること。
-- `Daily` 画面で当日の体重・体脂肪率・日記・食事メモ・体調・気分・その他トレーニングを更新できること。
+- `Daily` 画面で当日の体重・体脂肪率・筋肉量・日記・食事メモ・体調・気分・その他トレーニングを更新できること。
 - 前日実施トレーニングを当日画面で確認できること。
-- 体重/体脂肪率推移を表示できること。
+- 体重/体脂肪率/筋肉量の記録を分析へ利用できること。
 - AI提案カードとチャット応答が動作すること。
 - AIキャラクター（名前/口調）が設定・反映できること。
 - AIキャラクターアイコンは `default` 画像が表示されること。

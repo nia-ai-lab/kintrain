@@ -29,7 +29,7 @@
   - セットごとの目標重量・回数レンジ・セット数・推奨間隔
   - 日付ごとのトレーニング計画（`DailyTrainingPlan`）
 - Daily記録
-  - 体重・体脂肪率・測定時刻
+  - 体重・体脂肪率・筋肉量・測定時刻
   - 体調/気分（10段階）・コメント・日記・その他運動
   - 睡眠時間・睡眠の質・疲労度・やる気・筋肉痛・安静時心拍数
   - 痛み・違和感の部位別記録、食事内容・栄養メモ
@@ -152,7 +152,7 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
 - AI実装仕様: `docs/ai-implementation-spec.md`
 - AWSアーキテクチャ図: `docs/kintrain-architecture.svg` / `docs/kintrain-architecture.png`
 - MCPユーザー境界セキュリティ設計: `docs/mcp-security-design.md`
-- MCP体重・体脂肪率一括登録要件: `docs/mcp-body-metrics-bulk-registration-requirements.md`
+- MCP体組成一括登録要件: `docs/mcp-body-metrics-bulk-registration-requirements.md`
 - ChatGPT MCP接続: `docs/chatgpt-mcp-connection.md`
 - Claude MCP接続: `docs/claude-mcp-connection.md`
 - ビルド・デプロイ手順: `docs/deployment.md`

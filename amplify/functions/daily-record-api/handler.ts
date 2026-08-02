@@ -11,11 +11,12 @@ const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
 const goalTableName = process.env.GOAL_TABLE_NAME ?? "";
 
 type DailyRecordInput = {
-  bodyWeightKg?: number;
-  bodyFatPercent?: number;
+  bodyWeightKg?: number | null;
+  bodyFatPercent?: number | null;
+  muscleMassKg?: number | null;
   bodyMetricMeasuredAtUtc?: string;
   bodyMetricMeasuredAtLocal?: string;
-  bodyMetricMeasuredTimeLocal?: string;
+  bodyMetricMeasuredTimeLocal?: string | null;
   timeZoneId?: string;
   conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
   moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
@@ -70,6 +71,22 @@ function isFiniteNumberBetween(value: unknown, minimum: number, maximum: number)
   return typeof value === "number" && Number.isFinite(value) && value >= minimum && value <= maximum;
 }
 
+function hasAtMostTwoDecimalPlaces(value: number): boolean {
+  return Math.abs(value * 100 - Math.round(value * 100)) < 1e-8;
+}
+
+function isValidBodyWeightKg(value: unknown): value is number {
+  return isFiniteNumberBetween(value, 0.01, 500) && hasAtMostTwoDecimalPlaces(value);
+}
+
+function isValidBodyFatPercent(value: unknown): value is number {
+  return isFiniteNumberBetween(value, 0, 100) && hasAtMostTwoDecimalPlaces(value);
+}
+
+function isValidMuscleMassKg(value: unknown): value is number {
+  return isFiniteNumberBetween(value, 0.01, 500) && hasAtMostTwoDecimalPlaces(value);
+}
+
 export function hasValidPainAreas(value: unknown): value is NonNullable<DailyRecordInput["painAreas"]> {
   return (
     Array.isArray(value) &&
@@ -116,6 +133,39 @@ async function putDailyRecord(
   const body = parseBody<DailyRecordInput>(event);
   if (!body) {
     return response(400, { message: "Invalid JSON body." });
+  }
+
+  if (
+    body.bodyWeightKg !== undefined &&
+    body.bodyWeightKg !== null &&
+    !isValidBodyWeightKg(body.bodyWeightKg)
+  ) {
+    return response(400, {
+      message: "bodyWeightKg must be greater than 0 and at most 500 with no more than 2 decimal places."
+    });
+  }
+  if (
+    body.bodyFatPercent !== undefined &&
+    body.bodyFatPercent !== null &&
+    !isValidBodyFatPercent(body.bodyFatPercent)
+  ) {
+    return response(400, { message: "bodyFatPercent must be between 0 and 100 with no more than 2 decimal places." });
+  }
+  if (
+    body.muscleMassKg !== undefined &&
+    body.muscleMassKg !== null &&
+    !isValidMuscleMassKg(body.muscleMassKg)
+  ) {
+    return response(400, {
+      message: "muscleMassKg must be greater than 0 and at most 500 with no more than 2 decimal places."
+    });
+  }
+  if (
+    body.bodyMetricMeasuredTimeLocal !== undefined &&
+    body.bodyMetricMeasuredTimeLocal !== null &&
+    !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(body.bodyMetricMeasuredTimeLocal)
+  ) {
+    return response(400, { message: "bodyMetricMeasuredTimeLocal must be HH:mm in 24-hour format." });
   }
 
   if (body.conditionRating !== undefined && !isTenPointRating(body.conditionRating)) {
@@ -173,6 +223,20 @@ async function putDailyRecord(
     })
   );
 
+  const finalBodyWeightKg = body.bodyWeightKg === null
+    ? undefined
+    : body.bodyWeightKg ?? (current.Item?.bodyWeightKg as number | undefined);
+  const finalMuscleMassKg = body.muscleMassKg === null
+    ? undefined
+    : body.muscleMassKg ?? (current.Item?.muscleMassKg as number | undefined);
+  if (
+    typeof finalBodyWeightKg === "number" &&
+    typeof finalMuscleMassKg === "number" &&
+    finalMuscleMassKg > finalBodyWeightKg
+  ) {
+    return response(400, { message: "muscleMassKg must not be greater than bodyWeightKg for the same date." });
+  }
+
   const ts = nowIsoSeconds();
   const item = {
     ...defaultDailyRecord(userId, recordDate),
@@ -183,6 +247,11 @@ async function putDailyRecord(
     createdAt: current.Item?.createdAt ?? ts,
     updatedAt: ts
   };
+  for (const field of ["bodyWeightKg", "bodyFatPercent", "muscleMassKg", "bodyMetricMeasuredTimeLocal"] as const) {
+    if (body[field] === null) {
+      delete item[field];
+    }
+  }
 
   await ddb.send(
     new PutCommand({

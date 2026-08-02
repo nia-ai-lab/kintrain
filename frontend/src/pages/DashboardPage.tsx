@@ -91,11 +91,15 @@ export function DashboardPage() {
           <div className="dashboard-summary-row">
             <div className="dashboard-summary-chip">
               <span className="dashboard-summary-label">体重</span>
-              <strong>{todayRecord?.bodyWeightKg ? `${todayRecord.bodyWeightKg} kg` : '未入力'}</strong>
+              <strong>{typeof todayRecord?.bodyWeightKg === 'number' ? `${todayRecord.bodyWeightKg} kg` : '未入力'}</strong>
             </div>
             <div className="dashboard-summary-chip">
               <span className="dashboard-summary-label">体脂肪率</span>
-              <strong>{todayRecord?.bodyFatPercent ? `${todayRecord.bodyFatPercent} %` : '未入力'}</strong>
+              <strong>{typeof todayRecord?.bodyFatPercent === 'number' ? `${todayRecord.bodyFatPercent} %` : '未入力'}</strong>
+            </div>
+            <div className="dashboard-summary-chip">
+              <span className="dashboard-summary-label">筋肉量</span>
+              <strong>{typeof todayRecord?.muscleMassKg === 'number' ? `${todayRecord.muscleMassKg} kg` : '未入力'}</strong>
             </div>
             <div className="dashboard-summary-chip">
               <span className="dashboard-summary-label">体調</span>
