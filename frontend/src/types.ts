@@ -23,6 +23,9 @@ export interface SetDetail {
 export interface TrainingMenuItem {
   id: string;
   trainingName: string;
+  itemKind: 'training' | 'recovery';
+  standardDurationMinutes?: number;
+  isSystemProvided?: boolean;
   exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
   movementFamily: MovementFamily;
@@ -67,9 +70,9 @@ export interface TrainingMenuSet {
   isAiGenerated: boolean;
   setType: 'reusable' | 'temporary';
   source: 'manual' | 'ai';
+  menuSetKind: 'training' | 'recovery';
   validFromDate?: string;
   validToDate?: string;
-  restDates: string[];
   isActive: boolean;
   version: number;
   itemIds: string[];
@@ -87,6 +90,7 @@ export interface TrainingMenuSetItem {
   targetSets: number;
   recommendedIntervalDays: TrainingFrequencyDays;
   instruction: string;
+  targetDurationMinutes?: number;
   createdBy: 'manual' | 'ai';
 }
 

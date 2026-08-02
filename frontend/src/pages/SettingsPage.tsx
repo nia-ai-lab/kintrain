@@ -679,7 +679,7 @@ export function SettingsPage() {
                 anchor.remove();
                 URL.revokeObjectURL(downloadUrl);
                 setExportStatus(
-                  `ダウンロードしました。デイリー記録 ${exportData.coverage.dailyRecordCount}件、ジム記録 ${exportData.coverage.gymVisitCount}件`
+                  `ダウンロードしました。デイリー記録 ${exportData.coverage.dailyRecordCount}件、トレーニング記録 ${exportData.coverage.gymVisitCount}件、リカバリー記録 ${exportData.coverage.recoveryExecutionCount}件`
                 );
               } catch (error) {
                 setExportStatus(error instanceof Error ? error.message : '分析用データの出力に失敗しました。');

@@ -156,13 +156,13 @@ function buildFixedInstruction(
     '- 重量は 0 以上とし、自重種目は追加重量なしを 0kg で表してよい。',
     '- 頻度は 1..8 の整数で表すこと。1 は毎日、8 は 8日+ を意味する。',
     '- 1回のツール呼び出しでは、指定した有効期間のトレーニング日に共通して使う1つの一時メニューセットを登録すること。',
-    '- 週間頻度と有効期間から完全休息日を具体的な日付で決め、create_temporary_training_menu_set_from_ai の restDates に渡すこと。休息日を空欄や未登録日にしてはならない。',
-    '- 軽いストレッチや散歩などを実施する日は完全休息日ではなく、必要に応じて通常の回復メニューとして扱うこと。',
+    '- 回復を目的とする日は、リカバリー項目とリカバリーセットとして提案すること。完全に何もしない日は「完全休養」項目を使うこと。',
+    '- 各セットを実施する具体的な日付を scheduledDates に指定し、未登録日を休養扱いしないこと。',
     '- 日によって内容を変える場合は、重ならない有効期間に分け、必要な回数だけ登録ツールを呼び出してよい。',
     '- 複数日を束ねる計画オブジェクトは作らず、各一時メニューセットの有効期間で表現すること。',
     '- トレーニング名は純粋な種目名だけにすること。ジム名、AI、プラン名、曜日名、連番など不要な接頭辞・接尾辞を入れてはならない。',
     '- 一時セットはデフォルトセットにしないこと。',
-    '- 登録には create_temporary_training_menu_set_from_ai を使い、validFromDate、validToDate、restDates と一意な idempotencyKey を必ず渡すこと。',
+    '- 登録には create_temporary_training_menu_set_from_ai を使い、menuSetKind、validFromDate、validToDate、scheduledDates と一意な idempotencyKey を必ず渡すこと。',
     '- 期間内に既存の一時メニューがあるとツールが返した場合、ユーザーへ置き換え確認を行い、承認後だけ replaceExistingPlan=true で再実行すること。',
     '',
     '今回の作成条件:',
@@ -484,7 +484,7 @@ export function TrainingMenuAiGeneratePage() {
     if (!session || !isAuthenticated || isStreaming) {
       return;
     }
-    const command = `現在の提案内容を ${form.validFromDate} から ${form.validToDate} まで有効な一時メニューセットとして登録してください。完全休息日は具体的な日付をrestDatesに入れ、未登録日にしないでください。既存種目はIDで再利用し、該当する既存種目がない場合だけ新規種目を作成してください。一意なidempotencyKeyを生成し、create_temporary_training_menu_set_from_aiで登録してください。`;
+    const command = `現在の提案内容を ${form.validFromDate} から ${form.validToDate} まで有効な一時メニューセットとして登録してください。各セットにmenuSetKindと具体的なscheduledDatesを指定し、回復日はリカバリーセットとして登録してください。既存項目はIDで再利用し、該当する既存項目がない場合だけ新規項目を作成してください。一意なidempotencyKeyを生成し、create_temporary_training_menu_set_from_aiで登録してください。`;
     await sendToRuntime({
       userFacingMessage: command,
       runtimeMessage: buildRuntimeMessage(form, command, existingTrainingNames, existingSetNames, form.validFromDate, form.validToDate),

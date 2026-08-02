@@ -60,7 +60,13 @@ function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error && error.message ? error.message : fallback;
 }
 
-function validatePrescription(item: SetItemDraft): string | null {
+function validatePrescription(item: SetItemDraft, kind: 'training' | 'recovery'): string | null {
+  if (kind === 'recovery') {
+    if (item.targetDurationMinutes !== undefined && (!Number.isInteger(item.targetDurationMinutes) || item.targetDurationMinutes < 1 || item.targetDurationMinutes > 1440)) {
+      return '目標時間は1〜1440分で入力してください。';
+    }
+    return null;
+  }
   if (!Number.isFinite(item.targetWeightKg) || item.targetWeightKg < 0) {
     return '目標重量は0以上で入力してください。';
   }
@@ -72,33 +78,6 @@ function validatePrescription(item: SetItemDraft): string | null {
     return '回数とセット数を確認してください。';
   }
   return null;
-}
-
-function enumerateDates(validFromDate: string, validToDate: string): string[] {
-  if (!validFromDate || !validToDate || validFromDate > validToDate) {
-    return [];
-  }
-  const start = new Date(`${validFromDate}T00:00:00Z`);
-  const dates: string[] = [];
-  for (let offset = 0; offset < 31; offset += 1) {
-    const current = new Date(start);
-    current.setUTCDate(start.getUTCDate() + offset);
-    const date = current.toISOString().slice(0, 10);
-    if (date > validToDate) return dates;
-    dates.push(date);
-  }
-  return [];
-}
-
-async function confirmValidityReplacement(validFromDate: string, validToDate: string, nextSetId?: string): Promise<boolean> {
-  const dates = enumerateDates(validFromDate, validToDate);
-  if (!dates.length) {
-    throw new Error('有効期間は開始日から31日以内で指定してください。');
-  }
-  const plans = await Promise.all(dates.map((date) => getDailyTrainingPlan(date)));
-  const conflicts = plans.filter((plan) => plan && plan.trainingMenuSetId !== nextSetId);
-  if (!conflicts.length) return true;
-  return window.confirm('指定期間には別の一時メニューがあります。新しいメニューに置き換えますか？');
 }
 
 async function confirmDailyPlanReplacement(date: string, nextSetId?: string): Promise<boolean> {
@@ -151,8 +130,8 @@ export function TrainingMenuPage() {
       <section className="card training-menu-header-card stack-md">
         <div className="row-between menu-page-head">
           <div>
-            <h1>トレーニングメニュー</h1>
-            <p className="muted">セットごとの目標と、共有する種目を分けて管理します。</p>
+            <h1>メニュー</h1>
+            <p className="muted">トレーニングとリカバリーを、同じ流れで管理します。</p>
           </div>
           <Link to="/training-menu/ai-generate" className="btn primary menu-generate-button">
             AIで一時メニューを作る
@@ -171,7 +150,7 @@ export function TrainingMenuPage() {
             className={`btn ${tab === 'items' ? 'primary' : 'subtle'}`}
             onClick={() => setTab('items')}
           >
-            種目一覧
+            メニュー項目
           </button>
         </div>
         {(status || coreDataError) && <p className="status-text">{status || coreDataError}</p>}
@@ -216,6 +195,7 @@ function SetManagement({
 }) {
   const [newSetName, setNewSetName] = useState('');
   const [newSetType, setNewSetType] = useState<'reusable' | 'temporary'>('reusable');
+  const [newSetKind, setNewSetKind] = useState<'training' | 'recovery'>('training');
   const [newValidFromDate, setNewValidFromDate] = useState(today);
   const [newValidToDate, setNewValidToDate] = useState(today);
 
@@ -235,11 +215,10 @@ function SetManagement({
               <small>
                 {set.setType === 'temporary' ? '一時' : '恒常'}
                 {set.source === 'ai' ? '・AI作成' : ''}
-                {set.isDefault ? '・デフォルト' : ''}・{set.items.length}種目
+                {set.isDefault ? '・デフォルト' : ''}・{set.menuSetKind === 'recovery' ? 'リカバリー' : 'トレーニング'}・{set.items.length}{set.menuSetKind === 'recovery' ? '活動' : '種目'}
                 {set.setType === 'temporary' && set.validFromDate && set.validToDate
                   ? `・${set.validFromDate}〜${set.validToDate}`
                   : ''}
-                {set.restDates.length > 0 ? `・休息${set.restDates.length}日` : ''}
               </small>
             </button>
           ))}
@@ -251,21 +230,15 @@ function SetManagement({
             event.preventDefault();
             const name = newSetName.trim();
             if (!name) return;
-            if (
-              newSetType === 'temporary' &&
-              !(await confirmValidityReplacement(newValidFromDate, newValidToDate))
-            ) {
-              return;
-            }
             let createdId = '';
             await onRun(async () => {
               const created = await createTrainingMenuSet({
                 setName: name,
+                menuSetKind: newSetKind,
                 setType: newSetType,
                 source: 'manual',
                 validFromDate: newSetType === 'temporary' ? newValidFromDate : undefined,
-                validToDate: newSetType === 'temporary' ? newValidToDate : undefined,
-                replaceExistingPlan: newSetType === 'temporary'
+                validToDate: newSetType === 'temporary' ? newValidToDate : undefined
               });
               createdId = created.trainingMenuSetId;
             }, newSetType === 'temporary' ? '有効期間付きの一時セットを作成しました。' : 'メニューセットを作成しました。');
@@ -282,6 +255,13 @@ function SetManagement({
             placeholder="例: 胸の日 / 回復メニュー"
             maxLength={40}
           />
+          <label>
+            セットの種類
+            <select value={newSetKind} onChange={(event) => setNewSetKind(event.target.value as 'training' | 'recovery')}>
+              <option value="training">トレーニング</option>
+              <option value="recovery">リカバリー</option>
+            </select>
+          </label>
           <select value={newSetType} onChange={(event) => setNewSetType(event.target.value as 'reusable' | 'temporary')}>
             <option value="reusable">恒常セット</option>
             <option value="temporary">一時セット</option>
@@ -348,7 +328,9 @@ function SetEditor({
 
   const itemById = useMemo(() => new Map(menuItems.map((item) => [item.id, item])), [menuItems]);
   const assignedIds = new Set(draftItems.map((item) => item.menuItemId));
-  const addableItems = menuItems.filter((item) => item.isActive && !assignedIds.has(item.id));
+  const addableItems = menuItems.filter(
+    (item) => item.isActive && item.itemKind === set.menuSetKind && !assignedIds.has(item.id)
+  );
   const dirty =
     name.trim() !== set.setName ||
     (set.setType === 'temporary' &&
@@ -357,31 +339,29 @@ function SetEditor({
       JSON.stringify(set.items.map(({ id: _id, ...item }) => item));
 
   async function saveAll() {
-    const error = draftItems.map(validatePrescription).find(Boolean);
+    const error = draftItems.map((item) => validatePrescription(item, set.menuSetKind)).find(Boolean);
     if (error) {
       throw new Error(error);
-    }
-    if (
-      set.setType === 'temporary' &&
-      !(await confirmValidityReplacement(validFromDate, validToDate, set.id))
-    ) {
-      throw new Error('有効期間の変更をキャンセルしました。');
     }
     await updateTrainingMenuSet(set.id, {
       setName: name.trim(),
       ...(set.setType === 'temporary'
-        ? { validFromDate, validToDate, replaceExistingPlan: true }
+        ? { validFromDate, validToDate }
         : {})
     });
     for (const item of draftItems) {
       const original = set.items.find((entry) => entry.id === item.id);
       if (original && JSON.stringify(original) !== JSON.stringify(item)) {
         await updateTrainingMenuSetItem(set.id, item.id, {
-          targetWeightKg: item.targetWeightKg,
-          targetRepsMin: item.targetRepsMin,
-          targetRepsMax: item.targetRepsMax,
-          targetSets: item.targetSets,
-          recommendedIntervalDays: item.recommendedIntervalDays,
+          ...(set.menuSetKind === 'recovery'
+            ? { targetDurationMinutes: item.targetDurationMinutes ?? null }
+            : {
+                targetWeightKg: item.targetWeightKg,
+                targetRepsMin: item.targetRepsMin,
+                targetRepsMax: item.targetRepsMax,
+                targetSets: item.targetSets,
+                recommendedIntervalDays: item.recommendedIntervalDays
+              }),
           instruction: item.instruction
         });
       }
@@ -401,6 +381,7 @@ function SetEditor({
           <div>
             <div className="row-wrap">
               <span className="priority-chip">{set.setType === 'temporary' ? '一時' : '恒常'}</span>
+              <span className="priority-chip">{set.menuSetKind === 'recovery' ? 'リカバリー' : 'トレーニング'}</span>
               {set.source === 'ai' && <span className="priority-chip">AI作成</span>}
               {set.isDefault && <span className="priority-chip">デフォルト</span>}
             </div>
@@ -463,12 +444,9 @@ function SetEditor({
                 <input type="date" min={validFromDate} value={validToDate} onChange={(event) => setValidToDate(event.target.value)} />
               </label>
             </div>
-            {set.restDates.length > 0 && (
-              <p className="muted">計画された完全休息日: {set.restDates.join(' / ')}</p>
-            )}
           </>
         )}
-        {set.setType === 'reusable' && !set.isDefault && (
+        {set.menuSetKind === 'training' && set.setType === 'reusable' && !set.isDefault && (
           <label className="menu-set-default-check">
             <input
               type="checkbox"
@@ -490,7 +468,7 @@ function SetEditor({
             <option value="">種目を選択</option>
             {addableItems.map((item) => (
               <option key={item.id} value={item.id}>
-                {formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}
+                {item.itemKind === 'recovery' ? item.trainingName : formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}
               </option>
             ))}
           </select>
@@ -502,20 +480,24 @@ function SetEditor({
               async () => {
                 await addTrainingMenuItemToSet(set.id, {
                   trainingMenuItemId: addItemId,
-                  targetWeightKg: 0,
-                  targetRepsMin: 8,
-                  targetRepsMax: 12,
-                  targetSets: 3,
-                  recommendedIntervalDays: 3
+                  ...(set.menuSetKind === 'recovery'
+                    ? {}
+                    : {
+                        targetWeightKg: 0,
+                        targetRepsMin: 8,
+                        targetRepsMax: 12,
+                        targetSets: 3,
+                        recommendedIntervalDays: 3
+                      })
                 });
               },
-              '種目をセットへ追加しました。'
+              'メニュー項目をセットへ追加しました。'
             )}
           >
             追加
           </button>
         </div>
-        <p className="muted">新しい種目は「種目一覧」タブで登録してから追加できます。</p>
+        <p className="muted">新しい項目は「メニュー項目」タブで登録してから追加できます。</p>
       </section>
 
       <section className="stack-md">
@@ -527,7 +509,7 @@ function SetEditor({
               <div className="row-between">
                 <div>
                   <p className="priority-chip">#{index + 1}</p>
-                  <h3>{formatTrainingLabel(menuItem.trainingName, menuItem.muscleTargets, menuItem.equipmentType, menuItem.isAiGenerated)}</h3>
+                  <h3>{menuItem.itemKind === 'recovery' ? menuItem.trainingName : formatTrainingLabel(menuItem.trainingName, menuItem.muscleTargets, menuItem.equipmentType, menuItem.isAiGenerated)}</h3>
                 </div>
                 <div className="row-wrap">
                   <button
@@ -567,6 +549,25 @@ function SetEditor({
                   </button>
                 </div>
               </div>
+              {set.menuSetKind === 'recovery' ? (
+                <div className="menu-prescription-grid">
+                  <label>
+                    目標時間（分・任意）
+                    <input
+                      type="number"
+                      min={1}
+                      max={1440}
+                      value={setItem.targetDurationMinutes ?? ''}
+                      placeholder="設定しない"
+                      onChange={(event) => setDraftItems((current) => current.map((item) =>
+                        item.id === setItem.id
+                          ? { ...item, targetDurationMinutes: event.target.value ? Number(event.target.value) : undefined }
+                          : item
+                      ))}
+                    />
+                  </label>
+                </div>
+              ) : (
               <div className="menu-prescription-grid">
                 <label>
                   目標重量 (kg)
@@ -627,6 +628,7 @@ function SetEditor({
                   </select>
                 </label>
               </div>
+              )}
               <label>
                 このセットでの補足
                 <textarea
@@ -641,7 +643,7 @@ function SetEditor({
             </article>
           );
         })}
-        {draftItems.length === 0 && <article className="card"><p className="muted">このセットにはまだ種目がありません。</p></article>}
+        {draftItems.length === 0 && <article className="card"><p className="muted">このセットにはまだメニュー項目がありません。</p></article>}
       </section>
 
       <section className="sticky-action">
@@ -668,9 +670,11 @@ function ItemLibrary({
   onRun: (action: () => Promise<void>, success: string) => Promise<void>;
 }) {
   const [query, setQuery] = useState('');
+  const [kindFilter, setKindFilter] = useState<'all' | 'training' | 'recovery'>('all');
   const filtered = items.filter((item) => {
     const needle = query.trim().toLowerCase();
-    return !needle || `${item.trainingName} ${formatMuscleTargets(item.muscleTargets)} ${equipmentTypeLabel(item.equipmentType)}`.toLowerCase().includes(needle);
+    const matchesKind = kindFilter === 'all' || item.itemKind === kindFilter;
+    return matchesKind && (!needle || `${item.trainingName} ${item.itemKind === 'training' ? `${formatMuscleTargets(item.muscleTargets)} ${equipmentTypeLabel(item.equipmentType)}` : 'リカバリー'}`.toLowerCase().includes(needle));
   });
 
   return (
@@ -678,15 +682,17 @@ function ItemLibrary({
       <section className="card stack-md">
         <div className="row-between">
           <div>
-            <h2>種目一覧</h2>
-            <p className="muted">どのセットにも属していない種目も、ここで管理できます。</p>
+            <h2>メニュー項目</h2>
+            <p className="muted">トレーニング種目とリカバリー活動を管理します。</p>
           </div>
-          <input
-            type="search"
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="種目名・部位・用具で検索"
-          />
+          <div className="row-wrap">
+            <select value={kindFilter} onChange={(event) => setKindFilter(event.target.value as typeof kindFilter)} aria-label="項目の種類で絞り込み">
+              <option value="all">すべて</option>
+              <option value="training">トレーニング</option>
+              <option value="recovery">リカバリー</option>
+            </select>
+            <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="項目名で検索" />
+          </div>
         </div>
       </section>
       <NewMenuItemForm disabled={disabled} onRun={onRun} />
@@ -707,11 +713,11 @@ function NewMenuItemForm({
 }) {
   return (
     <details className="card">
-      <summary>新しい種目を登録</summary>
+      <summary>新しいメニュー項目を登録</summary>
       <MenuItemForm
-        submitLabel="種目一覧へ登録"
+        submitLabel="メニュー項目へ登録"
         disabled={disabled}
-        onSubmit={(value) => onRun(() => createTrainingMenuItem(value).then(() => undefined), '新しい種目を登録しました。')}
+        onSubmit={(value) => onRun(() => createTrainingMenuItem(value).then(() => undefined), '新しいメニュー項目を登録しました。')}
       />
     </details>
   );
@@ -729,22 +735,25 @@ function MenuItemEditor({
   return (
     <details className="card menu-item-library-card">
       <summary>
-        <span>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</span>
+        <span className="row-wrap">
+          <span className="priority-chip">{item.itemKind === 'recovery' ? 'リカバリー' : 'トレーニング'}</span>
+          <span>{item.itemKind === 'recovery' ? item.trainingName : formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</span>
+        </span>
         <small>{item.usageCount}セットで使用</small>
       </summary>
       <MenuItemForm
         initial={item}
-        submitLabel="種目情報を保存"
+        submitLabel="項目情報を保存"
         disabled={disabled}
         onSubmit={(value) => onRun(
           () => updateTrainingMenuItem(item.id, value).then(() => undefined),
-          '種目情報を保存しました。'
+          '項目情報を保存しました。'
         )}
       />
       <button
         type="button"
         className="btn danger"
-        disabled={disabled}
+        disabled={disabled || item.isSystemProvided === true}
         onClick={() => {
           const text = item.usageCount > 0
             ? `${item.usageCount}個のセットからも外れます。種目を削除しますか？`
@@ -754,7 +763,7 @@ function MenuItemEditor({
           }
         }}
       >
-        種目自体を削除
+        項目を削除
       </button>
     </details>
   );
@@ -769,23 +778,9 @@ function MenuItemForm({
   initial?: TrainingMenuItem;
   submitLabel: string;
   disabled: boolean;
-  onSubmit: (value: {
-    trainingName: string;
-    exerciseFamilyId: string;
-    muscleTargets: MuscleTarget[];
-    movementFamily: MovementFamily;
-    jointActions: JointAction[];
-    laterality: Laterality;
-    loadModel: LoadModel;
-    equipmentType: EquipmentType;
-    equipmentProfileId?: string;
-    cableSettings?: CableSettings;
-    description: string;
-    weightInputMode: WeightInputMode;
-    loadMultiplier: 1 | 2;
-    fixedWeightKg: number;
-  }) => Promise<void>;
+  onSubmit: (value: Parameters<typeof createTrainingMenuItem>[0]) => Promise<void>;
 }) {
+  const [itemKind, setItemKind] = useState<'training' | 'recovery'>(initial?.itemKind ?? 'training');
   const [muscleTargets, setMuscleTargets] = useState<MuscleTarget[]>(initial?.muscleTargets ?? []);
   const [jointActions, setJointActions] = useState<JointAction[]>(initial?.jointActions ?? []);
   const [equipmentType, setEquipmentType] = useState<EquipmentType>(initial?.equipmentType ?? 'other');
@@ -826,6 +821,50 @@ function MenuItemForm({
   const secondaryTargets = muscleTargets.filter((target) => target.role === 'secondary');
   const stabilizerTargets = muscleTargets.filter((target) => target.role === 'stabilizer');
 
+  if (itemKind === 'recovery') {
+    return (
+      <form
+        className="stack-md menu-library-form"
+        onSubmit={(event: FormEvent<HTMLFormElement>) => {
+          event.preventDefault();
+          const form = new FormData(event.currentTarget);
+          const rawDuration = String(form.get('standardDurationMinutes') ?? '').trim();
+          void onSubmit({
+            trainingName: String(form.get('trainingName') ?? '').trim(),
+            itemKind: 'recovery',
+            standardDurationMinutes: rawDuration ? Number(rawDuration) : initial ? null : undefined,
+            description: String(form.get('description') ?? '').trim(),
+            weightInputMode: 'direct',
+            loadMultiplier: 1,
+            fixedWeightKg: 0
+          });
+        }}
+      >
+        <label>
+          項目の種類
+          <select value={itemKind} disabled={Boolean(initial)} onChange={(event) => setItemKind(event.target.value as 'training' | 'recovery')}>
+            <option value="training">トレーニング</option>
+            <option value="recovery">リカバリー</option>
+          </select>
+        </label>
+        <label>
+          活動名
+          <input name="trainingName" defaultValue={initial?.trainingName} placeholder="例：マッサージ" maxLength={100} required />
+        </label>
+        <label>
+          標準時間（分・任意）
+          <input name="standardDurationMinutes" type="number" min={1} max={1440} defaultValue={initial?.standardDurationMinutes} placeholder="設定しない" />
+        </label>
+        <label>
+          説明（任意）
+          <textarea name="description" rows={3} maxLength={500} defaultValue={initial?.description} placeholder="目的や実施方法を記録" />
+        </label>
+        {initial?.isSystemProvided && <p className="muted">「完全休養」はシステム提供項目のため編集できません。</p>}
+        <button className="btn primary" type="submit" disabled={disabled}>{submitLabel}</button>
+      </form>
+    );
+  }
+
   const selectedTargetChip = (target: MuscleTarget, label: string) => (
     <span className={`muscle-target-chip is-${target.role}`} key={target.muscleId}>
       <strong>{label}</strong>
@@ -859,6 +898,7 @@ function MenuItemForm({
         const selectedEquipmentType = String(form.get('equipmentType') ?? 'other') as EquipmentType;
         void onSubmit({
           trainingName: String(form.get('trainingName') ?? '').trim(),
+          itemKind: 'training',
           exerciseFamilyId:
             String(form.get('exerciseFamilyId') ?? '').trim() ||
             String(form.get('trainingName') ?? '').trim(),
@@ -884,6 +924,13 @@ function MenuItemForm({
         });
       }}
     >
+      <label>
+        項目の種類
+        <select value={itemKind} disabled={Boolean(initial)} onChange={(event) => setItemKind(event.target.value as 'training' | 'recovery')}>
+          <option value="training">トレーニング</option>
+          <option value="recovery">リカバリー</option>
+        </select>
+      </label>
       <div className="menu-form-basics">
         <label>
           種目名

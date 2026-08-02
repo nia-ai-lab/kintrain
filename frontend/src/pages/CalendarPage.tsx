@@ -12,7 +12,15 @@ export function CalendarPage() {
   const currentYm = params.get('month') ?? toYm(new Date());
   const todayYmd = toYmd(new Date());
   const [calendarMap, setCalendarMap] = useState<
-    Record<string, { trained: boolean; conditionRating?: number | null; moodRating?: number | null }>
+    Record<string, {
+      trained: boolean;
+      recovered: boolean;
+      plannedMenuSetName?: string;
+      plannedMenuSetKind?: 'training' | 'recovery';
+      planStatus?: 'none' | 'planned' | 'as_planned' | 'changed' | 'additional';
+      conditionRating?: number | null;
+      moodRating?: number | null;
+    }>
   >({});
 
   const cells = useMemo(() => {
@@ -38,7 +46,7 @@ export function CalendarPage() {
         if (cancelled) {
           return;
         }
-        const nextMap: Record<string, { trained: boolean; conditionRating?: number | null; moodRating?: number | null }> = {};
+        const nextMap: typeof calendarMap = {};
         for (const day of response.days ?? []) {
           const date = typeof day.date === 'string' ? day.date : '';
           if (!date) {
@@ -46,6 +54,10 @@ export function CalendarPage() {
           }
           nextMap[date] = {
             trained: Boolean(day.trained),
+            recovered: Boolean(day.recovered),
+            plannedMenuSetName: day.plannedMenuSetName,
+            plannedMenuSetKind: day.plannedMenuSetKind,
+            planStatus: day.planStatus,
             conditionRating: typeof day.conditionRating === 'number' ? day.conditionRating : null,
             moodRating: typeof day.moodRating === 'number' ? day.moodRating : null
           };
@@ -97,6 +109,7 @@ export function CalendarPage() {
             }
             const dayData = calendarMap[cell.ymd];
             const isTrained = Boolean(dayData?.trained);
+            const isRecovered = Boolean(dayData?.recovered);
             const isToday = cell.ymd === todayYmd;
             const conditionRating = dayData?.conditionRating ?? null;
             const moodRating = dayData?.moodRating ?? null;
@@ -117,6 +130,17 @@ export function CalendarPage() {
               >
                 <span className="day-number">{Number(cell.ymd.slice(-2))}</span>
                 <span className={`train-dot${isTrained ? '' : ' placeholder'}`}>●</span>
+                <span className="calendar-activity-labels">
+                  {dayData?.plannedMenuSetKind && (
+                    <small title={dayData.plannedMenuSetName}>
+                      予定:{dayData.plannedMenuSetKind === 'recovery' ? 'リカバリー' : '筋トレ'}
+                    </small>
+                  )}
+                  {isTrained && <small>筋トレ ✓</small>}
+                  {isRecovered && <small>リカバリー ✓</small>}
+                  {dayData?.planStatus === 'changed' && <small>予定変更</small>}
+                  {dayData?.planStatus === 'additional' && <small>追加実施</small>}
+                </span>
                 <span className="calendar-rating-stripes" aria-hidden="true">
                   <span
                     className="calendar-rating-stripe"

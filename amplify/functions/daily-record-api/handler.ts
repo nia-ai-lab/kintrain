@@ -6,6 +6,8 @@ import { decodePageToken, encodePageToken } from "../shared/pagination";
 
 const dailyRecordTableName = process.env.DAILY_RECORD_TABLE_NAME ?? "";
 const trainingHistoryTableName = process.env.TRAINING_HISTORY_TABLE_NAME ?? "";
+const dailyTrainingPlanTableName = process.env.DAILY_TRAINING_PLAN_TABLE_NAME ?? "";
+const trainingMenuSetTableName = process.env.TRAINING_MENU_SET_TABLE_NAME ?? "";
 const goalTableName = process.env.GOAL_TABLE_NAME ?? "";
 
 type DailyRecordInput = {
@@ -57,6 +59,11 @@ function defaultDailyRecord(userId: string, recordDate: string): Record<string, 
 
 function isTenPointRating(value: unknown): value is DailyRecordInput["conditionRating"] {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 10;
+}
+
+function addYmdDays(value: string, days: number): string {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 function isFiniteNumberBetween(value: unknown, minimum: number, maximum: number): value is number {
@@ -251,7 +258,7 @@ async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise
     return response(400, { message: "month must be YYYY-MM format." });
   }
 
-  const [dailyRecords, visits] = await Promise.all([
+  const [dailyRecords, visits, plans, menuSets] = await Promise.all([
     ddb.send(
       new QueryCommand({
         TableName: dailyRecordTableName,
@@ -271,11 +278,26 @@ async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise
             KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
             ExpressionAttributeValues: {
               ":userId": userId,
-              ":fromUtc": `${range.fromDate}T00:00:00Z`,
-              ":toUtc": `${range.toDate}T23:59:59Z`
+              ":fromUtc": `${addYmdDays(range.fromDate, -1)}T00:00:00Z`,
+              ":toUtc": `${addYmdDays(range.toDate, 1)}T23:59:59Z`
             }
           })
         )
+      : Promise.resolve({ Items: [] }),
+    dailyTrainingPlanTableName
+      ? ddb.send(new QueryCommand({
+          TableName: dailyTrainingPlanTableName,
+          KeyConditionExpression: "userId = :userId AND planDate BETWEEN :fromDate AND :toDate",
+          ExpressionAttributeValues: { ":userId": userId, ":fromDate": range.fromDate, ":toDate": range.toDate }
+        }))
+      : Promise.resolve({ Items: [] }),
+    trainingMenuSetTableName
+      ? ddb.send(new QueryCommand({
+          TableName: trainingMenuSetTableName,
+          IndexName: "UserMenuSetByOrderIndex",
+          KeyConditionExpression: "userId = :userId",
+          ExpressionAttributeValues: { ":userId": userId }
+        }))
       : Promise.resolve({ Items: [] })
   ]);
 
@@ -294,23 +316,63 @@ async function getCalendar(event: APIGatewayProxyEvent, userId: string): Promise
   }
 
   const trainedDates = new Set<string>();
+  const recoveredDates = new Set<string>();
+  const executionSetIdsByDate = new Map<string, Set<string>>();
   for (const visit of visits.Items ?? []) {
     const localDate = visit.visitDateLocal as string | undefined;
-    if (localDate) {
-      trainedDates.add(localDate);
+    if (localDate && localDate >= range.fromDate && localDate <= range.toDate) {
+      if (visit.menuSetKind === "recovery") recoveredDates.add(localDate);
+      else trainedDates.add(localDate);
+      const sourceSetId = typeof visit.sourceMenuSetId === "string"
+        ? visit.sourceMenuSetId
+        : Array.isArray(visit.entries) && typeof visit.entries[0]?.sourceTrainingMenuSetId === "string"
+          ? visit.entries[0].sourceTrainingMenuSetId
+          : "";
+      if (sourceSetId) executionSetIdsByDate.set(localDate, new Set([...(executionSetIdsByDate.get(localDate) ?? []), sourceSetId]));
     }
   }
 
+  const menuSetById = new Map((menuSets.Items ?? []).map((set) => [String(set.trainingMenuSetId), set]));
+  const planByDate = new Map((plans.Items ?? []).map((plan) => [String(plan.planDate), plan]));
+  const allDates = new Set([
+    ...Object.keys(conditionByDate),
+    ...Object.keys(moodByDate),
+    ...trainedDates,
+    ...recoveredDates,
+    ...planByDate.keys()
+  ]);
+
   return response(200, {
     month,
-    days: Array.from(new Set([...Object.keys(conditionByDate), ...Object.keys(moodByDate), ...Array.from(trainedDates)]))
+    days: Array.from(allDates)
       .sort()
-      .map((date) => ({
-        date,
-        trained: trainedDates.has(date),
-        conditionRating: conditionByDate[date] ?? null,
-        moodRating: moodByDate[date] ?? null
-      }))
+      .map((date) => {
+        const plan = planByDate.get(date);
+        const plannedSetId = typeof plan?.trainingMenuSetId === "string" ? plan.trainingMenuSetId : "";
+        const plannedSet = menuSetById.get(plannedSetId);
+        const executionSetIds = executionSetIdsByDate.get(date) ?? new Set<string>();
+        const hasPlanMatch = Boolean(plannedSetId) && executionSetIds.has(plannedSetId);
+        const hasExtra = hasPlanMatch && executionSetIds.size > 1;
+        const planStatus = !plannedSetId
+          ? "none"
+          : executionSetIds.size === 0
+            ? "planned"
+            : hasExtra
+              ? "additional"
+              : hasPlanMatch
+                ? "as_planned"
+                : "changed";
+        return {
+          date,
+          trained: trainedDates.has(date),
+          recovered: recoveredDates.has(date),
+          plannedMenuSetName: plannedSet ? String(plannedSet.setName ?? "") : undefined,
+          plannedMenuSetKind: plannedSet?.menuSetKind === "recovery" ? "recovery" : plannedSet ? "training" : undefined,
+          planStatus,
+          conditionRating: conditionByDate[date] ?? null,
+          moodRating: moodByDate[date] ?? null
+        };
+      })
   });
 }
 

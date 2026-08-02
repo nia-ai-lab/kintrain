@@ -21,6 +21,9 @@ type CoreEndpointOutput = {
 export type TrainingMenuItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
+  itemKind: 'training' | 'recovery';
+  standardDurationMinutes?: number;
+  isSystemProvided?: boolean;
   exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
   movementFamily: MovementFamily;
@@ -57,9 +60,9 @@ export type TrainingMenuSetDto = {
   isDefault: boolean;
   setType: 'reusable' | 'temporary';
   source: 'manual' | 'ai';
+  menuSetKind: 'training' | 'recovery';
   validFromDate?: string;
   validToDate?: string;
-  restDates: string[];
   isActive: boolean;
   version: number;
   items: TrainingMenuSetItemDto[];
@@ -71,6 +74,7 @@ export type TrainingMenuSetItemDto = {
   trainingMenuSetItemId: string;
   trainingMenuSetId: string;
   trainingMenuItemId: string;
+  itemKind: 'training' | 'recovery';
   displayOrder: number;
   targetWeightKg: number;
   targetRepsMin: number;
@@ -78,6 +82,7 @@ export type TrainingMenuSetItemDto = {
   targetSets: number;
   recommendedIntervalDays: number;
   instruction: string;
+  targetDurationMinutes?: number;
   createdBy: 'manual' | 'ai';
   createdAt?: string;
   updatedAt?: string;
@@ -153,6 +158,8 @@ type ListGymVisitsResponse = {
 export type TrainingSessionViewItemDto = {
   trainingMenuItemId: string;
   trainingName: string;
+  itemKind: 'training' | 'recovery';
+  standardDurationMinutes?: number;
   exerciseFamilyId: string;
   muscleTargets: MuscleTarget[];
   movementFamily: MovementFamily;
@@ -172,6 +179,7 @@ export type TrainingSessionViewItemDto = {
   targetSets: number;
   recommendedIntervalDays: number;
   instruction: string;
+  targetDurationMinutes?: number;
   createdBy: 'manual' | 'ai';
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
@@ -201,13 +209,14 @@ export type TrainingSessionViewItemDto = {
 };
 
 export type TrainingSessionViewResponse = {
-  planType: 'training' | 'rest';
+  menuSetKind: 'training' | 'recovery';
   resolvedMenuSet: {
     trainingMenuSetId: string;
     setName: string;
     setType: 'reusable' | 'temporary';
     source: 'manual' | 'ai';
     isDefault: boolean;
+    menuSetKind: 'training' | 'recovery';
   } | null;
   resolvedFromDailyPlan: boolean;
   items: TrainingSessionViewItemDto[];
@@ -252,6 +261,10 @@ type ListDailyRecordsResponse = {
 type CalendarDayDto = {
   date?: string;
   trained?: boolean;
+  recovered?: boolean;
+  plannedMenuSetName?: string;
+  plannedMenuSetKind?: 'training' | 'recovery';
+  planStatus?: 'none' | 'planned' | 'as_planned' | 'changed' | 'additional';
   conditionRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | null;
   moodRating?: 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | null;
 };
@@ -423,6 +436,7 @@ export async function putProfile(profile: UserProfileUpsertInput): Promise<UserP
 export async function listTrainingMenuItems(params?: {
   limit?: number;
   nextToken?: string;
+  itemKind?: 'training' | 'recovery';
 }): Promise<ListTrainingMenuItemsResponse> {
   const search = new URLSearchParams();
   if (typeof params?.limit === 'number' && Number.isFinite(params.limit)) {
@@ -430,6 +444,9 @@ export async function listTrainingMenuItems(params?: {
   }
   if (params?.nextToken) {
     search.set('nextToken', params.nextToken);
+  }
+  if (params?.itemKind) {
+    search.set('itemKind', params.itemKind);
   }
   const query = search.toString();
   return coreApiFetch<ListTrainingMenuItemsResponse>(query ? `/training-menu-items?${query}` : '/training-menu-items', {
@@ -439,13 +456,15 @@ export async function listTrainingMenuItems(params?: {
 
 export async function createTrainingMenuItem(input: {
   trainingName: string;
-  exerciseFamilyId: string;
-  muscleTargets: MuscleTarget[];
-  movementFamily: MovementFamily;
-  jointActions: JointAction[];
-  laterality: Laterality;
-  loadModel: LoadModel;
-  equipmentType: EquipmentType;
+  itemKind?: 'training' | 'recovery';
+  standardDurationMinutes?: number | null;
+  exerciseFamilyId?: string;
+  muscleTargets?: MuscleTarget[];
+  movementFamily?: MovementFamily;
+  jointActions?: JointAction[];
+  laterality?: Laterality;
+  loadModel?: LoadModel;
+  equipmentType?: EquipmentType;
   equipmentProfileId?: string;
   cableSettings?: CableSettings;
   isAiGenerated?: boolean;
@@ -464,6 +483,8 @@ export async function updateTrainingMenuItem(
   trainingMenuItemId: string,
   input: Partial<{
     trainingName: string;
+    itemKind: 'training' | 'recovery';
+    standardDurationMinutes: number | null;
     exerciseFamilyId: string;
     muscleTargets: MuscleTarget[];
     movementFamily: MovementFamily;
@@ -510,10 +531,12 @@ export async function listTrainingMenuSets(): Promise<ListTrainingMenuSetsRespon
 
 export async function createTrainingMenuSet(input: {
   setName: string;
+  menuSetKind?: 'training' | 'recovery';
   setType?: 'reusable' | 'temporary';
   source?: 'manual' | 'ai';
   validFromDate?: string;
   validToDate?: string;
+  scheduledDates?: string[];
   replaceExistingPlan?: boolean;
   isDefault?: boolean;
 }): Promise<TrainingMenuSetDto> {
@@ -527,6 +550,7 @@ export async function updateTrainingMenuSet(
   trainingMenuSetId: string,
   input: Partial<{
     setName: string;
+    menuSetKind: 'training' | 'recovery';
     setType: 'reusable' | 'temporary';
     source: 'manual' | 'ai';
     validFromDate?: string;
@@ -552,11 +576,12 @@ export async function addTrainingMenuItemToSet(
   trainingMenuSetId: string,
   input: {
     trainingMenuItemId: string;
-    targetWeightKg: number;
-    targetRepsMin: number;
-    targetRepsMax: number;
-    targetSets: number;
-    recommendedIntervalDays: number;
+    targetWeightKg?: number;
+    targetRepsMin?: number;
+    targetRepsMax?: number;
+    targetSets?: number;
+    recommendedIntervalDays?: number;
+    targetDurationMinutes?: number;
     instruction?: string;
     createdBy?: 'manual' | 'ai';
   }
@@ -576,6 +601,7 @@ export async function updateTrainingMenuSetItem(
     targetRepsMax: number;
     targetSets: number;
     recommendedIntervalDays: number;
+    targetDurationMinutes: number | null;
     instruction: string;
   }>
 ): Promise<TrainingMenuSetItemDto> {
@@ -606,8 +632,9 @@ export async function reorderTrainingMenuSetItems(
 
 export type DailyTrainingPlanDto = {
   planDate: string;
-  planType: 'training' | 'rest';
-  trainingMenuSetId?: string;
+  trainingMenuSetId: string;
+  menuSetKind: 'training' | 'recovery';
+  menuSetName: string;
   source: 'manual' | 'ai';
   createdAt: string;
   updatedAt: string;
@@ -633,18 +660,64 @@ export async function putDailyTrainingPlan(
 ): Promise<DailyTrainingPlanDto> {
   return coreApiFetch<DailyTrainingPlanDto>(`/daily-training-plans/${encodeURIComponent(date)}`, {
     method: 'PUT',
-    body: JSON.stringify({ planType: 'training', trainingMenuSetId, source })
+    body: JSON.stringify({ trainingMenuSetId, source })
   });
 }
 
-export async function putDailyRestPlan(
-  date: string,
-  source: 'manual' | 'ai' = 'manual'
-): Promise<DailyTrainingPlanDto> {
-  return coreApiFetch<DailyTrainingPlanDto>(`/daily-training-plans/${encodeURIComponent(date)}`, {
-    method: 'PUT',
-    body: JSON.stringify({ planType: 'rest', source })
+export type RecoveryExecutionEntryInput = {
+  menuItemId: string;
+  activityNameSnapshot: string;
+  sourceMenuSetItemId: string;
+  targetDurationMinutesSnapshot?: number;
+  actualDurationMinutes?: number;
+  instructionSnapshot?: string;
+  note?: string;
+  performedAtUtc: string;
+};
+
+export type RecoveryExecutionDto = {
+  executionId: string;
+  menuSetKind: 'recovery';
+  executionDateLocal: string;
+  sourceMenuSetId: string;
+  sourceMenuSetNameSnapshot: string;
+  planRelationAtRegistration: 'matches_plan' | 'differs_from_plan' | 'no_plan' | 'additional';
+  entries: RecoveryExecutionEntryInput[];
+  createdAt: string;
+};
+
+export async function createRecoveryExecution(input: {
+  executionDateLocal: string;
+  timeZoneId: string;
+  sourceMenuSetId: string;
+  sourceMenuSetNameSnapshot: string;
+  sourceMenuSetTypeSnapshot: 'reusable' | 'temporary';
+  entries: RecoveryExecutionEntryInput[];
+}): Promise<{ executionId: string }> {
+  return coreApiFetch<{ executionId: string }>('/menu-executions', {
+    method: 'POST',
+    body: JSON.stringify({ menuSetKind: 'recovery', ...input })
   });
+}
+
+export async function listRecoveryExecutions(params?: { from?: string; to?: string }): Promise<RecoveryExecutionDto[]> {
+  const search = new URLSearchParams({ limit: '200', menuSetKind: 'recovery' });
+  if (params?.from) search.set('from', params.from);
+  if (params?.to) search.set('to', params.to);
+  const items: RecoveryExecutionDto[] = [];
+  let nextToken: string | undefined;
+  do {
+    if (nextToken) search.set('nextToken', nextToken);
+    const result = await coreApiFetch<{
+      items: Array<RecoveryExecutionDto | GymVisitDto>;
+      nextToken?: string;
+    }>(`/menu-executions?${search.toString()}`, { method: 'GET' });
+    items.push(...result.items.filter(
+      (item): item is RecoveryExecutionDto => 'menuSetKind' in item && item.menuSetKind === 'recovery'
+    ));
+    nextToken = result.nextToken;
+  } while (nextToken);
+  return items;
 }
 
 export async function deleteDailyTrainingPlan(date: string): Promise<void> {

@@ -237,8 +237,8 @@ function normalizeRepsRange(input: {
 }
 
 function getDefaultMenuSetId(menuSets: TrainingMenuSet[]): string {
-  return menuSets.find((set) => set.isDefault && set.setType === 'reusable')?.id
-    ?? menuSets.find((set) => set.setType === 'reusable')?.id
+  return menuSets.find((set) => set.menuSetKind === 'training' && set.isDefault && set.setType === 'reusable')?.id
+    ?? menuSets.find((set) => set.menuSetKind === 'training' && set.setType === 'reusable')?.id
     ?? '';
 }
 
@@ -265,9 +265,9 @@ function normalizeMenuSets(menuItems: TrainingMenuItem[], rawSets?: TrainingMenu
         isAiGenerated: set.isAiGenerated === true,
         setType: set.setType === 'temporary' ? 'temporary' : 'reusable',
         source: set.source === 'ai' ? 'ai' : 'manual',
+        menuSetKind: set.menuSetKind === 'recovery' ? 'recovery' : 'training',
         validFromDate: set.validFromDate,
         validToDate: set.validToDate,
-        restDates: Array.isArray(set.restDates) ? set.restDates : [],
         isActive: true,
         itemIds: uniqueItemIds,
         items
@@ -464,6 +464,9 @@ function toUtcIsoSeconds(localIso: string): string {
 function mapRemoteMenuItem(item: {
   trainingMenuItemId: string;
   trainingName: string;
+  itemKind?: 'training' | 'recovery';
+  standardDurationMinutes?: number;
+  isSystemProvided?: boolean;
   exerciseFamilyId?: string;
   muscleTargets?: MuscleTarget[];
   movementFamily?: MovementFamily;
@@ -487,6 +490,9 @@ function mapRemoteMenuItem(item: {
   return {
     id: item.trainingMenuItemId,
     trainingName: item.trainingName,
+    itemKind: item.itemKind === 'recovery' ? 'recovery' : 'training',
+    standardDurationMinutes: item.standardDurationMinutes,
+    isSystemProvided: item.isSystemProvided === true,
     exerciseFamilyId: item.exerciseFamilyId ?? item.trainingMenuItemId,
     muscleTargets: normalizeMuscleTargets(item.muscleTargets),
     movementFamily: normalizeMovementFamily(item.movementFamily),
@@ -523,9 +529,9 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
     isAiGenerated: item.source === 'ai',
     setType: item.setType,
     source: item.source,
+    menuSetKind: item.menuSetKind,
     validFromDate: item.validFromDate,
     validToDate: item.validToDate,
-    restDates: Array.isArray(item.restDates) ? item.restDates : [],
     isActive: item.isActive !== false,
     version: Number(item.version ?? 0),
     itemIds: item.items.map((setItem) => setItem.trainingMenuItemId),
@@ -539,6 +545,7 @@ function mapRemoteMenuSet(item: TrainingMenuSetDto): TrainingMenuSet {
       targetRepsMax: setItem.targetRepsMax,
       targetSets: setItem.targetSets,
       recommendedIntervalDays: normalizeTrainingFrequency(setItem.recommendedIntervalDays),
+      targetDurationMinutes: setItem.targetDurationMinutes,
       instruction: setItem.instruction,
       createdBy: setItem.createdBy
     }))

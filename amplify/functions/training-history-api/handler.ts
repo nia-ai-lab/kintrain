@@ -1,4 +1,4 @@
-import { BatchGetCommand, GetCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { BatchGetCommand, GetCommand, PutCommand, QueryCommand, TransactWriteCommand } from "@aws-sdk/lib-dynamodb";
 import { randomUUID } from "node:crypto";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import { ddb } from "../shared/ddb";
@@ -34,12 +34,26 @@ const userStartedAtIndex = "UserStartedAtIndex";
 const userTrainingMenuItemPerformedAtIndex = "UserTrainingMenuItemPerformedAtIndex";
 const userVisitIndex = "UserVisitIndex";
 const maxVisitEntryCount = 12;
-type DailyPlanType = "training" | "rest";
+type MenuKind = "training" | "recovery";
+
+function normalizeMenuKind(value: unknown): MenuKind {
+  return value === "recovery" ? "recovery" : "training";
+}
 
 function addYmdDays(value: string, days: number): string {
   const [year, month, day] = value.split("-").map(Number);
   const date = new Date(Date.UTC(year, month - 1, day + days));
   return date.toISOString().slice(0, 10);
+}
+
+function isValidTimeZoneId(value: unknown): value is string {
+  if (typeof value !== "string" || value.trim() === "") return false;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: value }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 type ExerciseEntry = {
@@ -89,6 +103,45 @@ type GymVisitInput = {
   entries: ExerciseEntry[];
   note?: string;
 };
+
+type RecoveryExecutionEntry = {
+  menuItemId: string;
+  activityNameSnapshot: string;
+  sourceMenuSetItemId: string;
+  targetDurationMinutesSnapshot?: number;
+  actualDurationMinutes?: number;
+  instructionSnapshot?: string;
+  note?: string;
+  performedAtUtc: string;
+};
+
+type RecoveryExecutionInput = {
+  menuSetKind: "recovery";
+  executionDateLocal: string;
+  timeZoneId: string;
+  sourceMenuSetId: string;
+  sourceMenuSetNameSnapshot: string;
+  sourceMenuSetTypeSnapshot: "reusable" | "temporary";
+  entries: RecoveryExecutionEntry[];
+};
+
+function validRecoveryEntries(entries: RecoveryExecutionEntry[] | undefined): entries is RecoveryExecutionEntry[] {
+  const trainingOnlyFields = [
+    "weightKg", "reps", "sets", "muscleTargetsSnapshot", "movementFamilySnapshot",
+    "jointActionsSnapshot", "lateralitySnapshot", "loadModelSnapshot", "equipmentTypeSnapshot"
+  ];
+  return Array.isArray(entries) && entries.length >= 1 && entries.length <= maxVisitEntryCount && entries.every((entry) =>
+    typeof entry.menuItemId === "string" && entry.menuItemId.trim().length > 0 &&
+    typeof entry.activityNameSnapshot === "string" && entry.activityNameSnapshot.trim().length >= 1 && entry.activityNameSnapshot.trim().length <= 100 &&
+    typeof entry.sourceMenuSetItemId === "string" && entry.sourceMenuSetItemId.trim().length > 0 &&
+    (entry.targetDurationMinutesSnapshot === undefined || (Number.isInteger(entry.targetDurationMinutesSnapshot) && entry.targetDurationMinutesSnapshot >= 1 && entry.targetDurationMinutesSnapshot <= 1440)) &&
+    (entry.actualDurationMinutes === undefined || (Number.isInteger(entry.actualDurationMinutes) && entry.actualDurationMinutes >= 1 && entry.actualDurationMinutes <= 1440)) &&
+    (entry.instructionSnapshot === undefined || (typeof entry.instructionSnapshot === "string" && entry.instructionSnapshot.length <= 500)) &&
+    (entry.note === undefined || (typeof entry.note === "string" && entry.note.length <= 500)) &&
+    typeof entry.performedAtUtc === "string" && !Number.isNaN(Date.parse(entry.performedAtUtc)) &&
+    trainingOnlyFields.every((field) => (entry as unknown as Record<string, unknown>)[field] === undefined)
+  );
+}
 
 function toRepsRange(menu: Record<string, unknown>): { defaultRepsMin: number; defaultRepsMax: number } {
   const legacy = Number(menu.defaultReps);
@@ -427,21 +480,62 @@ function buildVisitItem(params: {
   visitDateLocal: string;
   entries: ExerciseEntry[];
   note?: string;
+  plannedMenuSetId?: string;
+  planRelationAtRegistration?: "matches_plan" | "differs_from_plan" | "no_plan" | "additional";
   createdAt: string;
   updatedAt: string;
 }) {
   return {
     userId: params.userId,
     visitId: params.visitId,
+    executionId: params.visitId,
+    menuSetKind: "training",
     startedAtUtc: params.startedAtUtc,
     endedAtUtc: params.endedAtUtc,
     timeZoneId: params.timeZoneId,
     visitDateLocal: params.visitDateLocal,
+    executionDateLocal: params.visitDateLocal,
+    sourceMenuSetId: params.entries[0]?.sourceTrainingMenuSetId,
+    sourceMenuSetNameSnapshot: params.entries[0]?.sourceTrainingMenuSetNameSnapshot,
+    sourceMenuSetTypeSnapshot: params.entries[0]?.sourceTrainingMenuSetTypeSnapshot,
+    ...(params.plannedMenuSetId ? { plannedMenuSetIdSnapshot: params.plannedMenuSetId } : {}),
+    planRelationAtRegistration: params.planRelationAtRegistration ?? (!params.plannedMenuSetId
+      ? "no_plan"
+      : params.plannedMenuSetId === params.entries[0]?.sourceTrainingMenuSetId
+        ? "matches_plan"
+        : "differs_from_plan"),
     entries: params.entries,
     note: params.note ?? "",
     createdAt: params.createdAt,
     updatedAt: params.updatedAt
   };
+}
+
+async function determinePlanRelationAtRegistration(params: {
+  userId: string;
+  executionDateLocal: string;
+  plannedMenuSetId?: string;
+  sourceMenuSetId?: string;
+  excludeExecutionId?: string;
+}): Promise<"matches_plan" | "differs_from_plan" | "no_plan" | "additional"> {
+  if (!params.plannedMenuSetId) return "no_plan";
+  if (params.plannedMenuSetId === params.sourceMenuSetId) return "matches_plan";
+  const result = await ddb.send(new QueryCommand({
+    TableName: trainingHistoryTableName,
+    IndexName: userStartedAtIndex,
+    KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
+    ExpressionAttributeValues: {
+      ":userId": params.userId,
+      ":fromUtc": `${addYmdDays(params.executionDateLocal, -1)}T00:00:00Z`,
+      ":toUtc": `${addYmdDays(params.executionDateLocal, 1)}T23:59:59Z`
+    }
+  }));
+  const alreadyCompletedPlannedSet = (result.Items ?? []).some((execution) =>
+    String(execution.visitId ?? execution.executionId ?? "") !== params.excludeExecutionId &&
+    String(execution.visitDateLocal ?? execution.executionDateLocal ?? "") === params.executionDateLocal &&
+    String(execution.sourceMenuSetId ?? (execution.entries as ExerciseEntry[] | undefined)?.[0]?.sourceTrainingMenuSetId ?? "") === params.plannedMenuSetId
+  );
+  return alreadyCompletedPlannedSet ? "additional" : "differs_from_plan";
 }
 
 async function listTrainingPerformanceItemsByVisitId(userId: string, visitId: string): Promise<TrainingPerformanceItem[]> {
@@ -519,7 +613,7 @@ async function resolveTrainingSessionMenuSetId(
   trainingMenuSetId: string;
   notFound: boolean;
   resolvedFromDailyPlan: boolean;
-  planType: DailyPlanType;
+  menuSetKind: MenuKind;
   menuSet?: Record<string, unknown>;
 }> {
   if (requestedTrainingMenuSetId) {
@@ -533,13 +627,13 @@ async function resolveTrainingSessionMenuSetId(
       })
     );
     if (!result.Item || result.Item.isActive === false) {
-      return { trainingMenuSetId: "", notFound: true, resolvedFromDailyPlan: false, planType: "training" };
+      return { trainingMenuSetId: "", notFound: true, resolvedFromDailyPlan: false, menuSetKind: "training" };
     }
     return {
       trainingMenuSetId: requestedTrainingMenuSetId,
       notFound: false,
       resolvedFromDailyPlan: false,
-      planType: "training",
+      menuSetKind: normalizeMenuKind(result.Item.menuSetKind),
       menuSet: result.Item as Record<string, unknown>
     };
   }
@@ -554,25 +648,6 @@ async function resolveTrainingSessionMenuSetId(
     typeof dailyPlanResult.Item?.trainingMenuSetId === "string"
       ? dailyPlanResult.Item.trainingMenuSetId
       : "";
-  if (dailyPlanResult.Item?.planType === "rest") {
-    const sourceSet = dailySetId
-      ? await ddb.send(
-          new GetCommand({
-            TableName: trainingMenuSetTableName,
-            Key: { userId, trainingMenuSetId: dailySetId }
-          })
-        )
-      : undefined;
-    return {
-      trainingMenuSetId: "",
-      notFound: false,
-      resolvedFromDailyPlan: true,
-      planType: "rest",
-      menuSet: sourceSet?.Item && sourceSet.Item.isActive !== false
-        ? sourceSet.Item as Record<string, unknown>
-        : undefined
-    };
-  }
   if (dailySetId) {
     const dailySetResult = await ddb.send(
       new GetCommand({
@@ -585,7 +660,7 @@ async function resolveTrainingSessionMenuSetId(
         trainingMenuSetId: dailySetId,
         notFound: false,
         resolvedFromDailyPlan: true,
-        planType: "training",
+        menuSetKind: normalizeMenuKind(dailySetResult.Item.menuSetKind),
         menuSet: dailySetResult.Item as Record<string, unknown>
       };
     }
@@ -615,7 +690,7 @@ async function resolveTrainingSessionMenuSetId(
       })
     );
     defaultMenuSetIdRaw = reusableSets.Items?.find(
-      (item) => item.isActive !== false && item.setType !== "temporary"
+      (item) => item.isActive !== false && item.setType !== "temporary" && normalizeMenuKind(item.menuSetKind) === "training"
     )?.trainingMenuSetId;
   }
   const defaultMenuSet =
@@ -631,7 +706,7 @@ async function resolveTrainingSessionMenuSetId(
     trainingMenuSetId: typeof defaultMenuSetIdRaw === "string" ? defaultMenuSetIdRaw : "",
     notFound: false,
     resolvedFromDailyPlan: false,
-    planType: "training",
+    menuSetKind: "training",
     menuSet: defaultMenuSet?.Item as Record<string, unknown> | undefined
   };
 }
@@ -706,6 +781,7 @@ async function listActiveMenuItemsForSet(
         targetRepsMax: setItem.targetRepsMax,
         targetSets: setItem.targetSets,
         recommendedIntervalDays: setItem.recommendedIntervalDays,
+        targetDurationMinutes: setItem.targetDurationMinutes,
         instruction: setItem.instruction ?? "",
         createdBy: setItem.createdBy ?? "manual"
       }];
@@ -734,6 +810,19 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
   const visitId = body.visitId?.trim() || randomUUID();
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
+  const planResult = await ddb.send(new GetCommand({
+    TableName: dailyTrainingPlanTableName,
+    Key: { userId, planDate: body.visitDateLocal }
+  }));
+  const plannedMenuSetId = typeof planResult.Item?.trainingMenuSetId === "string"
+    ? planResult.Item.trainingMenuSetId
+    : undefined;
+  const planRelationAtRegistration = await determinePlanRelationAtRegistration({
+    userId,
+    executionDateLocal: body.visitDateLocal,
+    plannedMenuSetId,
+    sourceMenuSetId: normalizedEntries[0]?.sourceTrainingMenuSetId
+  });
   const visitItem = buildVisitItem({
     userId,
     visitId,
@@ -743,6 +832,8 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
     visitDateLocal: body.visitDateLocal,
     entries: normalizedEntries,
     note: body.note,
+    plannedMenuSetId,
+    planRelationAtRegistration,
     createdAt: ts,
     updatedAt: ts
   });
@@ -788,6 +879,93 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
     createdAt: ts,
     updatedAt: ts
   });
+}
+
+async function createMenuExecution(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
+  const rawBody = parseBody<{ menuSetKind?: MenuKind }>(event);
+  if (rawBody?.menuSetKind === "training") {
+    return createGymVisit(event, userId);
+  }
+  const body = parseBody<RecoveryExecutionInput>(event);
+  if (!body || body.menuSetKind !== "recovery" || !parseYmd(body.executionDateLocal) || !validRecoveryEntries(body.entries)) {
+    return response(400, { message: "Invalid recovery execution." });
+  }
+  if (!isValidTimeZoneId(body.timeZoneId) || !body.sourceMenuSetId || !body.sourceMenuSetNameSnapshot || !["reusable", "temporary"].includes(body.sourceMenuSetTypeSnapshot)) {
+    return response(400, { message: "Recovery execution source is required." });
+  }
+  const [sourceSetResult, planResult] = await Promise.all([
+    ddb.send(new GetCommand({
+      TableName: trainingMenuSetTableName,
+      Key: { userId, trainingMenuSetId: body.sourceMenuSetId }
+    })),
+    ddb.send(new GetCommand({
+      TableName: dailyTrainingPlanTableName,
+      Key: { userId, planDate: body.executionDateLocal }
+    }))
+  ]);
+  if (!sourceSetResult.Item || sourceSetResult.Item.isActive === false || normalizeMenuKind(sourceSetResult.Item.menuSetKind) !== "recovery") {
+    return response(404, { message: "Recovery menu set not found." });
+  }
+  const sourceItems = await listActiveMenuItemsForSet(userId, body.sourceMenuSetId);
+  const sourceItemBySetItemId = new Map(
+    sourceItems.map((item) => [String(item.trainingMenuSetItemId), item])
+  );
+  if (body.entries.some((entry) => {
+    const sourceItem = sourceItemBySetItemId.get(entry.sourceMenuSetItemId.trim());
+    return !sourceItem ||
+      normalizeMenuKind(sourceItem.itemKind) !== "recovery" ||
+      String(sourceItem.trainingMenuItemId) !== entry.menuItemId.trim();
+  })) {
+    return response(400, { message: "Recovery execution entries must belong to the selected recovery menu set." });
+  }
+  const planSetId = typeof planResult.Item?.trainingMenuSetId === "string" ? planResult.Item.trainingMenuSetId : undefined;
+  const planRelationAtRegistration = await determinePlanRelationAtRegistration({
+    userId,
+    executionDateLocal: body.executionDateLocal,
+    plannedMenuSetId: planSetId,
+    sourceMenuSetId: body.sourceMenuSetId
+  });
+  const executionId = randomUUID();
+  const ts = nowIsoSeconds();
+  const startedAtUtc = body.entries.map((entry) => entry.performedAtUtc).sort()[0] ?? ts;
+  const normalizedEntries = body.entries.map((entry) => {
+    const sourceItem = sourceItemBySetItemId.get(entry.sourceMenuSetItemId.trim())!;
+    return {
+    menuItemId: String(sourceItem.trainingMenuItemId),
+    activityNameSnapshot: String(sourceItem.trainingName),
+    sourceMenuSetItemId: String(sourceItem.trainingMenuSetItemId),
+    ...(typeof sourceItem.targetDurationMinutes !== "number" ? {} : { targetDurationMinutesSnapshot: sourceItem.targetDurationMinutes }),
+    ...(entry.actualDurationMinutes === undefined ? {} : { actualDurationMinutes: entry.actualDurationMinutes }),
+    instructionSnapshot: typeof sourceItem.instruction === "string" ? sourceItem.instruction : "",
+    note: entry.note?.trim() ?? "",
+    performedAtUtc: entry.performedAtUtc
+  };
+  });
+  const item = {
+    userId,
+    visitId: executionId,
+    executionId,
+    menuSetKind: "recovery",
+    executionDateLocal: body.executionDateLocal,
+    visitDateLocal: body.executionDateLocal,
+    timeZoneId: body.timeZoneId,
+    startedAtUtc,
+    endedAtUtc: startedAtUtc,
+    sourceMenuSetId: body.sourceMenuSetId,
+    sourceMenuSetNameSnapshot: String(sourceSetResult.Item.setName ?? body.sourceMenuSetNameSnapshot).trim(),
+    sourceMenuSetTypeSnapshot: sourceSetResult.Item.setType === "temporary" ? "temporary" : "reusable",
+    ...(planSetId ? { plannedMenuSetIdSnapshot: planSetId } : {}),
+    planRelationAtRegistration,
+    entries: normalizedEntries,
+    createdAt: ts,
+    updatedAt: ts
+  };
+  await ddb.send(new PutCommand({
+    TableName: trainingHistoryTableName,
+    Item: item,
+    ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(visitId)"
+  }));
+  return response(201, { ...item, userId: undefined });
 }
 
 async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
@@ -846,6 +1024,8 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
       return {
         trainingMenuItemId,
         trainingName: menu.trainingName,
+        itemKind: normalizeMenuKind(menu.itemKind),
+        standardDurationMinutes: typeof menu.standardDurationMinutes === "number" ? menu.standardDurationMinutes : undefined,
         exerciseFamilyId: menu.exerciseFamilyId,
         muscleTargets: normalizeMuscleTargets(menu.muscleTargets) ?? [],
         movementFamily: normalizeMovementFamily(menu.movementFamily),
@@ -865,6 +1045,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
         targetSets: Number(menu.targetSets),
         recommendedIntervalDays: Number(menu.recommendedIntervalDays),
         instruction: typeof menu.instruction === "string" ? menu.instruction : "",
+        targetDurationMinutes: typeof menu.targetDurationMinutes === "number" ? menu.targetDurationMinutes : undefined,
         createdBy: menu.createdBy === "ai" ? "ai" : "manual",
         weightInputMode,
         loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
@@ -878,7 +1059,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   );
 
   return response(200, {
-    planType: resolvedMenuSet.planType,
+    menuSetKind: resolvedMenuSet.menuSetKind,
     resolvedMenuSet: resolvedMenuSet.menuSet
       ? {
           trainingMenuSetId: String(resolvedMenuSet.menuSet.trainingMenuSetId ?? resolvedMenuSet.trainingMenuSetId),
@@ -886,6 +1067,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
           setType: resolvedMenuSet.menuSet.setType === "temporary" ? "temporary" : "reusable",
           source: resolvedMenuSet.menuSet.source === "ai" ? "ai" : "manual",
           isDefault: resolvedMenuSet.menuSet.isDefault === true
+          ,menuSetKind: normalizeMenuKind(resolvedMenuSet.menuSet.menuSetKind)
         }
       : null,
     resolvedFromDailyPlan: resolvedMenuSet.resolvedFromDailyPlan,
@@ -894,7 +1076,11 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   });
 }
 
-async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
+async function listGymVisits(
+  event: APIGatewayProxyEvent,
+  userId: string,
+  kind: MenuKind | "all" = "training"
+): Promise<APIGatewayProxyResult> {
   const rawFrom = event.queryStringParameters?.from;
   const rawTo = event.queryStringParameters?.to;
   const from = parseYmd(rawFrom);
@@ -907,7 +1093,7 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
   }
   const requestedLimit = Number(event.queryStringParameters?.limit ?? "100");
   const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(200, Math.floor(requestedLimit))) : 100;
-  const tokenContext = JSON.stringify(["gym-visits", from ?? null, to ?? null]);
+  const tokenContext = JSON.stringify(["menu-executions-v2", kind, from ?? null, to ?? null]);
   const exclusiveStartKey = await decodePageToken(
     event.queryStringParameters?.nextToken,
     tokenContext,
@@ -943,6 +1129,8 @@ async function listGymVisits(event: APIGatewayProxyEvent, userId: string): Promi
   return response(200, {
     items: (result.Items ?? [])
       .filter((item) => {
+        if (kind === "training" && item.menuSetKind === "recovery") return false;
+        if (kind === "recovery" && item.menuSetKind !== "recovery") return false;
         if (!from || !to) {
           return true;
         }
@@ -1007,6 +1195,20 @@ async function putGymVisit(
 
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
+  const planResult = await ddb.send(new GetCommand({
+    TableName: dailyTrainingPlanTableName,
+    Key: { userId, planDate: body.visitDateLocal }
+  }));
+  const plannedMenuSetId = typeof planResult.Item?.trainingMenuSetId === "string"
+    ? planResult.Item.trainingMenuSetId
+    : undefined;
+  const planRelationAtRegistration = await determinePlanRelationAtRegistration({
+    userId,
+    executionDateLocal: body.visitDateLocal,
+    plannedMenuSetId,
+    sourceMenuSetId: normalizedEntries[0]?.sourceTrainingMenuSetId,
+    excludeExecutionId: visitId
+  });
   const existingPerformanceItems = await listTrainingPerformanceItemsByVisitId(userId, visitId);
   const createdAt = typeof existing.Item.createdAt === "string" ? existing.Item.createdAt : ts;
   const visitItem = buildVisitItem({
@@ -1018,6 +1220,8 @@ async function putGymVisit(
     visitDateLocal: body.visitDateLocal,
     entries: normalizedEntries,
     note: body.note,
+    plannedMenuSetId,
+    planRelationAtRegistration,
     createdAt,
     updatedAt: ts
   });
@@ -1135,11 +1339,22 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
     return getTrainingSessionView(event, userId);
   }
 
+  if ((path === "/menu-executions" || path === "/menu-executions/") && method === "POST") {
+    return createMenuExecution(event, userId);
+  }
+  if ((path === "/menu-executions" || path === "/menu-executions/") && method === "GET") {
+    const requestedKind = event.queryStringParameters?.menuSetKind;
+    if (requestedKind !== undefined && requestedKind !== "training" && requestedKind !== "recovery") {
+      return response(400, { message: "menuSetKind must be training or recovery." });
+    }
+    return listGymVisits(event, userId, requestedKind ?? "all");
+  }
+
   if ((path === "/gym-visits" || path === "/gym-visits/") && method === "POST") {
     return createGymVisit(event, userId);
   }
   if ((path === "/gym-visits" || path === "/gym-visits/") && method === "GET") {
-    return listGymVisits(event, userId);
+    return listGymVisits(event, userId, "training");
   }
 
   const visitMatch = path.match(/^\/gym-visits\/([^/]+)\/?$/);

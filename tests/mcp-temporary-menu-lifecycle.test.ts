@@ -13,7 +13,7 @@ import {
   rescheduleTemporaryTrainingPlan
 } from "../amplify/functions/mcp-tools-api/handler";
 
-test("AI temporary menu stores complete rest days as explicit daily plan types", async () => {
+test("AI temporary menu assigns only explicit scheduled dates without restDates", async () => {
   const originalSend = ddb.send.bind(ddb);
   let writes: any[] = [];
   (ddb as any).send = async (command: any) => {
@@ -40,7 +40,8 @@ test("AI temporary menu stores complete rest days as explicit daily plan types",
       validFromDate: "2026-08-01",
       validToDate: "2026-08-03",
       setName: "週間メニュー",
-      restDates: ["2026-08-02"],
+      menuSetKind: "training",
+      scheduledDates: ["2026-08-01", "2026-08-03"],
       items: [{
         existingTrainingMenuItemId: "menu-1",
         prescription: {
@@ -54,18 +55,69 @@ test("AI temporary menu stores complete rest days as explicit daily plan types",
       }]
     }, "user-1") as Record<string, any>;
 
-    assert.deepEqual(result.restDates, ["2026-08-02"]);
+    assert.deepEqual(result.scheduledDates, ["2026-08-01", "2026-08-03"]);
     const setWrite = writes.find((write) => write.Put?.Item?.setType === "temporary");
-    assert.deepEqual(setWrite.Put.Item.restDates, ["2026-08-02"]);
+    assert.equal(setWrite.Put.Item.menuSetKind, "training");
+    assert.equal(Object.hasOwn(setWrite.Put.Item, "restDates"), false);
     const dailyPlans = writes
       .map((write) => write.Put?.Item)
       .filter((item) => item?.planDate)
-      .map((item) => [item.planDate, item.planType]);
+      .map((item) => item.planDate);
     assert.deepEqual(dailyPlans, [
-      ["2026-08-01", "training"],
-      ["2026-08-02", "rest"],
-      ["2026-08-03", "training"]
+      "2026-08-01",
+      "2026-08-03"
     ]);
+  } finally {
+    (ddb as any).send = originalSend;
+  }
+});
+
+test("AI can create a recovery set without training prescription fields", async () => {
+  const originalSend = ddb.send.bind(ddb);
+  let writes: any[] = [];
+  (ddb as any).send = async (command: any) => {
+    if (command instanceof QueryCommand) {
+      if (command.input.IndexName === "UserTrainingNameIndex") {
+        return { Items: [{ trainingMenuItemId: "recovery-1", trainingName: "完全休養", itemKind: "recovery" }] };
+      }
+      return { Items: [] };
+    }
+    if (command instanceof GetCommand) {
+      const key = command.input.Key as Record<string, string>;
+      if (key.planDate) return {};
+      if (key.trainingMenuItemId === "recovery-1") {
+        return { Item: { userId: "user-1", trainingMenuItemId: "recovery-1", itemKind: "recovery", isActive: true } };
+      }
+    }
+    if (command instanceof TransactWriteCommand) {
+      writes = command.input.TransactItems ?? [];
+      return {};
+    }
+    throw new Error(`Unexpected command: ${command.constructor.name}`);
+  };
+
+  try {
+    const result = await createTemporaryTrainingMenuSetFromAi({
+      idempotencyKey: "recovery-plan-1",
+      validFromDate: "2026-08-02",
+      validToDate: "2026-08-02",
+      setName: "完全休養日",
+      menuSetKind: "recovery",
+      scheduledDates: ["2026-08-02"],
+      items: [{
+        existingTrainingMenuItemId: "recovery-1",
+        prescription: { instruction: "睡眠を優先" }
+      }]
+    }, "user-1") as Record<string, any>;
+
+    assert.equal(result.menuSetKind, "recovery");
+    const setWrite = writes.find((write) => write.Put?.Item?.setType === "temporary");
+    assert.equal(setWrite.Put.Item.menuSetKind, "recovery");
+    const setItemWrite = writes.find((write) => write.Put?.Item?.trainingMenuSetItemId);
+    assert.equal(setItemWrite.Put.Item.itemKind, "recovery");
+    assert.equal(Object.hasOwn(setItemWrite.Put.Item, "targetWeightKg"), false);
+    const planWrite = writes.find((write) => write.Put?.Item?.planDate);
+    assert.equal(Object.hasOwn(planWrite.Put.Item, "planType"), false);
   } finally {
     (ddb as any).send = originalSend;
   }
@@ -179,6 +231,7 @@ test("reschedule keeps the same set and item content, moves the date, and replay
       trainingMenuSetId: "set-1",
       newValidFromDate: "2026-07-29",
       newValidToDate: "2026-07-29",
+      scheduledDates: ["2026-07-29"],
       expectedVersion: 0,
       idempotencyKey: "move-2026-07-29",
       conflictPolicy: "reject"
@@ -188,7 +241,7 @@ test("reschedule keeps the same set and item content, moves the date, and replay
     assert.equal(result.version, 1);
     assert.equal(plans.has("2026-07-28"), false);
     assert.equal(plans.get("2026-07-29")?.trainingMenuSetId, "set-1");
-    assert.equal(plans.get("2026-07-29")?.planType, "training");
+    assert.equal(Object.hasOwn(plans.get("2026-07-29") ?? {}, "planType"), false);
     assert.deepEqual(link, itemBefore);
 
     const resolved = await getTrainingPlanForDate({ date: "2026-07-29" }, userId) as Record<string, any>;
@@ -202,7 +255,7 @@ test("reschedule keeps the same set and item content, moves the date, and replay
     assert.equal(plans.size, 1);
 
     const stale = await rescheduleTemporaryTrainingPlan(
-      { ...request, idempotencyKey: "stale-request", newValidFromDate: "2026-07-30", newValidToDate: "2026-07-30" },
+      { ...request, idempotencyKey: "stale-request", newValidFromDate: "2026-07-30", newValidToDate: "2026-07-30", scheduledDates: ["2026-07-30"] },
       userId
     ) as Record<string, any>;
     assert.equal(stale.error.code, "VERSION_CONFLICT");
@@ -219,6 +272,7 @@ test("reschedule keeps the same set and item content, moves the date, and replay
         trainingMenuSetId: "set-1",
         newValidFromDate: "2026-07-30",
         newValidToDate: "2026-07-30",
+        scheduledDates: ["2026-07-30"],
         expectedVersion: 1,
         idempotencyKey: "conflict-request",
         conflictPolicy: "reject"
@@ -228,17 +282,6 @@ test("reschedule keeps the same set and item content, moves the date, and replay
     assert.equal(conflict.error.code, "DATE_CONFLICT");
     assert.equal(plans.get("2026-07-29")?.trainingMenuSetId, "set-1");
 
-    plans.set("2026-07-31", {
-      userId,
-      planDate: "2026-07-31",
-      trainingMenuSetId: "set-1",
-      planType: "rest",
-      source: "ai"
-    });
-    const rest = await getTrainingPlanForDate({ date: "2026-07-31" }, userId) as Record<string, any>;
-    assert.equal(rest.plan.planType, "rest");
-    assert.equal(rest.plan.menuSet.trainingMenuSetId, "set-1");
-    assert.equal(Object.hasOwn(rest.plan, "items"), false);
   } finally {
     (ddb as any).send = originalSend;
   }

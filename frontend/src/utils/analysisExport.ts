@@ -3,10 +3,12 @@ import {
   getProfile,
   listDailyRecords,
   listGymVisits,
+  listRecoveryExecutions,
   listTrainingMenuItems,
   listTrainingMenuSets,
   type DailyRecordDto,
   type GymVisitDto,
+  type RecoveryExecutionDto,
   type TrainingMenuItemDto
 } from '../api/coreApi';
 
@@ -21,7 +23,7 @@ export type AnalysisExportRange =
     };
 
 export type AnalysisExportProgress = {
-  section: 'profile' | 'trainingMenus' | 'dailyRecords' | 'gymVisits' | 'complete';
+  section: 'profile' | 'trainingMenus' | 'dailyRecords' | 'gymVisits' | 'recoveryExecutions' | 'complete';
   fetched: number;
 };
 
@@ -119,10 +121,26 @@ function normalizeGymVisit(item: GymVisitDto) {
 }
 
 function normalizeTrainingMenu(item: TrainingMenuItemDto) {
+  if (item.itemKind === 'recovery') {
+    return {
+      trainingMenuItemId: item.trainingMenuItemId,
+      trainingName: item.trainingName,
+      itemKind: 'recovery' as const,
+      standardDurationMinutes: nullableNumber(item.standardDurationMinutes),
+      isSystemProvided: item.isSystemProvided === true,
+      isAiGenerated: item.isAiGenerated === true,
+      description: nullableString(item.description),
+      usageCount: item.usageCount,
+      isActive: item.isActive,
+      createdAtUtc: nullableString(item.createdAt),
+      updatedAtUtc: nullableString(item.updatedAt)
+    };
+  }
   const weightInputMode = item.weightInputMode ?? 'legacyUnspecified';
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: item.trainingName,
+    itemKind: 'training' as const,
     exerciseFamilyId: item.exerciseFamilyId,
     muscleTargets: item.muscleTargets,
     movementFamily: item.movementFamily,
@@ -143,6 +161,27 @@ function normalizeTrainingMenu(item: TrainingMenuItemDto) {
     isActive: item.isActive,
     createdAtUtc: nullableString(item.createdAt),
     updatedAtUtc: nullableString(item.updatedAt)
+  };
+}
+
+function normalizeRecoveryExecution(item: RecoveryExecutionDto) {
+  return {
+    executionId: item.executionId,
+    date: item.executionDateLocal,
+    menuSetKind: 'recovery' as const,
+    sourceMenuSetId: item.sourceMenuSetId,
+    sourceMenuSetNameSnapshot: item.sourceMenuSetNameSnapshot,
+    planRelationAtRegistration: item.planRelationAtRegistration,
+    entries: item.entries.map((entry) => ({
+      menuItemId: entry.menuItemId,
+      activityNameSnapshot: entry.activityNameSnapshot,
+      targetDurationMinutesSnapshot: entry.targetDurationMinutesSnapshot ?? null,
+      actualDurationMinutes: entry.actualDurationMinutes ?? null,
+      instructionSnapshot: nullableString(entry.instructionSnapshot),
+      note: nullableString(entry.note),
+      performedAtUtc: entry.performedAtUtc
+    })),
+    createdAtUtc: item.createdAt
   };
 }
 
@@ -179,6 +218,10 @@ export async function createAnalysisExport(
     (fetched) => onProgress?.({ section: 'gymVisits', fetched })
   );
 
+  onProgress?.({ section: 'recoveryExecutions', fetched: 0 });
+  const recoveryExecutions = await listRecoveryExecutions(dateParams);
+  onProgress?.({ section: 'recoveryExecutions', fetched: recoveryExecutions.length });
+
   const normalizedDailyRecords = dailyRecords
     .map(normalizeDailyRecord)
     .filter((item): item is ReturnType<typeof normalizeDailyRecord> & { date: string } => item.date !== null)
@@ -187,14 +230,16 @@ export async function createAnalysisExport(
     const dateComparison = a.date.localeCompare(b.date);
     return dateComparison !== 0 ? dateComparison : a.startedAtUtc.localeCompare(b.startedAtUtc);
   });
+  const normalizedRecoveryExecutions = recoveryExecutions.map(normalizeRecoveryExecution).sort((a, b) => a.date.localeCompare(b.date));
   const historyDates = [
     ...normalizedDailyRecords.map((item) => item.date),
-    ...normalizedGymVisits.map((item) => item.date)
+    ...normalizedGymVisits.map((item) => item.date),
+    ...normalizedRecoveryExecutions.map((item) => item.date)
   ].sort();
 
   const result = {
     schema: 'kintrain.analysis-export',
-    schemaVersion: 5,
+    schemaVersion: 6,
     generatedAtUtc: new Date().toISOString(),
     selection: {
       rangeMode: range.rangeMode,
@@ -207,7 +252,8 @@ export async function createAnalysisExport(
       firstRecordDate: historyDates[0] ?? null,
       lastRecordDate: historyDates.at(-1) ?? null,
       dailyRecordCount: normalizedDailyRecords.length,
-      gymVisitCount: normalizedGymVisits.length
+      gymVisitCount: normalizedGymVisits.length,
+      recoveryExecutionCount: normalizedRecoveryExecutions.length
     },
     currentContext: {
       userProfile: {
@@ -235,15 +281,17 @@ export async function createAnalysisExport(
           displayOrder: item.menuSetOrder,
           isDefault: item.isDefault,
           setType: item.setType,
+          menuSetKind: item.menuSetKind,
           source: item.source,
           validFromDate: nullableString(item.validFromDate),
           validToDate: nullableString(item.validToDate),
-          restDates: Array.isArray(item.restDates) ? item.restDates : [],
           isActive: item.isActive,
           items: item.items.map((setItem) => ({
             trainingMenuSetItemId: setItem.trainingMenuSetItemId,
             trainingMenuItemId: setItem.trainingMenuItemId,
             displayOrder: setItem.displayOrder,
+            itemKind: setItem.itemKind,
+            targetDurationMinutes: setItem.targetDurationMinutes ?? null,
             targetWeightKg: setItem.targetWeightKg,
             targetRepsMin: setItem.targetRepsMin,
             targetRepsMax: setItem.targetRepsMax,
@@ -258,13 +306,14 @@ export async function createAnalysisExport(
     },
     history: {
       dailyRecords: normalizedDailyRecords,
-      gymVisits: normalizedGymVisits
+      gymVisits: normalizedGymVisits,
+      recoveryExecutions: normalizedRecoveryExecutions
     }
   };
 
   onProgress?.({
     section: 'complete',
-    fetched: normalizedDailyRecords.length + normalizedGymVisits.length
+    fetched: normalizedDailyRecords.length + normalizedGymVisits.length + normalizedRecoveryExecutions.length
   });
   return result;
 }

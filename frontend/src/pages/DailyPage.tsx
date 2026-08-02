@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
+import { getDailyTrainingPlan, listRecoveryExecutions, type DailyTrainingPlanDto, type RecoveryExecutionDto } from '../api/coreApi';
 import { DailyRatingSlider } from '../components/DailyRatingSlider';
 import { ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel } from '../utils/training';
@@ -26,6 +27,8 @@ export function DailyPage() {
   const [activityInput, setActivityInput] = useState('');
   const [painAreaInput, setPainAreaInput] = useState('');
   const [saveMessage, setSaveMessage] = useState('');
+  const [recoveryExecutions, setRecoveryExecutions] = useState<RecoveryExecutionDto[]>([]);
+  const [dailyPlan, setDailyPlan] = useState<DailyTrainingPlanDto | null>(null);
 
   const record = data.dailyRecords[targetDate] ?? {
     date: targetDate,
@@ -43,6 +46,16 @@ export function DailyPage() {
 
   useEffect(() => {
     void refreshDailyRecord(targetDate);
+    void Promise.all([
+      listRecoveryExecutions({ from: targetDate, to: targetDate }),
+      getDailyTrainingPlan(targetDate)
+    ]).then(([executions, plan]) => {
+      setRecoveryExecutions(executions);
+      setDailyPlan(plan);
+    }).catch(() => {
+      setRecoveryExecutions([]);
+      setDailyPlan(null);
+    });
   }, [refreshDailyRecord, targetDate]);
 
   return (
@@ -55,7 +68,7 @@ export function DailyPage() {
               カレンダー
             </Link>
             <Link to="/training-session" className="btn primary">
-              トレーニング開始
+              実施を登録
             </Link>
           </div>
         </div>
@@ -84,6 +97,15 @@ export function DailyPage() {
           {!dailySaveStatus.isSaving && dailySaveStatus.isDirty ? '（未保存の変更あり）' : ''}
         </p>
         {saveMessage && <p className="status-text">{saveMessage}</p>}
+      </section>
+
+      <section className="card daily-section-card">
+        <h2>当日の計画</h2>
+        {dailyPlan ? (
+          <p><strong>{dailyPlan.menuSetName}</strong>・{dailyPlan.menuSetKind === 'recovery' ? 'リカバリー' : 'トレーニング'}</p>
+        ) : (
+          <p className="muted">この日の計画はありません。</p>
+        )}
       </section>
 
       <section className="card daily-section-card">
@@ -366,6 +388,24 @@ export function DailyPage() {
               </li>
             ))}
           </ol>
+        )}
+      </section>
+
+      <section className="card daily-section-card">
+        <h2>当日のリカバリー内容</h2>
+        {recoveryExecutions.length === 0 ? (
+          <p className="muted">この日のリカバリー記録はまだありません。</p>
+        ) : (
+          <ul className="simple-list">
+            {recoveryExecutions.flatMap((execution) => execution.entries.map((entry, index) => (
+              <li key={`${execution.executionId}-${index}`}>
+                <strong>{entry.activityNameSnapshot}</strong>
+                {entry.actualDurationMinutes ? `・${entry.actualDurationMinutes}分` : ''}
+                {entry.note ? `・${entry.note}` : ''}
+                <small>{execution.sourceMenuSetNameSnapshot}</small>
+              </li>
+            )))}
+          </ul>
         )}
       </section>
     </div>

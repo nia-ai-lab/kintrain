@@ -1735,6 +1735,21 @@ a {
   visibility: hidden;
 }
 
+.calendar-activity-labels {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  font-size: 0.68rem;
+  line-height: 1.15;
+}
+
+.calendar-activity-labels small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .calendar-rating-stripes {
   width: 100%;
   display: grid;

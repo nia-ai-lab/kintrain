@@ -1,8 +1,15 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
-import { deleteTrainingMenuSet, getTrainingSessionView } from '../api/coreApi';
-import type { DraftEntry, TrainingFrequencyDays, TrainingMenuItem } from '../types';
+import {
+  createRecoveryExecution,
+  deleteTrainingMenuSet,
+  getDailyTrainingPlan,
+  getTrainingSessionView,
+  listGymVisits,
+  listRecoveryExecutions
+} from '../api/coreApi';
+import type { DraftEntry, TrainingFrequencyDays, TrainingMenuItem, TrainingMenuSet } from '../types';
 import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
 import {
@@ -37,6 +44,7 @@ type TrainingSessionMenuItem = TrainingMenuItem & {
   targetRepsMax: number;
   targetSets: number;
   targetInstruction: string;
+  targetDurationMinutes?: number;
   lastPerformanceSnapshot?: TrainingSessionLastPerformanceSnapshot;
 };
 
@@ -45,6 +53,14 @@ type RemovedConfirmEntry = {
   item: TrainingMenuItem;
   draft: DraftEntry;
 };
+
+type RecoveryDraft = { checked: boolean; actualDurationMinutes?: number; note: string };
+
+function hasRecoveryDraft(drafts: Record<string, RecoveryDraft>): boolean {
+  return Object.values(drafts).some(
+    (draft) => draft.checked || draft.actualDurationMinutes !== undefined || draft.note.trim() !== ''
+  );
+}
 
 function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 8) {
@@ -111,13 +127,14 @@ export function TrainingSessionPage() {
   const [sessionItems, setSessionItems] = useState<TrainingSessionMenuItem[]>([]);
   const [isSessionViewLoading, setIsSessionViewLoading] = useState(true);
   const [sessionViewError, setSessionViewError] = useState('');
-  const [planType, setPlanType] = useState<'training' | 'rest'>('training');
+  const [menuSetKind, setMenuSetKind] = useState<'training' | 'recovery'>('training');
   const [resolvedMenuSet, setResolvedMenuSet] = useState<{
     trainingMenuSetId: string;
     setName: string;
     setType: 'reusable' | 'temporary';
     source: 'manual' | 'ai';
     isDefault: boolean;
+    menuSetKind: 'training' | 'recovery';
   } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
@@ -126,6 +143,7 @@ export function TrainingSessionPage() {
     return data.menuSets.filter((set) => set.isActive).sort((a, b) => a.order - b.order);
   }, [data.menuSets]);
   const [selectedMenuSetId, setSelectedMenuSetId] = useState('');
+  const [recoveryDraftsBySet, setRecoveryDraftsBySet] = useState<Record<string, Record<string, RecoveryDraft>>>({});
 
   useEffect(() => {
     if (menuSets.length === 0) {
@@ -159,6 +177,8 @@ export function TrainingSessionPage() {
             return {
             id: item.trainingMenuItemId,
             trainingName: item.trainingName,
+            itemKind: item.itemKind,
+            standardDurationMinutes: item.standardDurationMinutes,
             exerciseFamilyId: item.exerciseFamilyId,
             muscleTargets: item.muscleTargets ?? [],
             movementFamily: item.movementFamily,
@@ -189,6 +209,7 @@ export function TrainingSessionPage() {
             targetRepsMax: Number(item.targetRepsMax),
             targetSets: Number(item.targetSets),
             targetInstruction: item.instruction ?? '',
+            targetDurationMinutes: item.targetDurationMinutes,
             lastPerformanceSnapshot: item.lastPerformanceSnapshot
               ? {
                   performedAtUtc: item.lastPerformanceSnapshot.performedAtUtc,
@@ -208,8 +229,8 @@ export function TrainingSessionPage() {
             };
           });
         setResolvedMenuSet(remote.resolvedMenuSet);
-        setPlanType(remote.planType === 'rest' ? 'rest' : 'training');
-        if (remote.planType !== 'rest' && !selectedMenuSetId && remote.resolvedMenuSet?.trainingMenuSetId) {
+        setMenuSetKind(remote.menuSetKind);
+        if (!selectedMenuSetId && remote.resolvedMenuSet?.trainingMenuSetId) {
           setSelectedMenuSetId(remote.resolvedMenuSet.trainingMenuSetId);
         }
         setSessionItems(items);
@@ -219,7 +240,7 @@ export function TrainingSessionPage() {
         }
         const message = error instanceof Error ? error.message : '実施メニューの取得に失敗しました。';
         setSessionViewError(message);
-        setPlanType('training');
+        setMenuSetKind('training');
         setResolvedMenuSet(null);
         setSessionItems([]);
       } finally {
@@ -262,6 +283,7 @@ export function TrainingSessionPage() {
           ({
             id: draft.menuItemId,
             trainingName: '不明トレーニング',
+            itemKind: 'training',
             exerciseFamilyId: draft.menuItemId,
             muscleTargets: [],
             movementFamily: 'isolation',
@@ -367,35 +389,90 @@ export function TrainingSessionPage() {
     setRemovedConfirmEntries([]);
   }
 
+  function selectMenuSet(nextMenuSetId: string) {
+    const nextKind = menuSets.find((set) => set.id === nextMenuSetId)?.menuSetKind;
+    if (nextKind && nextKind !== menuSetKind) {
+      const currentRecoveryDrafts = resolvedMenuSet
+        ? recoveryDraftsBySet[resolvedMenuSet.trainingMenuSetId] ?? {}
+        : {};
+      const hasCurrentDraft = menuSetKind === 'training'
+        ? enteredItems.length > 0
+        : hasRecoveryDraft(currentRecoveryDrafts);
+      if (hasCurrentDraft) {
+        const keep = window.confirm(
+          '入力途中の内容があります。\n「OK」で下書きを保持して切り替え、「キャンセル」で下書きを破棄して切り替えます。'
+        );
+        if (!keep) {
+          if (menuSetKind === 'training') {
+            clearDraft();
+          } else if (resolvedMenuSet) {
+            setRecoveryDraftsBySet((current) => ({
+              ...current,
+              [resolvedMenuSet.trainingMenuSetId]: {}
+            }));
+          }
+        }
+      }
+    }
+    setSelectedMenuSetId(nextMenuSetId);
+  }
+
+  if (menuSetKind === 'recovery' && resolvedMenuSet) {
+    return (
+      <RecoverySessionPage
+        today={today}
+        timeZoneId={data.userProfile.timeZoneId}
+        menuSets={menuSets}
+        selectedMenuSetId={resolvedMenuSet.trainingMenuSetId}
+        resolvedMenuSet={resolvedMenuSet}
+        items={sessionItems}
+        isLoading={isSessionViewLoading}
+        error={sessionViewError}
+        drafts={recoveryDraftsBySet[resolvedMenuSet.trainingMenuSetId] ?? {}}
+        onDraftsChange={(drafts) => setRecoveryDraftsBySet((current) => ({
+          ...current,
+          [resolvedMenuSet.trainingMenuSetId]: drafts
+        }))}
+        onSelectMenuSet={selectMenuSet}
+        onSaved={() => {
+          setRecoveryDraftsBySet((current) => ({
+            ...current,
+            [resolvedMenuSet.trainingMenuSetId]: {}
+          }));
+          navigate(`/daily/${today}`);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="stack-lg training-session-page">
       <section className="card card-highlight training-session-hero">
         <div className="session-header">
           <div>
-            <h1>トレーニング実施</h1>
+            <h1>実施</h1>
             <p className="session-date">{ymdToDisplay(today)}</p>
             <label className="session-menu-set-select">
               <span>
-                {planType === 'rest' ? '今日の計画 ・ 完全休息' : '今日のメニュー'}
+                今日のメニュー
                 {resolvedMenuSet?.setType === 'temporary' ? ' ・ 一時' : ''}
                 {resolvedMenuSet?.source === 'ai' ? ' ・ AI作成' : ''}
               </span>
               <select
-                value={planType === 'rest' ? '' : (resolvedMenuSet?.trainingMenuSetId ?? effectiveSelectedMenuSetId)}
+                value={resolvedMenuSet?.trainingMenuSetId ?? effectiveSelectedMenuSetId}
                 disabled={menuSets.length === 0}
                 onChange={(event) => {
-                  setPlanType('training');
-                  setSelectedMenuSetId(event.target.value);
+                  selectMenuSet(event.target.value);
                 }}
               >
                 {menuSets.length === 0 ? (
                   <option value="">メニューセットなし</option>
                 ) : (
                   <>
-                    {planType === 'rest' && <option value="">完全休息日</option>}
                     {menuSets.map((set) => (
                       <option value={set.id} key={set.id}>
                         {set.setName}
+                        {set.menuSetKind === 'recovery' ? '・リカバリー' : '・トレーニング'}
                         {set.isDefault ? ' (デフォルト)' : ''}
                       </option>
                     ))}
@@ -436,9 +513,7 @@ export function TrainingSessionPage() {
         {!isSessionViewLoading && !sessionViewError && prioritized.length === 0 && (
           <article className="card training-session-card">
             <p className="muted">
-              {planType === 'rest'
-                ? '今日は計画された完全休息日です。しっかり回復しましょう。'
-                : '選択中のメニューセットに有効な種目がありません。'}
+              選択中のメニューセットに有効な項目がありません。
             </p>
           </article>
         )}
@@ -875,4 +950,230 @@ export function TrainingSessionPage() {
       )}
     </div>
   );
+}
+
+function RecoverySessionPage({
+  today,
+  timeZoneId,
+  menuSets,
+  selectedMenuSetId,
+  resolvedMenuSet,
+  items,
+  isLoading,
+  error,
+  drafts,
+  onDraftsChange,
+  onSelectMenuSet,
+  onSaved
+}: {
+  today: string;
+  timeZoneId: string;
+  menuSets: TrainingMenuSet[];
+  selectedMenuSetId: string;
+  resolvedMenuSet: NonNullable<ReturnType<typeof getResolvedMenuSetShape>>;
+  items: TrainingSessionMenuItem[];
+  isLoading: boolean;
+  error: string;
+  drafts: Record<string, RecoveryDraft>;
+  onDraftsChange: (drafts: Record<string, RecoveryDraft>) => void;
+  onSelectMenuSet: (id: string) => void;
+  onSaved: () => void;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState('');
+  const [plannedName, setPlannedName] = useState('予定なし');
+  const [plannedSetId, setPlannedSetId] = useState<string | null>(null);
+  const [plannedSetCompleted, setPlannedSetCompleted] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      getDailyTrainingPlan(today),
+      listGymVisits({ from: today, to: today, limit: 200 }),
+      listRecoveryExecutions({ from: today, to: today })
+    ]).then(([plan, trainingExecutions, recoveryExecutions]) => {
+      if (active) {
+        const planId = plan?.trainingMenuSetId;
+        setPlannedName(plan ? `${plan.menuSetName}（${plan.menuSetKind === 'recovery' ? 'リカバリー' : 'トレーニング'}）` : '予定なし');
+        setPlannedSetId(planId ?? null);
+        setPlannedSetCompleted(Boolean(planId) && (
+          trainingExecutions.items.some((execution) =>
+            execution.visitDateLocal === today &&
+            execution.entries.some((entry) => entry.sourceTrainingMenuSetId === planId)
+          ) || recoveryExecutions.some((execution) =>
+            execution.executionDateLocal === today && execution.sourceMenuSetId === planId
+          )
+        ));
+      }
+    }).catch(() => {
+      if (active) {
+        setPlannedName('予定なし');
+        setPlannedSetId(null);
+        setPlannedSetCompleted(false);
+      }
+    });
+    return () => { active = false; };
+  }, [today]);
+
+  useEffect(() => {
+    setConfirming(false);
+  }, [selectedMenuSetId]);
+
+  const selected = items.filter((item) => drafts[item.menuSetItemId]?.checked);
+  const relation = plannedSetId === null
+    ? '予定外'
+    : plannedSetId === resolvedMenuSet.trainingMenuSetId
+      ? '計画どおり'
+      : plannedSetCompleted
+        ? '追加実施'
+      : '予定と異なる実施';
+
+  return (
+    <div className="stack-lg training-session-page">
+      <section className="card card-highlight training-session-hero">
+        <div className="session-header">
+          <div>
+            <h1>実施</h1>
+            <p className="session-date">{ymdToDisplay(today)}</p>
+            <label className="session-menu-set-select">
+              <span>今日のメニュー ・ リカバリー</span>
+              <select value={selectedMenuSetId} onChange={(event) => onSelectMenuSet(event.target.value)}>
+                {menuSets.map((set) => (
+                  <option value={set.id} key={set.id}>
+                    {set.setName}・{set.menuSetKind === 'recovery' ? 'リカバリー' : 'トレーニング'}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <button type="button" className="btn ghost" onClick={() => onDraftsChange({})}>入力をクリア</button>
+        </div>
+        {status && <p className="status-text">{status}</p>}
+      </section>
+
+      <section className="stack-md training-session-list">
+        {isLoading && <article className="card"><p className="muted">実施メニューを読み込み中です。</p></article>}
+        {!isLoading && error && <article className="card"><p className="status-text">{error}</p></article>}
+        {!isLoading && !error && items.map((item) => {
+          const key = item.menuSetItemId;
+          const draft = drafts[key] ?? { checked: false, note: '' };
+          return (
+            <article className="card stack-md training-session-card" key={key}>
+              <label className="row-wrap">
+                <input
+                  type="checkbox"
+                  checked={draft.checked}
+                  onChange={(event) => onDraftsChange({ ...drafts, [key]: { ...draft, checked: event.target.checked } })}
+                />
+                <strong>{item.trainingName}</strong>
+              </label>
+              {item.targetInstruction && <p className="muted">{item.targetInstruction}</p>}
+              {item.targetDurationMinutes && <p className="muted">目標時間: {item.targetDurationMinutes}分</p>}
+              <div className="input-grid">
+                <label>
+                  実施時間（分・任意）
+                  <input
+                    type="number"
+                    min={1}
+                    max={1440}
+                    value={draft.actualDurationMinutes ?? ''}
+                    placeholder="入力なしでも登録できます"
+                    onChange={(event) => onDraftsChange({
+                      ...drafts,
+                      [key]: { ...draft, actualDurationMinutes: event.target.value ? Number(event.target.value) : undefined }
+                    })}
+                  />
+                </label>
+                <label>
+                  メモ（任意）
+                  <input
+                    value={draft.note}
+                    maxLength={500}
+                    onChange={(event) => onDraftsChange({ ...drafts, [key]: { ...draft, note: event.target.value } })}
+                  />
+                </label>
+              </div>
+            </article>
+          );
+        })}
+        {!isLoading && !error && items.length === 0 && <article className="card"><p className="muted">このセットにはリカバリー活動がありません。</p></article>}
+      </section>
+
+      <section className="sticky-action">
+        <button type="button" className="btn primary large" disabled={selected.length === 0} onClick={() => setConfirming(true)}>
+          記録内容を確認
+        </button>
+      </section>
+
+      {confirming && (
+        <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="recovery-confirm-title">
+          <div className="overlay-modal-card training-session-confirm-modal">
+            <h3 id="recovery-confirm-title">記録内容の確認</h3>
+            <p>予定: {plannedName}</p>
+            <p>実施: {resolvedMenuSet.setName}（リカバリー）</p>
+            <p className="priority-chip">{relation}</p>
+            <ul className="simple-list">
+              {selected.map((item) => {
+                const draft = drafts[item.menuSetItemId];
+                return <li key={item.menuSetItemId}><strong>{item.trainingName}</strong>{draft.actualDurationMinutes ? `・${draft.actualDurationMinutes}分` : ''}{draft.note ? `・${draft.note}` : ''}</li>;
+              })}
+            </ul>
+            <div className="overlay-modal-actions">
+              <button type="button" className="btn subtle" disabled={saving} onClick={() => setConfirming(false)}>戻る</button>
+              <button
+                type="button"
+                className="btn primary"
+                disabled={saving}
+                onClick={async () => {
+                  setSaving(true);
+                  setStatus('');
+                  try {
+                    const performedAtUtc = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                    await createRecoveryExecution({
+                      executionDateLocal: today,
+                      timeZoneId,
+                      sourceMenuSetId: resolvedMenuSet.trainingMenuSetId,
+                      sourceMenuSetNameSnapshot: resolvedMenuSet.setName,
+                      sourceMenuSetTypeSnapshot: resolvedMenuSet.setType,
+                      entries: selected.map((item) => ({
+                        menuItemId: item.id,
+                        activityNameSnapshot: item.trainingName,
+                        sourceMenuSetItemId: item.menuSetItemId,
+                        targetDurationMinutesSnapshot: item.targetDurationMinutes,
+                        actualDurationMinutes: drafts[item.menuSetItemId].actualDurationMinutes,
+                        instructionSnapshot: item.targetInstruction,
+                        note: drafts[item.menuSetItemId].note,
+                        performedAtUtc
+                      }))
+                    });
+                    setConfirming(false);
+                    onSaved();
+                  } catch (saveError) {
+                    setStatus(saveError instanceof Error ? saveError.message : 'リカバリー記録の保存に失敗しました。');
+                    setConfirming(false);
+                  } finally {
+                    setSaving(false);
+                  }
+                }}
+              >
+                {saving ? '記録中...' : 'この内容で記録'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function getResolvedMenuSetShape() {
+  return null as null | {
+    trainingMenuSetId: string;
+    setName: string;
+    setType: 'reusable' | 'temporary';
+    source: 'manual' | 'ai';
+    isDefault: boolean;
+    menuSetKind: 'training' | 'recovery';
+  };
 }

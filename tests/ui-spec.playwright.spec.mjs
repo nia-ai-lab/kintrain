@@ -165,6 +165,18 @@ function buildCoreMockData() {
         isActive: true,
         createdAt: now,
         updatedAt: now
+      },
+      {
+        trainingMenuItemId: 'r-1',
+        trainingName: '完全休養',
+        itemKind: 'recovery',
+        isSystemProvided: true,
+        description: '',
+        usageCount: 1,
+        displayOrder: 6,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now
       }
     ],
     menuSets: [
@@ -195,6 +207,26 @@ function buildCoreMockData() {
           instruction: '',
           createdBy: 'manual'
         })),
+        createdAt: now,
+        updatedAt: now
+      },
+      {
+        trainingMenuSetId: 'recovery-set-1',
+        setName: 'リカバリー日',
+        menuSetOrder: 2,
+        isDefault: false,
+        setType: 'reusable',
+        source: 'manual',
+        menuSetKind: 'recovery',
+        isActive: true,
+        items: [{
+          trainingMenuSetItemId: 'recovery-set-item-1',
+          trainingMenuSetId: 'recovery-set-1',
+          trainingMenuItemId: 'r-1',
+          displayOrder: 1,
+          instruction: '運動をせず、睡眠を優先する',
+          createdBy: 'manual'
+        }],
         createdAt: now,
         updatedAt: now
       }
@@ -321,6 +353,9 @@ async function attachCoreApiMock(page) {
     }
     if (path === '/gym-visits' && method === 'GET') {
       return json({ items: mock.gymVisits, nextToken: null });
+    }
+    if (path === '/menu-executions' && method === 'GET') {
+      return json({ items: [], nextToken: null });
     }
     if (path === '/daily-records' && method === 'GET') {
       return json({ items: mock.dailyRecords, nextToken: null });
@@ -496,11 +531,12 @@ async function attachCoreApiMock(page) {
       }, 201);
     }
     if (path === '/training-session-view' && method === 'GET') {
-      const set = mock.menuSets[0];
+      const requestedSetId = url.searchParams.get('trainingMenuSetId');
+      const set = mock.menuSets.find((entry) => entry.trainingMenuSetId === requestedSetId) ?? mock.menuSets[0];
       const sorted = set.items.map((setItem, index) => ({
         ...mock.menuItems.find((item) => item.trainingMenuItemId === setItem.trainingMenuItemId),
         ...setItem,
-        ...(index === 0
+        ...(set.menuSetKind !== 'recovery' && index === 0
           ? {
               lastPerformanceSnapshot: {
                 performedAtUtc: `${state.todayYmd}T10:00:00Z`,
@@ -518,8 +554,10 @@ async function attachCoreApiMock(page) {
           setName: set.setName,
           setType: set.setType,
           source: set.source,
-          isDefault: set.isDefault
+          isDefault: set.isDefault,
+          menuSetKind: set.menuSetKind ?? 'training'
         },
+        menuSetKind: set.menuSetKind ?? 'training',
         resolvedFromDailyPlan: false,
         items: sorted,
         todayDoneTrainingMenuItemIds: []
@@ -536,6 +574,15 @@ async function attachCoreApiMock(page) {
         },
         201
       );
+    }
+    if (path === '/menu-executions' && method === 'POST') {
+      const input = JSON.parse(req.postData() ?? '{}');
+      return json({
+        ...input,
+        executionId: `execution-${mock.sequence++}`,
+        createdAt: now,
+        updatedAt: now
+      }, 201);
     }
     if (path === '/training-menu-items' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
@@ -1115,6 +1162,32 @@ test('iPhone幅の実施画面で操作と入力欄が横にはみ出さない',
   assert.equal(dialogHasHorizontalOverflow, false);
 });
 
+test('同じ実施画面から完全休養を時間入力なしで登録できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-session');
+
+  await page.getByLabel('今日のメニュー').selectOption('recovery-set-1');
+  await expect(page.getByText('完全休養', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('重量')).toHaveCount(0);
+  await page.getByRole('checkbox', { name: '完全休養' }).check();
+  await page.getByRole('button', { name: '記録内容を確認' }).click();
+
+  const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
+  await expect(dialog.getByText('実施: リカバリー日（リカバリー）')).toBeVisible();
+  await expect(dialog.getByText('予定外')).toBeVisible();
+  const requestPromise = page.waitForRequest((request) =>
+    request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/menu-executions')
+  );
+  await dialog.getByRole('button', { name: 'この内容で記録' }).click();
+  const request = await requestPromise;
+  const input = request.postDataJSON();
+  assert.equal(input.menuSetKind, 'recovery');
+  assert.equal(input.entries[0].activityNameSnapshot, '完全休養');
+  assert.equal('weightKg' in input.entries[0], false);
+  assert.equal('actualDurationMinutes' in input.entries[0], false);
+});
+
 test('トレーニングメニューで追加・編集・削除ができる', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
@@ -1135,8 +1208,8 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await expect(page.getByText('指定日のメニューに設定しました。')).toBeVisible();
 
   const uniqueName = `UI追加-${Date.now()}`;
-  await page.getByRole('button', { name: '種目一覧' }).click();
-  const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
+  await page.getByRole('button', { name: 'メニュー項目' }).click();
+  const createPanel = page.locator('details.card').filter({ hasText: '新しいメニュー項目を登録' });
   await createPanel.locator('summary').click();
   await createPanel.getByLabel('種目名').fill(uniqueName);
   await createPanel.getByRole('button', { name: '胸（中部）を主働筋にする' }).click();
@@ -1147,7 +1220,7 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await createPanel.getByLabel('重量入力方式').selectOption('perSide');
   await createPanel.getByLabel('バーなどの固定重量').fill('20');
   await createPanel.getByLabel('種目の説明').fill('胸を張ってゆっくり動かす。');
-  await createPanel.getByRole('button', { name: '種目一覧へ登録' }).click();
+  await createPanel.getByRole('button', { name: 'メニュー項目へ登録' }).click();
 
   const addedCard = page.locator('details.menu-item-library-card').filter({ hasText: uniqueName });
   await expect(addedCard).toBeVisible();
@@ -1156,13 +1229,13 @@ test('トレーニングメニューで追加・編集・削除ができる', as
   await expect(addedCard.getByLabel('バーなどの固定重量')).toHaveValue('20');
   await addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' }).click();
   await addedCard.getByRole('button', { name: '胸（中部）を選択解除' }).click();
-  await addedCard.getByRole('button', { name: '種目情報を保存' }).click();
+  await addedCard.getByRole('button', { name: '項目情報を保存' }).click();
   await expect(addedCard.getByLabel('バーなどの固定重量')).toHaveValue('20');
   await expect(addedCard.getByRole('button', { name: '胸（上部）を主働筋にする' })).toHaveAttribute('aria-pressed', 'true');
   await expect(addedCard.getByRole('button', { name: '胸（中部）を選択解除' })).toHaveAttribute('aria-pressed', 'true');
 
   page.once('dialog', (dialog) => dialog.accept());
-  await addedCard.getByRole('button', { name: '種目自体を削除' }).click();
+  await addedCard.getByRole('button', { name: '項目を削除' }).click();
   await expect(page.locator('details.menu-item-library-card').filter({ hasText: uniqueName })).toHaveCount(0);
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -1178,9 +1251,9 @@ test('iPhone幅で筋肉と役割を見やすく選択できる', async ({ page 
   await page.setViewportSize({ width: 390, height: 844 });
   await login(page);
   await page.goto('/training-menu');
-  await page.getByRole('button', { name: '種目一覧' }).click();
+  await page.getByRole('button', { name: 'メニュー項目' }).click();
 
-  const createPanel = page.locator('details.card').filter({ hasText: '新しい種目を登録' });
+  const createPanel = page.locator('details.card').filter({ hasText: '新しいメニュー項目を登録' });
   await createPanel.locator('summary').click();
 
   await expect(createPanel.locator('.muscle-group-tab')).toHaveCount(6);
@@ -1343,15 +1416,16 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 5);
+  assert.equal(exported.schemaVersion, 6);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);
+  assert.equal(exported.coverage.recoveryExecutionCount, 0);
   assert.equal(exported.history.dailyRecords[0].bodyWeightKg, 69.8);
   assert.equal(exported.history.dailyRecords[0].mealNotes, '朝：卵とヨーグルト');
   assert.equal(exported.history.gymVisits[0].entries[0].trainingName, 'チェストプレス');
   assert.equal(exported.history.gymVisits[0].entries[0].weightInputMode, 'legacyUnspecified');
   assert.equal(exported.history.gymVisits[0].entries[0].calculatedTotalWeightKg, null);
   assert.equal(JSON.stringify(exported).includes('setDetails'), false);
-  await expect(page.getByText(/ダウンロードしました。デイリー記録 1件、ジム記録 1件/)).toBeVisible();
+  await expect(page.getByText(/ダウンロードしました。デイリー記録 1件、トレーニング記録 1件、リカバリー記録 0件/)).toBeVisible();
 });

@@ -417,11 +417,14 @@ test("analysis export schemas expose manifest and section paging without set det
     "trainingMenus",
     "trainingMenuSets",
     "dailyRecords",
-    "gymVisits"
+    "gymVisits",
+    "recoveryExecutions"
   ]);
   assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
   const handlerSource = await readFile("amplify/functions/mcp-tools-api/handler.ts", "utf8");
-  assert.match(handlerSource, /schemaVersion: 5/);
+  assert.match(handlerSource, /schemaVersion: 6/);
+  assert.match(handlerSource, /actualDurationMinutes/);
+  assert.match(handlerSource, /planRelationAtRegistration/);
   assert.match(handlerSource, /muscleTargets/);
   assert.match(handlerSource, /movementFamily/);
   assert.match(handlerSource, /jointActions/);
@@ -575,7 +578,7 @@ test("AI menu schema declares zero as the minimum weight", async () => {
     inputSchema: {
       required?: string[];
       properties: {
-        restDates?: {
+        scheduledDates?: {
           uniqueItems?: boolean;
           items?: { type?: string };
         };
@@ -591,10 +594,10 @@ test("AI menu schema declares zero as the minimum weight", async () => {
   assert.ok(schema, "create_temporary_training_menu_set_from_ai schema is missing");
   assert.deepEqual(
     schema.inputSchema.required,
-    ["idempotencyKey", "validFromDate", "validToDate", "setName", "restDates", "items"]
+    ["idempotencyKey", "validFromDate", "validToDate", "setName", "menuSetKind", "scheduledDates", "items"]
   );
-  assert.equal(schema.inputSchema.properties.restDates?.items?.type, "string");
-  assert.equal(schema.inputSchema.properties.restDates?.uniqueItems, true);
+  assert.equal(schema.inputSchema.properties.scheduledDates?.items?.type, "string");
+  assert.equal(schema.inputSchema.properties.scheduledDates?.uniqueItems, true);
   const itemProperties = schema.inputSchema.properties.items?.items?.properties as
     | Record<string, { properties?: Record<string, { minimum?: number; type?: string }> }>
     | undefined;

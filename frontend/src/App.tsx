@@ -6,6 +6,7 @@ import { CalendarPage } from './pages/CalendarPage';
 import { CoachingContextPage } from './pages/CoachingContextPage';
 import { DailyPage } from './pages/DailyPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { HistoryPage } from './pages/HistoryPage';
 import { LoginPage } from './pages/LoginPage';
 import { PasswordResetPage } from './pages/PasswordResetPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -67,7 +68,7 @@ export function App() {
         <Route path="/training-menu/ai-generate" element={<TrainingMenuAiGeneratePage />} />
         <Route path="/calendar" element={<CalendarPage />} />
         <Route path="/daily/:date" element={<DailyPage />} />
-        <Route path="/history" element={<PlaceholderPage title="履歴" />} />
+        <Route path="/history" element={<HistoryPage />} />
         <Route path="/progress" element={<PlaceholderPage title="進捗" />} />
         <Route path="/ai-chat" element={<AiChatPage />} />
         <Route path="/coaching-context" element={<CoachingContextPage />} />

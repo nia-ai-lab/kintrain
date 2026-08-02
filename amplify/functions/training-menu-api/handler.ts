@@ -46,10 +46,12 @@ const defaultSetMarker = "DEFAULT";
 type WeightInputMode = "direct" | "perSide" | "legacyUnspecified";
 type MenuSetType = "reusable" | "temporary";
 type DataSource = "manual" | "ai";
-type DailyPlanType = "training" | "rest";
+type MenuKind = "training" | "recovery";
 
 type MenuItemInput = {
   trainingName: string;
+  itemKind?: MenuKind;
+  standardDurationMinutes?: number | null;
   exerciseFamilyId?: string;
   muscleTargets?: MuscleTarget[];
   movementFamily?: MovementFamily;
@@ -75,10 +77,12 @@ type MenuItemInput = {
 
 type MenuSetInput = {
   setName: string;
+  menuSetKind?: MenuKind;
   setType?: MenuSetType;
   source?: DataSource;
   validFromDate?: string;
   validToDate?: string;
+  scheduledDates?: string[];
   replaceExistingPlan?: boolean;
   isDefault?: boolean;
   expectedVersion?: number;
@@ -86,6 +90,7 @@ type MenuSetInput = {
 
 type PrescriptionInput = {
   trainingMenuItemId?: string;
+  targetDurationMinutes?: number | null;
   targetWeightKg?: number;
   targetRepsMin?: number;
   targetRepsMax?: number;
@@ -96,11 +101,12 @@ type PrescriptionInput = {
 };
 
 type Prescription = {
-  targetWeightKg: number;
-  targetRepsMin: number;
-  targetRepsMax: number;
-  targetSets: number;
-  recommendedIntervalDays: number;
+  targetWeightKg?: number;
+  targetRepsMin?: number;
+  targetRepsMax?: number;
+  targetSets?: number;
+  recommendedIntervalDays?: number;
+  targetDurationMinutes?: number;
   instruction: string;
   createdBy: DataSource;
 };
@@ -202,14 +208,14 @@ function normalizeSource(value: unknown): DataSource {
   return value === "ai" ? "ai" : "manual";
 }
 
-function normalizeDailyPlanType(value: unknown): DailyPlanType {
-  return value === "rest" ? "rest" : "training";
+function normalizeMenuKind(value: unknown): MenuKind {
+  return value === "recovery" ? "recovery" : "training";
 }
 
-function normalizeRestDates(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((date): date is string => typeof date === "string" && Boolean(parseYmd(date)))
-    : [];
+function normalizeOptionalDuration(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= 1440
+    ? value
+    : undefined;
 }
 
 function dailyPlanWriteCondition(existing?: Record<string, unknown>): {
@@ -231,10 +237,7 @@ function dailyPlanWriteCondition(existing?: Record<string, unknown>): {
       ExpressionAttributeValues: { ":expectedTrainingMenuSetId": existing.trainingMenuSetId }
     };
   }
-  return {
-    ConditionExpression: "planType = :expectedPlanType",
-    ExpressionAttributeValues: { ":expectedPlanType": normalizeDailyPlanType(existing.planType) }
-  };
+  return { ConditionExpression: "attribute_exists(userId)" };
 }
 
 function validityFromSet(set: Record<string, unknown>): { validFromDate?: string; validToDate?: string } {
@@ -245,14 +248,28 @@ function validityFromSet(set: Record<string, unknown>): { validFromDate?: string
   };
 }
 
-function parsePrescription(input: PrescriptionInput, current?: Record<string, unknown>): Prescription | null {
+function parsePrescription(
+  input: PrescriptionInput,
+  current?: Record<string, unknown>,
+  menuSetKind: MenuKind = "training"
+): Prescription | null {
+  const instruction = input.instruction !== undefined ? trimmed(input.instruction) ?? "" : String(current?.instruction ?? "");
+  const createdBy = input.createdBy !== undefined ? normalizeSource(input.createdBy) : normalizeSource(current?.createdBy);
+  if (instruction.length > 500) return null;
+  if (menuSetKind === "recovery") {
+    const rawDuration = input.targetDurationMinutes !== undefined ? input.targetDurationMinutes : current?.targetDurationMinutes;
+    if (rawDuration !== undefined && rawDuration !== null && normalizeOptionalDuration(rawDuration) === undefined) return null;
+    return {
+      ...(rawDuration === undefined || rawDuration === null ? {} : { targetDurationMinutes: normalizeOptionalDuration(rawDuration) }),
+      instruction,
+      createdBy
+    };
+  }
   const targetWeightKg = input.targetWeightKg ?? Number(current?.targetWeightKg);
   const targetRepsMin = input.targetRepsMin ?? Number(current?.targetRepsMin);
   const targetRepsMax = input.targetRepsMax ?? Number(current?.targetRepsMax);
   const targetSets = input.targetSets ?? Number(current?.targetSets);
   const recommendedIntervalDays = input.recommendedIntervalDays ?? Number(current?.recommendedIntervalDays);
-  const instruction = input.instruction !== undefined ? trimmed(input.instruction) ?? "" : String(current?.instruction ?? "");
-  const createdBy = input.createdBy !== undefined ? normalizeSource(input.createdBy) : normalizeSource(current?.createdBy);
   if (
     !Number.isFinite(targetWeightKg) ||
     targetWeightKg < 0 ||
@@ -293,10 +310,30 @@ function buildMenuSetItemKey(trainingMenuSetId: string, trainingMenuItemId: stri
 }
 
 function toMenuItemResponse(item: Record<string, unknown>, usageCount = 0): Record<string, unknown> {
+  const itemKind = normalizeMenuKind(item.itemKind);
+  if (itemKind === "recovery") {
+    return {
+      trainingMenuItemId: item.trainingMenuItemId,
+      trainingName: String(item.trainingName ?? ""),
+      itemKind,
+      standardDurationMinutes: normalizeOptionalDuration(item.standardDurationMinutes),
+      isSystemProvided: item.isSystemProvided === true,
+      isAiGenerated: item.isAiGenerated === true,
+      description: String(item.description ?? ""),
+      isActive: item.isActive !== false,
+      version: menuSetVersion(item.version),
+      usageCount,
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt,
+      updatedBy: item.updatedBy,
+      updateReason: item.updateReason
+    };
+  }
   const weightInputMode = normalizeWeightInputMode(item.weightInputMode);
   return {
     trainingMenuItemId: item.trainingMenuItemId,
     trainingName: String(item.trainingName ?? ""),
+    itemKind,
     exerciseFamilyId: String(item.exerciseFamilyId ?? item.trainingMenuItemId ?? ""),
     muscleTargets: normalizeMuscleTargets(item.muscleTargets) ?? [],
     movementFamily: normalizeMovementFamily(item.movementFamily),
@@ -323,16 +360,22 @@ function toMenuItemResponse(item: Record<string, unknown>, usageCount = 0): Reco
 }
 
 function toSetItemResponse(item: Record<string, unknown>): Record<string, unknown> {
+  const itemKind = normalizeMenuKind(item.itemKind ?? item.menuSetKind);
   return {
     trainingMenuSetItemId: item.trainingMenuSetItemId,
     trainingMenuSetId: item.trainingMenuSetId,
     trainingMenuItemId: item.trainingMenuItemId,
     displayOrder: Number(item.displayOrder ?? 0),
-    targetWeightKg: Number(item.targetWeightKg),
-    targetRepsMin: Number(item.targetRepsMin),
-    targetRepsMax: Number(item.targetRepsMax),
-    targetSets: Number(item.targetSets),
-    recommendedIntervalDays: Number(item.recommendedIntervalDays),
+    itemKind,
+    ...(itemKind === "recovery"
+      ? { targetDurationMinutes: normalizeOptionalDuration(item.targetDurationMinutes) }
+      : {
+          targetWeightKg: Number(item.targetWeightKg),
+          targetRepsMin: Number(item.targetRepsMin),
+          targetRepsMax: Number(item.targetRepsMax),
+          targetSets: Number(item.targetSets),
+          recommendedIntervalDays: Number(item.recommendedIntervalDays)
+        }),
     instruction: String(item.instruction ?? ""),
     createdBy: normalizeSource(item.createdBy),
     createdAt: item.createdAt,
@@ -348,8 +391,8 @@ function toMenuSetResponse(set: Record<string, unknown>, items: Record<string, u
     menuSetOrder: Number(set.menuSetOrder ?? 0),
     setType: normalizeSetType(set.setType),
     source: normalizeSource(set.source),
+    menuSetKind: normalizeMenuKind(set.menuSetKind),
     ...validity,
-    restDates: normalizeRestDates(set.restDates),
     isDefault: set.isDefault === true,
     isActive: set.isActive !== false,
     version: menuSetVersion(set.version),
@@ -434,9 +477,48 @@ async function existsByName(userId: string, normalizedTrainingName: string): Pro
   return typeof result.Items?.[0]?.trainingMenuItemId === "string" ? result.Items[0].trainingMenuItemId : null;
 }
 
+async function ensureCompleteRestItem(userId: string): Promise<void> {
+  const trainingName = "完全休養";
+  const normalizedTrainingName = normalizeTrainingName(trainingName);
+  if (await existsByName(userId, normalizedTrainingName)) return;
+  const ts = nowIsoSeconds();
+  const trainingMenuItemId = randomUUID();
+  const displayOrder = await nextOrder(trainingMenuTableName, menuItemOrderIndex, userId, "displayOrder");
+  try {
+    await ddb.send(new PutCommand({
+      TableName: trainingMenuTableName,
+      Item: {
+        userId,
+        trainingMenuItemId,
+        trainingName,
+        normalizedTrainingName,
+        itemKind: "recovery",
+        description: "運動や積極的な回復活動を行わず、身体を休める日",
+        isSystemProvided: true,
+        isAiGenerated: false,
+        isActive: true,
+        displayOrder,
+        version: 1,
+        updatedBy: "system",
+        updateReason: "System recovery activity provisioned",
+        createdAt: ts,
+        updatedAt: ts
+      },
+      ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuItemId)"
+    }));
+  } catch {
+    // Another concurrent request may have provisioned the item.
+  }
+}
+
 async function listMenuItems(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
+  await ensureCompleteRestItem(userId);
   const limit = Math.max(1, Math.min(200, Math.floor(Number(event.queryStringParameters?.limit ?? 100))));
-  const context = JSON.stringify(["training-menu-items-v2"]);
+  const requestedKind = event.queryStringParameters?.itemKind;
+  if (requestedKind !== undefined && requestedKind !== "training" && requestedKind !== "recovery") {
+    return response(400, { message: "itemKind must be training or recovery." });
+  }
+  const context = JSON.stringify(["training-menu-items-v2", requestedKind ?? null]);
   const exclusiveStartKey = await decodePageToken(event.queryStringParameters?.nextToken, context, userId);
   if (exclusiveStartKey === null) {
     return response(400, { message: "nextToken is invalid for this user." });
@@ -446,7 +528,14 @@ async function listMenuItems(event: APIGatewayProxyEvent, userId: string): Promi
       TableName: trainingMenuTableName,
       IndexName: menuItemOrderIndex,
       KeyConditionExpression: "userId = :userId",
-      ExpressionAttributeValues: { ":userId": userId },
+      ...(requestedKind
+        ? {
+            FilterExpression: requestedKind === "training"
+              ? "attribute_not_exists(itemKind) OR itemKind = :itemKind"
+              : "itemKind = :itemKind",
+            ExpressionAttributeValues: { ":userId": userId, ":itemKind": requestedKind }
+          }
+        : { ExpressionAttributeValues: { ":userId": userId } }),
       Limit: limit,
       ExclusiveStartKey: exclusiveStartKey
     })),
@@ -468,16 +557,59 @@ async function listMenuItems(event: APIGatewayProxyEvent, userId: string): Promi
 async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
   const body = parseBody<MenuItemInput>(event);
   const trainingName = toNonEmptyString(body?.trainingName);
-  if (!body || !trainingName) {
+  if (!body || !trainingName || trainingName.length > 100) {
     return response(400, { message: "trainingName is required." });
   }
   const normalizedTrainingName = normalizeTrainingName(trainingName);
   if (await existsByName(userId, normalizedTrainingName)) {
     return response(409, { message: "trainingName already exists." });
   }
+  const itemKind = normalizeMenuKind(body.itemKind);
+  const description = trimmed(body.description) ?? "";
+  if (description.length > 500) {
+    return response(400, { message: "description must not exceed 500 characters." });
+  }
+  if (
+    itemKind === "recovery" &&
+    body.standardDurationMinutes !== undefined &&
+    body.standardDurationMinutes !== null &&
+    normalizeOptionalDuration(body.standardDurationMinutes) === undefined
+  ) {
+    return response(400, { message: "standardDurationMinutes must be an integer between 1 and 1440." });
+  }
+  const trainingMenuItemId = randomUUID();
+  const displayOrder = await nextOrder(trainingMenuTableName, menuItemOrderIndex, userId, "displayOrder");
+  const ts = nowIsoSeconds();
+  if (itemKind === "recovery") {
+    const recoveryItem = {
+      userId,
+      trainingMenuItemId,
+      trainingName,
+      normalizedTrainingName,
+      itemKind,
+      ...(body.standardDurationMinutes === undefined || body.standardDurationMinutes === null
+        ? {}
+        : { standardDurationMinutes: normalizeOptionalDuration(body.standardDurationMinutes) }),
+      description,
+      isAiGenerated: body.isAiGenerated === true,
+      isSystemProvided: false,
+      isActive: true,
+      displayOrder,
+      version: 1,
+      updatedBy: "user",
+      updateReason: "Recovery activity created",
+      createdAt: ts,
+      updatedAt: ts
+    };
+    await ddb.send(new PutCommand({
+      TableName: trainingMenuTableName,
+      Item: recoveryItem,
+      ConditionExpression: "attribute_not_exists(userId) AND attribute_not_exists(trainingMenuItemId)"
+    }));
+    return response(201, toMenuItemResponse(recoveryItem));
+  }
   const equipmentType = normalizeEquipmentType(body.equipmentType);
   const exerciseFamilyId = trimmed(body.exerciseFamilyId) ?? trainingName;
-  const description = trimmed(body.description) ?? "";
   const weightInputMode = body.weightInputMode ?? "direct";
   const muscleTargets = normalizeMuscleTargets(body.muscleTargets);
   const movementFamily = normalizeMovementFamily(body.movementFamily);
@@ -499,14 +631,12 @@ async function createMenuItem(event: APIGatewayProxyEvent, userId: string): Prom
   ) {
     return response(400, { message: "invalid menu item." });
   }
-  const trainingMenuItemId = randomUUID();
-  const displayOrder = await nextOrder(trainingMenuTableName, menuItemOrderIndex, userId, "displayOrder");
-  const ts = nowIsoSeconds();
   const item = {
     userId,
     trainingMenuItemId,
     trainingName,
     normalizedTrainingName,
+    itemKind,
     exerciseFamilyId,
     muscleTargets,
     movementFamily,
@@ -554,14 +684,72 @@ async function updateMenuItem(
   if (!body || !current) {
     return response(current ? 400 : 404, { message: current ? "Invalid JSON body." : "training menu item not found." });
   }
+  const currentKind = normalizeMenuKind(current.itemKind);
+  if (body.itemKind !== undefined && normalizeMenuKind(body.itemKind) !== currentKind) {
+    return response(409, { message: "itemKind cannot be changed after creation." });
+  }
+  if (current.isSystemProvided === true) {
+    return response(403, { message: "system provided recovery activity cannot be edited." });
+  }
   const trainingName = body.trainingName !== undefined ? toNonEmptyString(body.trainingName) : String(current.trainingName);
-  if (!trainingName) {
+  if (!trainingName || trainingName.length > 100) {
     return response(400, { message: "trainingName is required." });
   }
   const normalizedTrainingName = normalizeTrainingName(trainingName);
   const duplicateId = await existsByName(userId, normalizedTrainingName);
   if (duplicateId && duplicateId !== trainingMenuItemId) {
     return response(409, { message: "trainingName already exists." });
+  }
+  const recoveryDescription = body.description !== undefined ? trimmed(body.description) ?? "" : String(current.description ?? "");
+  const recoveryDuration = body.standardDurationMinutes !== undefined
+    ? normalizeOptionalDuration(body.standardDurationMinutes)
+    : normalizeOptionalDuration(current.standardDurationMinutes);
+  if (currentKind === "recovery") {
+    if (
+      recoveryDescription.length > 500 ||
+      (body.standardDurationMinutes !== undefined && body.standardDurationMinutes !== null && recoveryDuration === undefined)
+    ) {
+      return response(400, { message: "invalid recovery activity." });
+    }
+    const currentVersion = menuSetVersion(current.version);
+    const expectedVersion = body.expectedVersion === undefined ? currentVersion : body.expectedVersion;
+    if (expectedVersion !== currentVersion) {
+      return response(409, { code: "VERSION_CONFLICT", message: "recovery activity changed.", currentVersion });
+    }
+    const updatedAt = nowIsoSeconds();
+    const expressionValues: Record<string, unknown> = {
+      ":trainingName": trainingName,
+      ":normalizedTrainingName": normalizedTrainingName,
+      ":description": recoveryDescription,
+      ":isActive": body.isActive ?? (current.isActive !== false),
+      ":version": currentVersion + 1,
+      ":expectedVersion": currentVersion,
+      ":updatedAt": updatedAt,
+      ":updatedBy": "user",
+      ":updateReason": trimmed(body.updateReason) ?? "Recovery activity updated"
+    };
+    const updateExpression = recoveryDuration === undefined
+      ? "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, #description=:description, isActive=:isActive, #version=:version, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason REMOVE standardDurationMinutes"
+      : "SET trainingName=:trainingName, normalizedTrainingName=:normalizedTrainingName, #description=:description, standardDurationMinutes=:standardDurationMinutes, isActive=:isActive, #version=:version, updatedAt=:updatedAt, updatedBy=:updatedBy, updateReason=:updateReason";
+    if (recoveryDuration !== undefined) expressionValues[":standardDurationMinutes"] = recoveryDuration;
+    await ddb.send(new UpdateCommand({
+      TableName: trainingMenuTableName,
+      Key: { userId, trainingMenuItemId },
+      UpdateExpression: updateExpression,
+      ConditionExpression: menuSetVersionCondition(currentVersion),
+      ExpressionAttributeNames: { "#description": "description", "#version": "version" },
+      ExpressionAttributeValues: expressionValues
+    }));
+    return response(200, toMenuItemResponse({
+      ...current,
+      trainingName,
+      normalizedTrainingName,
+      description: recoveryDescription,
+      standardDurationMinutes: recoveryDuration,
+      isActive: expressionValues[":isActive"],
+      version: currentVersion + 1,
+      updatedAt
+    }));
   }
   const equipmentType =
     body.equipmentType !== undefined
@@ -691,6 +879,11 @@ async function deleteInChunks(items: NonNullable<TransactWriteCommandInput["Tran
 }
 
 async function deleteMenuItem(userId: string, trainingMenuItemId: string): Promise<APIGatewayProxyResult> {
+  const current = await getMenuItem(userId, trainingMenuItemId);
+  if (!current) return response(404, { message: "menu item not found." });
+  if (current.isSystemProvided === true) {
+    return response(403, { message: "system provided recovery activity cannot be deleted." });
+  }
   const links = await ddb.send(new QueryCommand({
     TableName: trainingMenuSetItemTableName,
     IndexName: setItemsByMenuItemIndex,
@@ -747,6 +940,7 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     return response(400, { message: "setName is required." });
   }
   const setType = normalizeSetType(body.setType);
+  const menuSetKind = normalizeMenuKind(body.menuSetKind);
   const source = normalizeSource(body.source);
   const validFromDate = body.validFromDate ? parseYmd(body.validFromDate) : undefined;
   const validToDate = body.validToDate ? parseYmd(body.validToDate) : undefined;
@@ -764,12 +958,16 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
   if (setType === "temporary" && body.isDefault) {
     return response(400, { message: "temporary set cannot be default." });
   }
-  const existingPlans = await Promise.all(
-    validityDates.map((planDate) =>
-      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
-    )
-  );
-  const conflicts = validityDates.filter((_, index) => Boolean(existingPlans[index].Item));
+  const scheduledDates = Array.isArray(body.scheduledDates)
+    ? Array.from(new Set(body.scheduledDates.map((date) => parseYmd(date)).filter((date): date is string => Boolean(date))))
+    : [];
+  if (scheduledDates.some((date) => !validityDates.includes(date))) {
+    return response(400, { message: "scheduledDates must be within the valid date range." });
+  }
+  const existingPlans = await Promise.all(scheduledDates.map((planDate) =>
+    ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
+  ));
+  const conflicts = scheduledDates.filter((_, index) => Boolean(existingPlans[index].Item));
   if (conflicts.length && body.replaceExistingPlan !== true) {
     return response(409, {
       message: "one or more dates already have a temporary menu. confirm replacement first.",
@@ -777,7 +975,7 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     });
   }
   const currentDefaultId = await getCurrentDefaultSetId(userId);
-  const isDefault = setType === "reusable" && (body.isDefault === true || !currentDefaultId);
+  const isDefault = menuSetKind === "training" && setType === "reusable" && (body.isDefault === true || !currentDefaultId);
   const trainingMenuSetId = randomUUID();
   const menuSetOrder = await nextOrder(trainingMenuSetTableName, menuSetByOrderIndex, userId, "menuSetOrder");
   const ts = nowIsoSeconds();
@@ -787,10 +985,10 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     setName,
     menuSetOrder,
     setType,
+    menuSetKind,
     source,
     ...(validFromDate ? { validFromDate } : {}),
     ...(validToDate ? { validToDate } : {}),
-    ...(setType === "temporary" ? { restDates: [] } : {}),
     isDefault,
     ...(isDefault ? { defaultSetMarker } : {}),
     isActive: true,
@@ -821,7 +1019,7 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
     });
   }
   writes.push({ Put: { TableName: trainingMenuSetTableName, Item: item } });
-  validityDates.forEach((planDate, index) => {
+  scheduledDates.forEach((planDate, index) => {
     const existing = existingPlans[index].Item;
     writes.push({
       Put: {
@@ -830,7 +1028,6 @@ async function createMenuSet(event: APIGatewayProxyEvent, userId: string): Promi
           userId,
           planDate,
           trainingMenuSetId,
-          planType: "training",
           source,
           createdAt: existing?.createdAt ?? ts,
           updatedAt: ts
@@ -866,6 +1063,10 @@ async function updateMenuSet(
   }
   const setName = body.setName !== undefined ? toNonEmptyString(body.setName) : String(current.setName);
   const setType = body.setType !== undefined ? normalizeSetType(body.setType) : normalizeSetType(current.setType);
+  const menuSetKind = normalizeMenuKind(current.menuSetKind);
+  if (body.menuSetKind !== undefined && normalizeMenuKind(body.menuSetKind) !== menuSetKind) {
+    return response(409, { message: "menuSetKind cannot be changed after creation." });
+  }
   const source = body.source !== undefined ? normalizeSource(body.source) : normalizeSource(current.source);
   const currentValidity = validityFromSet(current);
   const validFromDate = setType === "temporary"
@@ -881,7 +1082,7 @@ async function updateMenuSet(
         ? null
         : [];
   const makeDefault = body.isDefault === true;
-  if (!setName || !validityDates || (setType === "temporary" && makeDefault)) {
+  if (!setName || !validityDates || (setType === "temporary" && makeDefault) || (menuSetKind === "recovery" && makeDefault)) {
     return response(400, { message: "invalid training menu set." });
   }
   if (current.isDefault === true && setType === "temporary") {
@@ -891,24 +1092,6 @@ async function updateMenuSet(
     return response(400, { message: "choose another reusable set as default first." });
   }
   const ts = nowIsoSeconds();
-  const restDates = setType === "temporary"
-    ? normalizeRestDates(current.restDates).filter((date) => validityDates.includes(date))
-    : [];
-  const existingPlans = await Promise.all(
-    validityDates.map((planDate) =>
-      ddb.send(new GetCommand({ TableName: dailyTrainingPlanTableName, Key: { userId, planDate } }))
-    )
-  );
-  const conflicts = validityDates.filter((_, index) => {
-    const plan = existingPlans[index].Item;
-    return Boolean(plan) && plan?.trainingMenuSetId !== trainingMenuSetId;
-  });
-  if (conflicts.length && body.replaceExistingPlan !== true) {
-    return response(409, {
-      message: "one or more dates already have a temporary menu. confirm replacement first.",
-      conflictingDates: conflicts
-    });
-  }
   const oldValidityDates =
     currentValidity.validFromDate && currentValidity.validToDate
       ? enumerateYmdRange(currentValidity.validFromDate, currentValidity.validToDate) ?? []
@@ -941,7 +1124,7 @@ async function updateMenuSet(
       }
     });
   }
-  const isDefault = setType === "reusable" && (makeDefault || current.isDefault === true);
+  const isDefault = menuSetKind === "training" && setType === "reusable" && (makeDefault || current.isDefault === true);
   const setParts = [
     "setName=:setName",
     "setType=:setType",
@@ -954,9 +1137,9 @@ async function updateMenuSet(
   ];
   const removeParts: string[] = [];
   if (validFromDate && validToDate) {
-    setParts.push("validFromDate=:validFromDate", "validToDate=:validToDate", "restDates=:restDates");
+    setParts.push("validFromDate=:validFromDate", "validToDate=:validToDate");
   } else {
-    removeParts.push("validFromDate", "validToDate", "restDates");
+    removeParts.push("validFromDate", "validToDate");
   }
   removeParts.push("scheduledDate");
   if (isDefault) {
@@ -982,7 +1165,7 @@ async function updateMenuSet(
         ":updateReason": "Menu set updated",
         ":updatedAt": ts,
         ...(validFromDate && validToDate
-          ? { ":validFromDate": validFromDate, ":validToDate": validToDate, ":restDates": restDates }
+          ? { ":validFromDate": validFromDate, ":validToDate": validToDate }
           : {}),
         ...(isDefault ? { ":defaultSetMarker": defaultSetMarker } : {})
       }
@@ -1000,24 +1183,6 @@ async function updateMenuSet(
       });
     }
   });
-  validityDates.forEach((planDate, index) => {
-    const existing = existingPlans[index].Item;
-    writes.push({
-      Put: {
-        TableName: dailyTrainingPlanTableName,
-        Item: {
-          userId,
-          planDate,
-          trainingMenuSetId,
-          planType: restDates.includes(planDate) ? "rest" : "training",
-          source,
-          createdAt: existing?.createdAt ?? ts,
-          updatedAt: ts
-        },
-        ...dailyPlanWriteCondition(existing as Record<string, unknown> | undefined)
-      }
-    });
-  });
   try {
     await ddb.send(new TransactWriteCommand({ TransactItems: writes }));
   } catch {
@@ -1033,7 +1198,6 @@ async function updateMenuSet(
     source,
     validFromDate,
     validToDate,
-    restDates,
     isDefault,
     version: currentVersion + 1,
     updatedBy: "user",
@@ -1079,10 +1243,7 @@ async function addSetItem(
 ): Promise<APIGatewayProxyResult> {
   const body = parseBody<PrescriptionInput>(event);
   const trainingMenuItemId = toNonEmptyString(body?.trainingMenuItemId);
-  const prescription = body ? parsePrescription(body) : null;
-  if (!body || !trainingMenuItemId || !prescription) {
-    return response(400, { message: "trainingMenuItemId and valid prescription are required." });
-  }
+  if (!body || !trainingMenuItemId) return response(400, { message: "trainingMenuItemId is required." });
   const [set, item, duplicate] = await Promise.all([
     getMenuSet(userId, trainingMenuSetId),
     getMenuItem(userId, trainingMenuItemId),
@@ -1097,10 +1258,19 @@ async function addSetItem(
   if (!set || !item) {
     return response(404, { message: "training menu set or item not found." });
   }
+  const menuSetKind = normalizeMenuKind(set.menuSetKind);
+  if (normalizeMenuKind(item.itemKind) !== menuSetKind) {
+    return response(400, { message: "menu item kind must match menu set kind." });
+  }
+  const prescription = parsePrescription(body, undefined, menuSetKind);
+  if (!prescription) return response(400, { message: "valid menu settings are required." });
   if (duplicate.Items?.length) {
     return response(409, { message: "training menu item already assigned to the set." });
   }
   const currentItems = await listSetItems(userId, trainingMenuSetId);
+  if (currentItems.length >= 12) {
+    return response(400, { message: "a menu set can contain at most 12 items." });
+  }
   const displayOrder = Math.max(0, ...currentItems.map((entry) => Number(entry.displayOrder))) + 1;
   const trainingMenuSetItemId = randomUUID();
   const ts = nowIsoSeconds();
@@ -1109,6 +1279,7 @@ async function addSetItem(
     trainingMenuSetItemId,
     trainingMenuSetId,
     trainingMenuItemId,
+    itemKind: menuSetKind,
     displayOrder,
     menuSetOrderKey: buildMenuSetOrderKey(trainingMenuSetId, displayOrder),
     menuSetItemKey: buildMenuSetItemKey(trainingMenuSetId, trainingMenuItemId),
@@ -1147,10 +1318,11 @@ async function updateSetItem(
     getSetItem(userId, trainingMenuSetItemId),
     getMenuSet(userId, trainingMenuSetId)
   ]);
-  const prescription = body && current ? parsePrescription(body, current) : null;
   if (!current || !set || current.trainingMenuSetId !== trainingMenuSetId) {
     return response(404, { message: "training menu set item not found." });
   }
+  const menuSetKind = normalizeMenuKind(set.menuSetKind);
+  const prescription = body ? parsePrescription(body, current, menuSetKind) : null;
   if (!body || !prescription) {
     return response(400, { message: "invalid prescription." });
   }
@@ -1162,8 +1334,11 @@ async function updateSetItem(
           Update: {
             TableName: trainingMenuSetItemTableName,
             Key: { userId, trainingMenuSetItemId },
-            UpdateExpression:
-              "SET targetWeightKg=:targetWeightKg, targetRepsMin=:targetRepsMin, targetRepsMax=:targetRepsMax, targetSets=:targetSets, recommendedIntervalDays=:recommendedIntervalDays, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt",
+            UpdateExpression: menuSetKind === "recovery"
+              ? prescription.targetDurationMinutes === undefined
+                ? "SET instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt REMOVE targetDurationMinutes"
+                : "SET targetDurationMinutes=:targetDurationMinutes, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt"
+              : "SET targetWeightKg=:targetWeightKg, targetRepsMin=:targetRepsMin, targetRepsMax=:targetRepsMax, targetSets=:targetSets, recommendedIntervalDays=:recommendedIntervalDays, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt",
             ConditionExpression: "trainingMenuSetId=:trainingMenuSetId",
             ExpressionAttributeValues: {
               ...Object.fromEntries(Object.entries(prescription).map(([key, value]) => [`:${key}`, value])),
@@ -1277,7 +1452,7 @@ async function bulkUpdateSetItems(
   );
   const updates = body.items.map((input) => {
     const current = currentItems.get(input.trainingMenuSetItemId);
-    const prescription = current ? parsePrescription(input, current) : null;
+    const prescription = current ? parsePrescription(input, current, normalizeMenuKind(set.menuSetKind)) : null;
     return current && prescription ? { current, prescription } : null;
   });
   if (updates.some((item) => item === null)) {
@@ -1293,8 +1468,11 @@ async function bulkUpdateSetItems(
         Update: {
           TableName: trainingMenuSetItemTableName,
           Key: { userId, trainingMenuSetItemId: value.current.trainingMenuSetItemId },
-          UpdateExpression:
-            "SET targetWeightKg=:targetWeightKg, targetRepsMin=:targetRepsMin, targetRepsMax=:targetRepsMax, targetSets=:targetSets, recommendedIntervalDays=:recommendedIntervalDays, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt",
+          UpdateExpression: normalizeMenuKind(set.menuSetKind) === "recovery"
+            ? value.prescription.targetDurationMinutes === undefined
+              ? "SET instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt REMOVE targetDurationMinutes"
+              : "SET targetDurationMinutes=:targetDurationMinutes, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt"
+            : "SET targetWeightKg=:targetWeightKg, targetRepsMin=:targetRepsMin, targetRepsMax=:targetRepsMax, targetSets=:targetSets, recommendedIntervalDays=:recommendedIntervalDays, instruction=:instruction, createdBy=:createdBy, updatedAt=:updatedAt",
           ExpressionAttributeValues: {
             ...Object.fromEntries(Object.entries(value.prescription).map(([key, item]) => [`:${key}`, item])),
             ":updatedAt": updatedAt
@@ -1316,16 +1494,19 @@ async function getDailyPlan(userId: string, planDate: string): Promise<APIGatewa
     TableName: dailyTrainingPlanTableName,
     Key: { userId, planDate }
   }));
-  return result.Item
-    ? response(200, {
+  if (!result.Item || typeof result.Item.trainingMenuSetId !== "string") {
+    return response(404, { message: "daily training plan not found." });
+  }
+  const set = await getMenuSet(userId, result.Item.trainingMenuSetId);
+  return response(200, {
         planDate: result.Item.planDate,
-        planType: normalizeDailyPlanType(result.Item.planType),
         trainingMenuSetId: result.Item.trainingMenuSetId,
+        menuSetKind: normalizeMenuKind(set?.menuSetKind),
+        menuSetName: String(set?.setName ?? ""),
         source: normalizeSource(result.Item.source),
         createdAt: result.Item.createdAt,
         updatedAt: result.Item.updatedAt
-      })
-    : response(404, { message: "daily training plan not found." });
+      });
 }
 
 async function putDailyPlan(
@@ -1333,20 +1514,19 @@ async function putDailyPlan(
   userId: string,
   planDate: string
 ): Promise<APIGatewayProxyResult> {
-  const body = parseBody<{ trainingMenuSetId?: string; planType?: DailyPlanType; source?: DataSource }>(event);
-  const planType = normalizeDailyPlanType(body?.planType);
+  const body = parseBody<{ trainingMenuSetId?: string; source?: DataSource }>(event);
   const trainingMenuSetId = toNonEmptyString(body?.trainingMenuSetId);
-  const set = planType === "training" && trainingMenuSetId
+  const set = trainingMenuSetId
     ? await getMenuSet(userId, trainingMenuSetId)
     : null;
-  if (!body || (body.planType !== undefined && body.planType !== "training" && body.planType !== "rest")) {
-    return response(400, { message: "planType must be training or rest." });
+  if (!body || !trainingMenuSetId || !set || set.isActive === false) {
+    return response(404, { message: "menu set not found." });
   }
-  if (planType === "rest" && trainingMenuSetId) {
-    return response(400, { message: "rest plan must not specify a training menu set." });
-  }
-  if (planType === "training" && (!trainingMenuSetId || !set || set.isActive === false)) {
-    return response(404, { message: "training menu set not found." });
+  if (normalizeSetType(set.setType) === "temporary") {
+    const validity = validityFromSet(set);
+    if (!validity.validFromDate || !validity.validToDate || planDate < validity.validFromDate || planDate > validity.validToDate) {
+      return response(400, { message: "plan date must be within the temporary set validity range." });
+    }
   }
   const existing = await ddb.send(new GetCommand({
     TableName: dailyTrainingPlanTableName,
@@ -1356,8 +1536,7 @@ async function putDailyPlan(
   const item = {
     userId,
     planDate,
-    planType,
-    ...(trainingMenuSetId ? { trainingMenuSetId } : {}),
+    trainingMenuSetId,
     source: normalizeSource(body.source),
     createdAt: existing.Item?.createdAt ?? ts,
     updatedAt: ts
@@ -1365,8 +1544,9 @@ async function putDailyPlan(
   await ddb.send(new PutCommand({ TableName: dailyTrainingPlanTableName, Item: item }));
   return response(existing.Item ? 200 : 201, {
     planDate,
-    planType,
-    ...(trainingMenuSetId ? { trainingMenuSetId } : {}),
+    trainingMenuSetId,
+    menuSetKind: normalizeMenuKind(set.menuSetKind),
+    menuSetName: String(set.setName ?? ""),
     source: item.source,
     createdAt: item.createdAt,
     updatedAt: item.updatedAt
