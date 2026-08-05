@@ -353,7 +353,12 @@ async function attachCoreApiMock(page) {
       return json(mock.profile);
     }
     if (path === '/gym-visits' && method === 'GET') {
-      return json({ items: mock.gymVisits, nextToken: null });
+      const from = url.searchParams.get('from');
+      const to = url.searchParams.get('to');
+      const items = from && to
+        ? mock.gymVisits.filter((visit) => visit.visitDateLocal >= from && visit.visitDateLocal <= to)
+        : mock.gymVisits;
+      return json({ items, nextToken: null });
     }
     if (path === '/menu-executions' && method === 'GET') {
       return json({ items: [], nextToken: null });
@@ -536,11 +541,12 @@ async function attachCoreApiMock(page) {
     }
     if (path === '/training-session-view' && method === 'GET') {
       const requestedSetId = url.searchParams.get('trainingMenuSetId');
+      const requestedDate = url.searchParams.get('date') ?? state.todayYmd;
       const set = mock.menuSets.find((entry) => entry.trainingMenuSetId === requestedSetId) ?? mock.menuSets[0];
       const sorted = set.items.map((setItem, index) => ({
         ...mock.menuItems.find((item) => item.trainingMenuItemId === setItem.trainingMenuItemId),
         ...setItem,
-        ...(set.menuSetKind !== 'recovery' && index === 0
+        ...(set.menuSetKind !== 'recovery' && index === 0 && state.todayYmd <= requestedDate
           ? {
               lastPerformanceSnapshot: {
                 performedAtUtc: `${state.todayYmd}T10:00:00Z`,
@@ -569,15 +575,14 @@ async function attachCoreApiMock(page) {
     }
     if (path === '/gym-visits' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
-      return json(
-        {
-          ...input,
-          visitId: `visit-${mock.sequence++}`,
-          createdAt: now,
-          updatedAt: now
-        },
-        201
-      );
+      const created = {
+        ...input,
+        visitId: `visit-${mock.sequence++}`,
+        createdAt: now,
+        updatedAt: now
+      };
+      mock.gymVisits.push(created);
+      return json(created, 201);
     }
     if (path === '/menu-executions' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
@@ -667,6 +672,11 @@ function ymdInTimeZone(date, timeZone) {
     throw new Error('failed to format date parts');
   }
   return `${year}-${month}-${day}`;
+}
+
+function addYmdDays(value, days) {
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year, month - 1, day + days)).toISOString().slice(0, 10);
 }
 
 function isoUtcNoMillis(date) {
@@ -934,9 +944,9 @@ async function seedBackendData(authContext) {
   }
 
   const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const startedAtUtc = isoUtcNoMillis(new Date(yesterday.getTime() + 19 * 60 * 60 * 1000));
-  const endedAtUtc = isoUtcNoMillis(new Date(yesterday.getTime() + 20 * 60 * 60 * 1000));
   const visitDateLocal = ymdInTimeZone(yesterday, 'Asia/Tokyo');
+  const startedAtUtc = isoUtcNoMillis(new Date(`${visitDateLocal}T19:00:00+09:00`));
+  const endedAtUtc = isoUtcNoMillis(new Date(`${visitDateLocal}T20:00:00+09:00`));
 
   const gymVisitRes = await apiRequest({
     coreApiEndpoint: authContext.coreApiEndpoint,
@@ -1067,6 +1077,53 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await expect(page.getByRole('heading', { name: '当日の筋トレ内容' })).toBeVisible();
 });
 
+test('過去日のDailyから対象日を引き継ぎ、筋トレ実績をその日付で追加できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  const targetDate = addYmdDays(state.todayYmd, -1);
+  const displayDate = targetDate.replaceAll('-', '/');
+
+  await page.goto(`/daily/${targetDate}`);
+  await page.getByRole('link', { name: '実施を登録' }).click();
+
+  await expect(page).toHaveURL(new RegExp(`/training-session\\?date=${targetDate}$`));
+  await expect(page.getByLabel('実施日', { exact: true })).toHaveValue(targetDate);
+  await expect(page.getByText('過去日の記録', { exact: true })).toBeVisible();
+  await expect(page.getByText(`${displayDate} の実績として保存します。`, { exact: true })).toBeVisible();
+
+  const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  await chestCard.getByRole('button', { name: '設定値を入力' }).click();
+  await page.getByRole('button', { name: `${displayDate} として記録を確認` }).click();
+
+  const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
+  await expect(dialog.getByText(displayDate, { exact: true })).toBeVisible();
+  await expect(dialog.getByText('過去日の記録として保存します。', { exact: true })).toBeVisible();
+  const requestPromise = page.waitForRequest((request) =>
+    request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/gym-visits')
+  );
+  await dialog.getByRole('button', { name: 'この日付で記録' }).click();
+  const request = await requestPromise;
+  const input = request.postDataJSON();
+
+  assert.equal(input.visitDateLocal, targetDate);
+  assert.equal(ymdInTimeZone(new Date(input.startedAtUtc), input.timeZoneId), targetDate);
+  assert.equal(ymdInTimeZone(new Date(input.endedAtUtc), input.timeZoneId), targetDate);
+  assert.equal(ymdInTimeZone(new Date(input.entries[0].performedAtUtc), input.timeZoneId), targetDate);
+  await expect(page).toHaveURL(new RegExp(`/daily/${targetDate}$`));
+  await expect(page.getByText('チェストプレス', { exact: false }).first()).toBeVisible();
+});
+
+test('未来日の実施登録URLは本日に戻して記録を防ぐ', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  const futureDate = addYmdDays(state.todayYmd, 1);
+
+  await page.goto(`/training-session?date=${futureDate}`);
+
+  await expect(page.getByLabel('実施日', { exact: true })).toHaveValue(state.todayYmd);
+  await expect(page.getByText('未来日または不正な日付は指定できないため、本日を表示しています。')).toBeVisible();
+});
+
 test('記録内容の確認画面で種目を除外・復元し、残した種目だけを保存できる', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
@@ -1185,7 +1242,7 @@ test('同じ実施画面から完全休養を時間入力なしで登録でき�
   await login(page);
   await page.goto('/training-session');
 
-  await page.getByLabel('今日のメニュー').selectOption('recovery-set-1');
+  await page.getByLabel('この日のメニュー').selectOption('recovery-set-1');
   await expect(page.getByText('完全休養', { exact: true })).toBeVisible();
   await expect(page.getByLabel('重量')).toHaveCount(0);
   await page.getByRole('checkbox', { name: '完全休養' }).check();
@@ -1204,6 +1261,30 @@ test('同じ実施画面から完全休養を時間入力なしで登録でき�
   assert.equal(input.entries[0].activityNameSnapshot, '完全休養');
   assert.equal('weightKg' in input.entries[0], false);
   assert.equal('actualDurationMinutes' in input.entries[0], false);
+});
+
+test('リカバリー実績も選択した過去日で登録できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  const targetDate = addYmdDays(state.todayYmd, -1);
+  const displayDate = targetDate.replaceAll('-', '/');
+  await page.goto(`/training-session?date=${targetDate}`);
+
+  await page.getByLabel('この日のメニュー').selectOption('recovery-set-1');
+  await page.getByRole('checkbox', { name: '完全休養' }).check();
+  await page.getByRole('button', { name: `${displayDate} として記録を確認` }).click();
+
+  const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
+  await expect(dialog.getByText(displayDate, { exact: true })).toBeVisible();
+  const requestPromise = page.waitForRequest((request) =>
+    request.method() === 'POST' && new URL(request.url()).pathname.endsWith('/menu-executions')
+  );
+  await dialog.getByRole('button', { name: 'この日付で記録' }).click();
+  const input = (await requestPromise).postDataJSON();
+
+  assert.equal(input.executionDateLocal, targetDate);
+  assert.equal(ymdInTimeZone(new Date(input.entries[0].performedAtUtc), input.timeZoneId), targetDate);
+  await expect(page).toHaveURL(new RegExp(`/daily/${targetDate}$`));
 });
 
 test('トレーニングメニューで追加・編集・削除ができる', async ({ page }) => {

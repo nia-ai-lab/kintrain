@@ -36,7 +36,14 @@ import {
   type MovementFamily,
   type MuscleTarget
 } from './muscleTaxonomy';
-import { toLocalIsoWithOffset, toYmd } from './utils/date';
+import {
+  combineYmdWithInstantTimeUtc,
+  isValidYmd,
+  toLocalIsoWithOffset,
+  toYmd,
+  toYmdInTimeZone,
+  toYmdLocalTime
+} from './utils/date';
 import { loadFromStorage, saveToStorage } from './utils/storage';
 import {
   calculateTotalWeightKg,
@@ -73,7 +80,7 @@ interface AppStateContextValue {
   coreDataError: string;
   refreshCoreData: () => Promise<void>;
   refreshDailyRecord: (date: string) => Promise<void>;
-  setDraftEntry: (menuItemId: string, patch: Partial<DraftEntry>) => void;
+  setDraftEntry: (targetDate: string, menuItemId: string, patch: Partial<DraftEntry>) => void;
   clearDraftEntry: (menuItemId: string) => void;
   clearDraft: () => void;
   finalizeTrainingSession: (date: string) => Promise<{ savedCount: number; ok: boolean; message?: string }>;
@@ -428,6 +435,17 @@ function normalizeAppData(rawData: AppData): AppData {
     ...initialAppData.aiCharacterProfile,
     ...(legacy.aiCharacterProfile ?? {})
   };
+  const rawTrainingDraft = legacy.trainingDraft;
+  const rawDraftStartedAt = rawTrainingDraft ? new Date(rawTrainingDraft.startedAtLocal) : null;
+  const normalizedTrainingDraft = rawTrainingDraft
+    ? {
+        ...rawTrainingDraft,
+        targetDate:
+          typeof rawTrainingDraft.targetDate === 'string' && isValidYmd(rawTrainingDraft.targetDate)
+            ? rawTrainingDraft.targetDate
+            : toYmd(rawDraftStartedAt && !Number.isNaN(rawDraftStartedAt.getTime()) ? rawDraftStartedAt : new Date())
+      }
+    : null;
 
   return {
     ...initialAppData,
@@ -438,6 +456,7 @@ function normalizeAppData(rawData: AppData): AppData {
     activeTrainingMenuSetId: normalizedMenuSetState.activeTrainingMenuSetId,
     gymVisits: normalizedGymVisits,
     dailyRecords: normalizedDailyRecords,
+    trainingDraft: normalizedTrainingDraft,
     aiCharacterProfile: normalizedAiCharacterProfile
   };
 }
@@ -451,14 +470,6 @@ function toErrorMessage(error: unknown, fallback: string): string {
     return error.message;
   }
   return fallback;
-}
-
-function toUtcIsoSeconds(localIso: string): string {
-  const date = new Date(localIso);
-  if (Number.isNaN(date.getTime())) {
-    return new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
-  }
-  return date.toISOString().replace(/\.\d{3}Z$/, 'Z');
 }
 
 function mapRemoteMenuItem(item: {
@@ -1044,12 +1055,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       coreDataError,
       refreshCoreData,
       refreshDailyRecord,
-      setDraftEntry: (menuItemId, patch) => {
+      setDraftEntry: (targetDate, menuItemId, patch) => {
         setData((prev) => {
           const now = toLocalIsoWithOffset(new Date());
           const currentDraft =
-            prev.trainingDraft ??
+            (prev.trainingDraft?.targetDate === targetDate ? prev.trainingDraft : null) ??
             ({
+              targetDate,
               startedAtLocal: now,
               updatedAtLocal: now,
               entriesByItemId: {}
@@ -1085,6 +1097,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           return {
             ...prev,
             trainingDraft: {
+              targetDate,
               startedAtLocal: currentDraft?.startedAtLocal ?? now,
               updatedAtLocal: now,
               entriesByItemId: nextEntries
@@ -1129,6 +1142,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         const draft = data.trainingDraft;
         if (!draft) {
           return { savedCount: 0, ok: false, message: '入力がないため保存できません。' };
+        }
+        if (draft.targetDate !== date) {
+          return {
+            savedCount: 0,
+            ok: false,
+            message: `${draft.targetDate} の下書きです。実施日を確認してから保存してください。`
+          };
         }
 
         const entries: ExerciseEntry[] = Object.values(draft.entriesByItemId)
@@ -1202,9 +1222,18 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
           };
         }
 
-        const endedAtLocal = toLocalIsoWithOffset(new Date());
-        const startedAtUtc = toUtcIsoSeconds(draft.startedAtLocal);
-        const endedAtUtc = toUtcIsoSeconds(endedAtLocal);
+        const endedAtInstant = new Date();
+        const draftStartedAtInstant = new Date(draft.startedAtLocal);
+        let startedAtUtc = combineYmdWithInstantTimeUtc(
+          date,
+          Number.isNaN(draftStartedAtInstant.getTime()) ? endedAtInstant : draftStartedAtInstant,
+          data.userProfile.timeZoneId
+        );
+        const endedAtUtc = combineYmdWithInstantTimeUtc(date, endedAtInstant, data.userProfile.timeZoneId);
+        if (startedAtUtc > endedAtUtc) {
+          startedAtUtc = endedAtUtc;
+        }
+        const endedAtLocal = toYmdLocalTime(date, endedAtInstant, data.userProfile.timeZoneId);
 
         try {
           const created = await createGymVisit({
@@ -2106,5 +2135,6 @@ export function useAppState(): AppStateContextValue {
 }
 
 export function useTodayYmd(): string {
-  return toYmd(new Date());
+  const { data } = useAppState();
+  return toYmdInTimeZone(new Date(), data.userProfile.timeZoneId);
 }

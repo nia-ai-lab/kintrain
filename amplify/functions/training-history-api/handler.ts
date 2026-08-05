@@ -56,6 +56,42 @@ function isValidTimeZoneId(value: unknown): value is string {
   }
 }
 
+function ymdInTimeZone(iso: string, timeZoneId: string): string | undefined {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return undefined;
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone: timeZoneId,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+    return `${values.year}-${values.month}-${values.day}`;
+  } catch {
+    return undefined;
+  }
+}
+
+function currentYmdInTimeZone(timeZoneId: string): string | undefined {
+  return ymdInTimeZone(new Date().toISOString(), timeZoneId);
+}
+
+function hasMatchingTrainingExecutionDate(body: GymVisitInput): boolean {
+  if (!isValidTimeZoneId(body.timeZoneId)) return false;
+  if (ymdInTimeZone(body.startedAtUtc, body.timeZoneId) !== body.visitDateLocal) return false;
+  if (ymdInTimeZone(body.endedAtUtc, body.timeZoneId) !== body.visitDateLocal) return false;
+  if (Date.parse(body.startedAtUtc) > Date.parse(body.endedAtUtc)) return false;
+  return body.entries.every(
+    (entry) => ymdInTimeZone(entry.performedAtUtc, body.timeZoneId) === body.visitDateLocal
+  );
+}
+
+function isFutureLocalDate(date: string, timeZoneId: string): boolean {
+  const today = currentYmdInTimeZone(timeZoneId);
+  return Boolean(today && date > today);
+}
+
 type ExerciseEntry = {
   trainingMenuItemId: string;
   trainingNameSnapshot: string;
@@ -557,25 +593,35 @@ async function listTrainingPerformanceItemsByVisitId(userId: string, visitId: st
   return (result.Items ?? []) as TrainingPerformanceItem[];
 }
 
-async function getLatestPerformanceSnapshot(userId: string, trainingMenuItemId: string): Promise<Record<string, unknown> | undefined> {
+async function getLatestPerformanceSnapshot(
+  userId: string,
+  trainingMenuItemId: string,
+  targetDate: string
+): Promise<Record<string, unknown> | undefined> {
   if (!trainingPerformanceTableName) {
     throw new Error("Lambda environment is not configured.");
   }
-  const result = await ddb.send(
-    new QueryCommand({
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  let item: TrainingPerformanceItem | undefined;
+  do {
+    const result = await ddb.send(new QueryCommand({
       TableName: trainingPerformanceTableName,
       IndexName: userTrainingMenuItemPerformedAtIndex,
       KeyConditionExpression: "userId = :userId AND begins_with(trainingMenuItemPerformedAtKey, :prefix)",
+      FilterExpression: "visitDateLocal <= :targetDate",
       ExpressionAttributeValues: {
         ":userId": userId,
-        ":prefix": `${trainingMenuItemId}#`
+        ":prefix": `${trainingMenuItemId}#`,
+        ":targetDate": targetDate
       },
       ScanIndexForward: false,
-      Limit: 1
-    })
-  );
+      Limit: 25,
+      ExclusiveStartKey: exclusiveStartKey
+    }));
+    item = result.Items?.[0] as TrainingPerformanceItem | undefined;
+    exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (!item && exclusiveStartKey);
 
-  const item = result.Items?.[0] as TrainingPerformanceItem | undefined;
   if (!item) {
     return undefined;
   }
@@ -803,6 +849,15 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
   if (!parseYmd(body.visitDateLocal)) {
     return response(400, { message: "visitDateLocal must be YYYY-MM-DD." });
   }
+  if (!isValidTimeZoneId(body.timeZoneId)) {
+    return response(400, { message: "timeZoneId is invalid." });
+  }
+  if (isFutureLocalDate(body.visitDateLocal, body.timeZoneId)) {
+    return response(400, { message: "Future training executions cannot be recorded." });
+  }
+  if (!hasMatchingTrainingExecutionDate(body)) {
+    return response(400, { message: "Execution timestamps must match visitDateLocal in timeZoneId." });
+  }
   if (body.entries.length > maxVisitEntryCount) {
     return response(400, { message: `1回の記録で登録できる種目数は最大${maxVisitEntryCount}件です。` });
   }
@@ -892,6 +947,12 @@ async function createMenuExecution(event: APIGatewayProxyEvent, userId: string):
   }
   if (!isValidTimeZoneId(body.timeZoneId) || !body.sourceMenuSetId || !body.sourceMenuSetNameSnapshot || !["reusable", "temporary"].includes(body.sourceMenuSetTypeSnapshot)) {
     return response(400, { message: "Recovery execution source is required." });
+  }
+  if (isFutureLocalDate(body.executionDateLocal, body.timeZoneId)) {
+    return response(400, { message: "Future recovery executions cannot be recorded." });
+  }
+  if (body.entries.some((entry) => ymdInTimeZone(entry.performedAtUtc, body.timeZoneId) !== body.executionDateLocal)) {
+    return response(400, { message: "Execution timestamps must match executionDateLocal in timeZoneId." });
   }
   const [sourceSetResult, planResult] = await Promise.all([
     ddb.send(new GetCommand({
@@ -1001,14 +1062,17 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
       KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
       ExpressionAttributeValues: {
         ":userId": userId,
-        ":fromUtc": `${date}T00:00:00Z`,
-        ":toUtc": `${date}T23:59:59Z`
+        ":fromUtc": `${addYmdDays(date, -1)}T00:00:00Z`,
+        ":toUtc": `${addYmdDays(date, 1)}T23:59:59Z`
       }
     })
   );
 
   const todayDoneTrainingMenuItemIds = new Set<string>();
   for (const visit of todayVisitsResult.Items ?? []) {
+    if (String(visit.visitDateLocal ?? visit.executionDateLocal ?? "") !== date) {
+      continue;
+    }
     for (const entry of (visit.entries as ExerciseEntry[] | undefined) ?? []) {
       if (entry.trainingMenuItemId) {
         todayDoneTrainingMenuItemIds.add(entry.trainingMenuItemId);
@@ -1019,7 +1083,7 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
     activeMenuItems.map(async (menu) => {
       const trainingMenuItemId = String(menu.trainingMenuItemId);
       const weightInputMode = normalizeWeightInputMode(menu.weightInputMode);
-      const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(userId, trainingMenuItemId);
+      const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(userId, trainingMenuItemId, date);
 
       return {
         trainingMenuItemId,

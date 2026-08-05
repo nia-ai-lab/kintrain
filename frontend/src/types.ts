@@ -158,6 +158,7 @@ export interface DraftEntry {
 }
 
 export interface TrainingSessionDraft {
+  targetDate: string;
   startedAtLocal: string;
   updatedAtLocal: string;
   entriesByItemId: Record<string, DraftEntry>;

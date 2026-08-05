@@ -67,7 +67,7 @@ export function DailyPage() {
             <Link to="/calendar" className="btn ghost">
               カレンダー
             </Link>
-            <Link to="/training-session" className="btn primary">
+            <Link to={`/training-session?date=${encodeURIComponent(targetDate)}`} className="btn primary">
               実施を登録
             </Link>
           </div>

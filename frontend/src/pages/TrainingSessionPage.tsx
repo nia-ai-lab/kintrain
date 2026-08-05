@@ -1,5 +1,5 @@
 import { useEffect, useRef, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import {
   createRecoveryExecution,
@@ -10,7 +10,13 @@ import {
   listRecoveryExecutions
 } from '../api/coreApi';
 import type { DraftEntry, TrainingFrequencyDays, TrainingMenuItem, TrainingMenuSet } from '../types';
-import { isoToDisplayDateTime, ymdToDisplay } from '../utils/date';
+import {
+  addYmdDays,
+  combineYmdWithInstantTimeUtc,
+  isValidYmd,
+  isoToDisplayDateTime,
+  ymdToDisplay
+} from '../utils/date';
 import { formatTrainingLabel, getPrioritizedTrainingSessionItems } from '../utils/training';
 import {
   calculateTotalWeightKg,
@@ -115,10 +121,65 @@ function hasValidWeight(entry: Partial<DraftEntry> | undefined): boolean {
   return typeof entry?.weightKg === 'number' && Number.isFinite(entry.weightKg) && entry.weightKg >= 0;
 }
 
+function SessionDatePicker({
+  targetDate,
+  today,
+  onChange
+}: {
+  targetDate: string;
+  today: string;
+  onChange: (date: string) => void;
+}) {
+  const isPastDate = targetDate < today;
+  return (
+    <div className="session-date-picker">
+      <div className="session-date-controls">
+        <label>
+          <span>実施日</span>
+          <input
+            type="date"
+            value={targetDate}
+            max={today}
+            onChange={(event) => onChange(event.target.value)}
+          />
+        </label>
+        <div className="session-date-shortcuts" aria-label="日付ショートカット">
+          <button
+            type="button"
+            className={`btn subtle${targetDate === addYmdDays(today, -1) ? ' is-selected' : ''}`}
+            aria-pressed={targetDate === addYmdDays(today, -1)}
+            onClick={() => onChange(addYmdDays(today, -1))}
+          >
+            昨日
+          </button>
+          <button
+            type="button"
+            className={`btn subtle${targetDate === today ? ' is-selected' : ''}`}
+            aria-pressed={targetDate === today}
+            onClick={() => onChange(today)}
+          >
+            今日
+          </button>
+        </div>
+      </div>
+      {isPastDate && (
+        <p className="session-past-notice">
+          <strong>過去日の記録</strong>
+          <span>{ymdToDisplay(targetDate)} の実績として保存します。</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function TrainingSessionPage() {
   const { data, setDraftEntry, clearDraftEntry, clearDraft, finalizeTrainingSession, refreshCoreData } = useAppState();
   const today = useTodayYmd();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedDate = searchParams.get('date') ?? '';
+  const hasInvalidRequestedDate = Boolean(requestedDate) && (!isValidYmd(requestedDate) || requestedDate > today);
+  const targetDate = hasInvalidRequestedDate || !requestedDate ? today : requestedDate;
   const [statusText, setStatusText] = useState('');
   const [isConfirmModalOpen, setIsConfirmModalOpen] = useState(false);
   const [removedConfirmEntries, setRemovedConfirmEntries] = useState<RemovedConfirmEntry[]>([]);
@@ -137,13 +198,88 @@ export function TrainingSessionPage() {
     menuSetKind: 'training' | 'recovery';
   } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
+  const handledDraftDateMismatchRef = useRef('');
 
-  const draftEntries = data.trainingDraft?.entriesByItemId ?? {};
+  const draftEntries = data.trainingDraft?.targetDate === targetDate
+    ? data.trainingDraft.entriesByItemId
+    : {};
   const menuSets = useMemo(() => {
     return data.menuSets.filter((set) => set.isActive).sort((a, b) => a.order - b.order);
   }, [data.menuSets]);
   const [selectedMenuSetId, setSelectedMenuSetId] = useState('');
   const [recoveryDraftsBySet, setRecoveryDraftsBySet] = useState<Record<string, Record<string, RecoveryDraft>>>({});
+  const [existingExecutionCount, setExistingExecutionCount] = useState(0);
+
+  useEffect(() => {
+    if (hasInvalidRequestedDate) {
+      setStatusText('未来日または不正な日付は指定できないため、本日を表示しています。');
+    }
+  }, [hasInvalidRequestedDate]);
+
+  useEffect(() => {
+    let active = true;
+    void Promise.all([
+      listGymVisits({ from: targetDate, to: targetDate, limit: 200 }),
+      listRecoveryExecutions({ from: targetDate, to: targetDate })
+    ]).then(([trainingExecutions, recoveryExecutions]) => {
+      if (active) {
+        setExistingExecutionCount(trainingExecutions.items.length + recoveryExecutions.length);
+      }
+    }).catch(() => {
+      if (active) {
+        setExistingExecutionCount(0);
+      }
+    });
+    return () => {
+      active = false;
+    };
+  }, [targetDate]);
+
+  function changeTargetDate(nextDate: string) {
+    if (!isValidYmd(nextDate) || nextDate > today || nextDate === targetDate) {
+      return;
+    }
+    if (data.trainingDraft && data.trainingDraft.targetDate !== nextDate) {
+      const shouldDiscard = window.confirm(
+        `${ymdToDisplay(data.trainingDraft.targetDate)} の入力途中の内容があります。\n下書きを破棄して実施日を変更しますか？`
+      );
+      if (!shouldDiscard) {
+        return;
+      }
+      clearDraft();
+    }
+    setRecoveryDraftsBySet({});
+    setSelectedMenuSetId('');
+    setStatusText('');
+    setIsConfirmModalOpen(false);
+    setRemovedConfirmEntries([]);
+    const next = new URLSearchParams(searchParams);
+    next.set('date', nextDate);
+    setSearchParams(next);
+  }
+
+  useEffect(() => {
+    const draftDate = data.trainingDraft?.targetDate;
+    if (!draftDate || draftDate === targetDate) {
+      handledDraftDateMismatchRef.current = '';
+      return;
+    }
+    const mismatchKey = `${draftDate}:${targetDate}`;
+    if (handledDraftDateMismatchRef.current === mismatchKey) {
+      return;
+    }
+    handledDraftDateMismatchRef.current = mismatchKey;
+    const shouldDiscard = window.confirm(
+      `${ymdToDisplay(draftDate)} の入力途中の内容があります。\n「OK」で下書きを破棄して ${ymdToDisplay(targetDate)} を開きます。\n「キャンセル」で下書きの日付へ戻ります。`
+    );
+    if (shouldDiscard) {
+      clearDraft();
+      return;
+    }
+    const next = new URLSearchParams(searchParams);
+    next.set('date', draftDate);
+    setSearchParams(next, { replace: true });
+  }, [clearDraft, data.trainingDraft?.targetDate, searchParams, setSearchParams, targetDate]);
 
   useEffect(() => {
     if (menuSets.length === 0) {
@@ -166,7 +302,7 @@ export function TrainingSessionPage() {
       setIsSessionViewLoading(true);
       setSessionViewError('');
       try {
-        const remote = await getTrainingSessionView(today, effectiveSelectedMenuSetId || undefined);
+        const remote = await getTrainingSessionView(targetDate, effectiveSelectedMenuSetId || undefined);
         if (!isActive) {
           return;
         }
@@ -254,15 +390,15 @@ export function TrainingSessionPage() {
     return () => {
       isActive = false;
     };
-  }, [effectiveSelectedMenuSetId, selectedMenuSetId, today]);
+  }, [effectiveSelectedMenuSetId, selectedMenuSetId, targetDate]);
 
   const prioritized = useMemo(() => {
     return getPrioritizedTrainingSessionItems({
       items: sessionItems,
-      todayYmd: today,
+      todayYmd: targetDate,
       menuSetType: resolvedMenuSet?.setType ?? 'reusable'
     });
-  }, [resolvedMenuSet?.setType, sessionItems, today]);
+  }, [resolvedMenuSet?.setType, sessionItems, targetDate]);
 
   const menuItemById = useMemo(() => {
     const map = new Map<string, TrainingMenuItem>();
@@ -378,7 +514,7 @@ export function TrainingSessionPage() {
   }
 
   function restoreConfirmEntry(entry: RemovedConfirmEntry) {
-    setDraftEntry(entry.draftKey, entry.draft);
+    setDraftEntry(targetDate, entry.draftKey, entry.draft);
     setRemovedConfirmEntries((current) =>
       current.filter((removed) => removed.draftKey !== entry.draftKey)
     );
@@ -420,6 +556,7 @@ export function TrainingSessionPage() {
   if (menuSetKind === 'recovery' && resolvedMenuSet) {
     return (
       <RecoverySessionPage
+        targetDate={targetDate}
         today={today}
         timeZoneId={data.userProfile.timeZoneId}
         menuSets={menuSets}
@@ -428,18 +565,20 @@ export function TrainingSessionPage() {
         items={sessionItems}
         isLoading={isSessionViewLoading}
         error={sessionViewError}
+        existingExecutionCount={existingExecutionCount}
         drafts={recoveryDraftsBySet[resolvedMenuSet.trainingMenuSetId] ?? {}}
         onDraftsChange={(drafts) => setRecoveryDraftsBySet((current) => ({
           ...current,
           [resolvedMenuSet.trainingMenuSetId]: drafts
         }))}
         onSelectMenuSet={selectMenuSet}
+        onChangeTargetDate={changeTargetDate}
         onSaved={() => {
           setRecoveryDraftsBySet((current) => ({
             ...current,
             [resolvedMenuSet.trainingMenuSetId]: {}
           }));
-          navigate(`/daily/${today}`);
+          navigate(`/daily/${targetDate}`);
         }}
       />
     );
@@ -451,10 +590,10 @@ export function TrainingSessionPage() {
         <div className="session-header">
           <div>
             <h1>実施</h1>
-            <p className="session-date">{ymdToDisplay(today)}</p>
+            <SessionDatePicker targetDate={targetDate} today={today} onChange={changeTargetDate} />
             <label className="session-menu-set-select">
               <span>
-                今日のメニュー
+                この日のメニュー
                 {resolvedMenuSet?.setType === 'temporary' ? ' ・ 一時' : ''}
                 {resolvedMenuSet?.source === 'ai' ? ' ・ AI作成' : ''}
               </span>
@@ -494,6 +633,11 @@ export function TrainingSessionPage() {
         </div>
 
         {data.trainingDraft && <p className="muted">下書き保存中: {data.trainingDraft.updatedAtLocal.replace('T', ' ').slice(0, 16)}</p>}
+        <p className={existingExecutionCount > 0 ? 'session-existing-warning' : 'muted session-existing-summary'}>
+          {existingExecutionCount > 0
+            ? `この日には既に${existingExecutionCount}件の実施記録があります。保存すると追加記録になります。`
+            : 'この日の実施記録はまだありません。'}
+        </p>
         {statusText && <p className="status-text">{statusText}</p>}
       </section>
 
@@ -554,7 +698,7 @@ export function TrainingSessionPage() {
                   <p className="priority-chip">優先 {index + 1}</p>
                   <h2>{formatTrainingLabel(item.trainingName, item.muscleTargets, item.equipmentType, item.isAiGenerated)}</h2>
                   <p className="muted">
-                    {resolvedMenuSet?.setType === 'temporary' ? '本日の設定' : 'メニューセットの設定'}: {formatWeightLoad({
+                    {resolvedMenuSet?.setType === 'temporary' ? 'この日の設定' : 'メニューセットの設定'}: {formatWeightLoad({
                       weightKg: item.targetWeightKg,
                       weightInputModeSnapshot: item.weightInputMode,
                       loadMultiplierSnapshot: item.loadMultiplier,
@@ -604,7 +748,7 @@ export function TrainingSessionPage() {
                       })) {
                         return;
                       }
-                      setDraftEntry(draftKey, {
+                      setDraftEntry(targetDate, draftKey, {
                         menuItemId: item.id,
                         ...sourcePatch,
                         weightKg: item.targetWeightKg,
@@ -631,7 +775,7 @@ export function TrainingSessionPage() {
                       ) {
                         return;
                       }
-                      setDraftEntry(draftKey, {
+                      setDraftEntry(targetDate, draftKey, {
                         menuItemId: item.id,
                         ...sourcePatch,
                         weightKg: seedWeightKg,
@@ -692,7 +836,7 @@ export function TrainingSessionPage() {
                       ) {
                         return;
                       }
-                      setDraftEntry(draftKey, {
+                      setDraftEntry(targetDate, draftKey, {
                         menuItemId: item.id,
                         ...sourcePatch,
                         weightKg: nextWeightKg
@@ -720,7 +864,7 @@ export function TrainingSessionPage() {
                       ) {
                         return;
                       }
-                      setDraftEntry(draftKey, {
+                      setDraftEntry(targetDate, draftKey, {
                         menuItemId: item.id,
                         ...sourcePatch,
                         reps: nextReps
@@ -746,7 +890,7 @@ export function TrainingSessionPage() {
                       ) {
                         return;
                       }
-                      setDraftEntry(draftKey, {
+                      setDraftEntry(targetDate, draftKey, {
                         menuItemId: item.id,
                         ...sourcePatch,
                         sets: nextSets
@@ -781,7 +925,7 @@ export function TrainingSessionPage() {
                   placeholder="任意でメモを入力"
                   maxLength={500}
                   onChange={(e) =>
-                    setDraftEntry(draftKey, {
+                    setDraftEntry(targetDate, draftKey, {
                       menuItemId: item.id,
                       ...sourcePatch,
                       memo: e.target.value
@@ -803,7 +947,7 @@ export function TrainingSessionPage() {
             setIsConfirmModalOpen(true);
           }}
         >
-          記録して終了
+          {targetDate < today ? `${ymdToDisplay(targetDate)} として記録を確認` : '記録して終了'}
         </button>
       </section>
 
@@ -811,6 +955,16 @@ export function TrainingSessionPage() {
         <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="training-session-confirm-title">
           <div className="overlay-modal-card training-session-confirm-modal">
             <h3 id="training-session-confirm-title">記録内容の確認</h3>
+            <div className="training-session-confirm-date">
+              <span>実施日</span>
+              <strong>{ymdToDisplay(targetDate)}</strong>
+              {targetDate < today && <small>過去日の記録として保存します。</small>}
+            </div>
+            {existingExecutionCount > 0 && (
+              <p className="training-session-confirm-warning">
+                この日には既に{existingExecutionCount}件の実施記録があります。今回の内容は追加記録になります。
+              </p>
+            )}
             {validEnteredItems.length === 0 ? (
               <p>保存対象がありません。重量・回数・セットを入力してから記録してください。</p>
             ) : (
@@ -912,7 +1066,7 @@ export function TrainingSessionPage() {
                 disabled={isSaving || validEnteredItems.length === 0}
                 onClick={async () => {
                   setIsSaving(true);
-                  const result = await finalizeTrainingSession(today);
+                  const result = await finalizeTrainingSession(targetDate);
                   setIsSaving(false);
                   if (!result.ok) {
                     closeConfirmModal();
@@ -933,10 +1087,10 @@ export function TrainingSessionPage() {
                       return;
                     }
                   }
-                  navigate(`/daily/${today}`);
+                  navigate(`/daily/${targetDate}`);
                 }}
               >
-                {isSaving ? '記録中...' : 'この内容で記録'}
+                {isSaving ? '記録中...' : targetDate < today ? 'この日付で記録' : 'この内容で記録'}
               </button>
             </div>
           </div>
@@ -953,6 +1107,7 @@ export function TrainingSessionPage() {
 }
 
 function RecoverySessionPage({
+  targetDate,
   today,
   timeZoneId,
   menuSets,
@@ -961,11 +1116,14 @@ function RecoverySessionPage({
   items,
   isLoading,
   error,
+  existingExecutionCount,
   drafts,
   onDraftsChange,
   onSelectMenuSet,
+  onChangeTargetDate,
   onSaved
 }: {
+  targetDate: string;
   today: string;
   timeZoneId: string;
   menuSets: TrainingMenuSet[];
@@ -974,9 +1132,11 @@ function RecoverySessionPage({
   items: TrainingSessionMenuItem[];
   isLoading: boolean;
   error: string;
+  existingExecutionCount: number;
   drafts: Record<string, RecoveryDraft>;
   onDraftsChange: (drafts: Record<string, RecoveryDraft>) => void;
   onSelectMenuSet: (id: string) => void;
+  onChangeTargetDate: (date: string) => void;
   onSaved: () => void;
 }) {
   const [confirming, setConfirming] = useState(false);
@@ -989,9 +1149,9 @@ function RecoverySessionPage({
   useEffect(() => {
     let active = true;
     void Promise.all([
-      getDailyTrainingPlan(today),
-      listGymVisits({ from: today, to: today, limit: 200 }),
-      listRecoveryExecutions({ from: today, to: today })
+      getDailyTrainingPlan(targetDate),
+      listGymVisits({ from: targetDate, to: targetDate, limit: 200 }),
+      listRecoveryExecutions({ from: targetDate, to: targetDate })
     ]).then(([plan, trainingExecutions, recoveryExecutions]) => {
       if (active) {
         const planId = plan?.trainingMenuSetId;
@@ -999,10 +1159,10 @@ function RecoverySessionPage({
         setPlannedSetId(planId ?? null);
         setPlannedSetCompleted(Boolean(planId) && (
           trainingExecutions.items.some((execution) =>
-            execution.visitDateLocal === today &&
+            execution.visitDateLocal === targetDate &&
             execution.entries.some((entry) => entry.sourceTrainingMenuSetId === planId)
           ) || recoveryExecutions.some((execution) =>
-            execution.executionDateLocal === today && execution.sourceMenuSetId === planId
+            execution.executionDateLocal === targetDate && execution.sourceMenuSetId === planId
           )
         ));
       }
@@ -1014,7 +1174,7 @@ function RecoverySessionPage({
       }
     });
     return () => { active = false; };
-  }, [today]);
+  }, [targetDate]);
 
   useEffect(() => {
     setConfirming(false);
@@ -1035,9 +1195,9 @@ function RecoverySessionPage({
         <div className="session-header">
           <div>
             <h1>実施</h1>
-            <p className="session-date">{ymdToDisplay(today)}</p>
+            <SessionDatePicker targetDate={targetDate} today={today} onChange={onChangeTargetDate} />
             <label className="session-menu-set-select">
-              <span>今日のメニュー ・ リカバリー</span>
+              <span>この日のメニュー ・ リカバリー</span>
               <select value={selectedMenuSetId} onChange={(event) => onSelectMenuSet(event.target.value)}>
                 {menuSets.map((set) => (
                   <option value={set.id} key={set.id}>
@@ -1049,6 +1209,11 @@ function RecoverySessionPage({
           </div>
           <button type="button" className="btn ghost" onClick={() => onDraftsChange({})}>入力をクリア</button>
         </div>
+        <p className={existingExecutionCount > 0 ? 'session-existing-warning' : 'muted session-existing-summary'}>
+          {existingExecutionCount > 0
+            ? `この日には既に${existingExecutionCount}件の実施記録があります。保存すると追加記録になります。`
+            : 'この日の実施記録はまだありません。'}
+        </p>
         {status && <p className="status-text">{status}</p>}
       </section>
 
@@ -1102,7 +1267,7 @@ function RecoverySessionPage({
 
       <section className="sticky-action">
         <button type="button" className="btn primary large" disabled={selected.length === 0} onClick={() => setConfirming(true)}>
-          記録内容を確認
+          {targetDate < today ? `${ymdToDisplay(targetDate)} として記録を確認` : '記録内容を確認'}
         </button>
       </section>
 
@@ -1110,6 +1275,16 @@ function RecoverySessionPage({
         <div className="overlay-modal" role="dialog" aria-modal="true" aria-labelledby="recovery-confirm-title">
           <div className="overlay-modal-card training-session-confirm-modal">
             <h3 id="recovery-confirm-title">記録内容の確認</h3>
+            <div className="training-session-confirm-date">
+              <span>実施日</span>
+              <strong>{ymdToDisplay(targetDate)}</strong>
+              {targetDate < today && <small>過去日の記録として保存します。</small>}
+            </div>
+            {existingExecutionCount > 0 && (
+              <p className="training-session-confirm-warning">
+                この日には既に{existingExecutionCount}件の実施記録があります。今回の内容は追加記録になります。
+              </p>
+            )}
             <p>予定: {plannedName}</p>
             <p>実施: {resolvedMenuSet.setName}（リカバリー）</p>
             <p className="priority-chip">{relation}</p>
@@ -1129,9 +1304,9 @@ function RecoverySessionPage({
                   setSaving(true);
                   setStatus('');
                   try {
-                    const performedAtUtc = new Date().toISOString().replace(/\.\d{3}Z$/, 'Z');
+                    const performedAtUtc = combineYmdWithInstantTimeUtc(targetDate, new Date(), timeZoneId);
                     await createRecoveryExecution({
-                      executionDateLocal: today,
+                      executionDateLocal: targetDate,
                       timeZoneId,
                       sourceMenuSetId: resolvedMenuSet.trainingMenuSetId,
                       sourceMenuSetNameSnapshot: resolvedMenuSet.setName,
@@ -1157,7 +1332,7 @@ function RecoverySessionPage({
                   }
                 }}
               >
-                {saving ? '記録中...' : 'この内容で記録'}
+                {saving ? '記録中...' : targetDate < today ? 'この日付で記録' : 'この内容で記録'}
               </button>
             </div>
           </div>

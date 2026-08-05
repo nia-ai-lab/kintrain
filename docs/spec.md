@@ -171,6 +171,8 @@
 - `endedAtUtc`（RFC3339 UTC、秒精度）
 - `timeZoneId`（IANA、例: `Asia/Tokyo`）
 - `visitDateLocal`（`timeZoneId` 基準のローカル日付、`YYYY-MM-DD`）
+- 当日または過去の `visitDateLocal` を指定して実績を登録でき、未来日の実績登録は拒否すること。
+- `startedAtUtc` / `endedAtUtc` / `performedAtUtc` は `timeZoneId` で変換したとき `visitDateLocal` と一致すること。
 - ExerciseEntryは以下を保持すること。
 - `trainingMenuItemId`
 - `trainingNameSnapshot`
@@ -815,6 +817,9 @@
 - 各種目に `入力を消す` を提供し、当該種目を `TrainingSessionDraft` から削除できること。
 - セット詳細入力はオプション表示（初期非表示）とすること。
 - 途中入力はリロード後も復元されること（ドラフト保存）。
+- 実施画面で当日または過去の実施日を選択でき、対象日の計画・既存実績・対象日以前の前回値を表示すること。
+- 過去日の `Daily` から実施画面へ遷移した場合は対象日を引き継ぐこと。
+- 日付の異なるドラフトを同じ実施記録へ混在させないこと。
 - 「記録して終了」を押した時のみ正式記録すること。
 - `Daily` は入力後3秒で自動保存し、保存ボタンで即時保存もできること。
 - 画面は時刻を `timeZoneId` 基準でローカライズ表示し、`timeZoneId` 文字列の常時表示は不要とする。
