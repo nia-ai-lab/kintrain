@@ -135,6 +135,12 @@ async function putDailyRecord(
     return response(400, { message: "Invalid JSON body." });
   }
 
+  if (Object.hasOwn(body, "aiCoachReview") || Object.hasOwn(body, "aiCoachReviewedAt")) {
+    return response(400, {
+      message: "AI coach reviews are read-only in the Daily API and must be saved through MCP."
+    });
+  }
+
   if (
     body.bodyWeightKg !== undefined &&
     body.bodyWeightKg !== null &&

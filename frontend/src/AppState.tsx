@@ -694,6 +694,8 @@ function mapRemoteDailyRecord(
     restingHeartRate?: number;
     mealNotes?: string;
     diary?: string;
+    aiCoachReview?: string;
+    aiCoachReviewedAt?: string;
     otherActivities?: string[];
   },
   fallbackTimeZoneId: string
@@ -723,6 +725,8 @@ function mapRemoteDailyRecord(
     restingHeartRate: typeof item.restingHeartRate === 'number' ? item.restingHeartRate : undefined,
     mealNotes: typeof item.mealNotes === 'string' ? item.mealNotes : undefined,
     diary: typeof item.diary === 'string' ? item.diary : undefined,
+    aiCoachReview: typeof item.aiCoachReview === 'string' ? item.aiCoachReview : undefined,
+    aiCoachReviewedAt: typeof item.aiCoachReviewedAt === 'string' ? item.aiCoachReviewedAt : undefined,
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : []
   };
 }

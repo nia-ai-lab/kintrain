@@ -381,6 +381,7 @@ test("MCP schemas distinguish single-day lookup and constrain diary save mode", 
   const dailyRecord = schemas.find((candidate) => candidate.name === "get_daily_record");
   const dailyRecords = schemas.find((candidate) => candidate.name === "get_daily_records");
   const saveDiary = schemas.find((candidate) => candidate.name === "save_daily_diary");
+  const saveAiCoachReview = schemas.find((candidate) => candidate.name === "save_daily_ai_coach_review");
   const saveMealNotes = schemas.find((candidate) => candidate.name === "save_daily_meal_notes");
   const saveReadiness = schemas.find((candidate) => candidate.name === "save_daily_readiness");
   assert.ok(history);
@@ -388,6 +389,9 @@ test("MCP schemas distinguish single-day lookup and constrain diary save mode", 
   assert.match(dailyRecord!.description, /1日/);
   assert.match(dailyRecords!.description, /複数日/);
   assert.deepEqual(saveDiary!.inputSchema.properties.mode.enum, ["append", "overwrite"]);
+  assert.ok(saveAiCoachReview);
+  assert.deepEqual(saveAiCoachReview.inputSchema.required, ["date", "aiCoachReview"]);
+  assert.ok(Object.hasOwn(saveAiCoachReview.inputSchema.properties, "overwriteExisting"));
   assert.ok(saveMealNotes);
   assert.deepEqual(saveMealNotes.inputSchema.properties.mode.enum, ["append", "overwrite"]);
   assert.deepEqual(saveMealNotes.inputSchema.required, ["mealNotes"]);
@@ -400,7 +404,7 @@ test("MCP schemas distinguish single-day lookup and constrain diary save mode", 
   assert.match(saveReadiness.description, /バックエンドが睡眠時間を計算/);
 });
 
-test("runtime prompt routes meal, diary, and readiness content to distinct tools", async () => {
+test("runtime prompt routes Daily content to distinct tools", async () => {
   const prompt = await readFile(
     "amplify/agentcore/runtime/config/prompts/system-prompt.ja.txt",
     "utf8"
@@ -408,6 +412,8 @@ test("runtime prompt routes meal, diary, and readiness content to distinct tools
   assert.match(prompt, /食事.*save_daily_meal_notes/);
   assert.match(prompt, /出来事.*save_daily_diary/);
   assert.match(prompt, /睡眠時間.*save_daily_readiness/);
+  assert.match(prompt, /AIコーチレビュー.*save_daily_ai_coach_review/);
+  assert.match(prompt, /overwriteExisting=true/);
   assert.match(prompt, /sleepStartedAtLocal.*wokeUpAtLocal/);
 });
 
@@ -437,7 +443,7 @@ test("analysis export schemas expose manifest and section paging without set det
   ]);
   assert.equal(JSON.stringify([manifest, page]).includes("setDetails"), false);
   const handlerSource = await readFile("amplify/functions/mcp-tools-api/handler.ts", "utf8");
-  assert.match(handlerSource, /schemaVersion: 7/);
+  assert.match(handlerSource, /schemaVersion: 8/);
   assert.match(handlerSource, /actualDurationMinutes/);
   assert.match(handlerSource, /planRelationAtRegistration/);
   assert.match(handlerSource, /muscleTargets/);

@@ -7,6 +7,7 @@ import {
   buildMcpToolInvocationLog,
   calculateSleepHoursFromLocalDateTimes,
   normalizeDailyRecordForMcp,
+  saveDailyAiCoachReview,
   saveDailyMealNotes,
   saveDailyReadiness
 } from "../amplify/functions/mcp-tools-api/handler";
@@ -52,16 +53,90 @@ test("MCP Daily output exposes readiness fields without leaking unknown fields",
     painAreas: [],
     restingHeartRate: 58,
     mealNotes: "朝：卵とヨーグルト\n昼：鶏肉とご飯",
+    aiCoachReview: "フォームは安定しています。",
+    aiCoachReviewedAt: "2026-07-29T12:00:00Z",
     internalFutureField: "private"
   });
 
   assert.equal(normalized.sleepHours, 7.5);
   assert.equal(normalized.restingHeartRate, 58);
   assert.equal(normalized.mealNotes, "朝：卵とヨーグルト\n昼：鶏肉とご飯");
+  assert.equal(normalized.aiCoachReview, "フォームは安定しています。");
+  assert.equal(normalized.aiCoachReviewedAt, "2026-07-29T12:00:00Z");
   assert.deepEqual(normalized.painAreas, []);
   assert.equal(Object.hasOwn(normalized, "carbohydrateIntakeGrams"), false);
   assert.equal(Object.hasOwn(normalized, "userId"), false);
   assert.equal(Object.hasOwn(normalized, "internalFutureField"), false);
+});
+
+test("MCP saves and explicitly overwrites an AI coach review without changing other Daily fields", async () => {
+  const stored: Record<string, unknown> = {
+    userId: "user-1",
+    recordDate: "2026-07-29",
+    timeZoneId: "Asia/Tokyo",
+    diary: "既存の日記",
+    mealNotes: "朝：オートミール",
+    otherActivities: ["散歩"]
+  };
+  const originalSend = ddb.send.bind(ddb);
+  (ddb as any).send = async (command: unknown) => {
+    if (!(command instanceof UpdateCommand)) {
+      throw new Error(`Unexpected command: ${(command as { constructor: { name: string } }).constructor.name}`);
+    }
+    if (command.input.ConditionExpression && stored.aiCoachReview !== undefined) {
+      const error = new Error("review already exists");
+      error.name = "ConditionalCheckFailedException";
+      throw error;
+    }
+    const names = command.input.ExpressionAttributeNames ?? {};
+    const values = command.input.ExpressionAttributeValues ?? {};
+    stored.aiCoachReview = values[":aiCoachReview"];
+    stored.aiCoachReviewedAt = values[":timestamp"];
+    stored.updatedAt = values[":timestamp"];
+    stored.createdAt ??= values[":timestamp"];
+    stored.timeZoneId ??= values[":defaultTimeZoneId"];
+    stored.otherActivities ??= values[":emptyActivities"];
+    assert.equal(names["#aiCoachReview"], "aiCoachReview");
+    return { Attributes: { ...stored } };
+  };
+
+  try {
+    const created = await saveDailyAiCoachReview(
+      {
+        date: "2026-07-29",
+        aiCoachReview: "  筋トレと食事のバランスが良好です。  "
+      },
+      "user-1"
+    ) as Record<string, any>;
+    assert.equal(created.item.aiCoachReview, "筋トレと食事のバランスが良好です。");
+    assert.equal(stored.diary, "既存の日記");
+    assert.equal(stored.mealNotes, "朝：オートミール");
+    assert.deepEqual(stored.otherActivities, ["散歩"]);
+
+    const conflict = await saveDailyAiCoachReview(
+      {
+        date: "2026-07-29",
+        aiCoachReview: "新しいレビュー"
+      },
+      "user-1"
+    );
+    assert.equal((conflict.error as Record<string, unknown>).code, "CONFLICT");
+    assert.equal(stored.aiCoachReview, "筋トレと食事のバランスが良好です。");
+
+    const overwritten = await saveDailyAiCoachReview(
+      {
+        date: "2026-07-29",
+        aiCoachReview: "新しいレビュー",
+        overwriteExisting: true
+      },
+      "user-1"
+    ) as Record<string, any>;
+    assert.equal(overwritten.overwritten, true);
+    assert.equal(overwritten.item.aiCoachReview, "新しいレビュー");
+    assert.equal(stored.diary, "既存の日記");
+  } finally {
+    (ddb as any).send = originalSend;
+  }
 });
 
 test("MCP saves, appends, and clears the same free-form meal notes used by Daily UI", async () => {
@@ -230,4 +305,16 @@ test("MCP invocation audit logs tool and argument names without values or identi
   });
   assert.equal(JSON.stringify(log).includes("private-user"), false);
   assert.equal(JSON.stringify(log).includes("卵とヨーグルト"), false);
+
+  const reviewLog = buildMcpToolInvocationLog(
+    "save_daily_ai_coach_review",
+    {
+      __principalUserId: "private-user",
+      date: "2026-07-29",
+      aiCoachReview: "ログへ出してはいけないレビュー"
+    },
+    "request-2"
+  );
+  assert.deepEqual(reviewLog.argumentKeys, ["aiCoachReview", "date"]);
+  assert.equal(JSON.stringify(reviewLog).includes("ログへ出してはいけないレビュー"), false);
 });

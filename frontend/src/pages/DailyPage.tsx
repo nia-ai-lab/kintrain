@@ -375,6 +375,22 @@ export function DailyPage() {
       </section>
 
       <section className="card daily-section-card">
+        <h2>AIコーチレビュー</h2>
+        {record.aiCoachReview ? (
+          <>
+            <div className="daily-ai-coach-review">{record.aiCoachReview}</div>
+            {record.aiCoachReviewedAt && (
+              <p className="muted daily-ai-coach-reviewed-at">
+                レビュー日時: {new Date(record.aiCoachReviewedAt).toLocaleString('ja-JP')}
+              </p>
+            )}
+          </>
+        ) : (
+          <p className="muted">AIコーチレビューはまだ登録されていません。</p>
+        )}
+      </section>
+
+      <section className="card daily-section-card">
         <h2>その他トレーニング</h2>
         <div className="row-wrap">
           <input value={activityInput} onChange={(e) => setActivityInput(e.target.value)} placeholder="例: ジョギング 1km" />

@@ -764,6 +764,8 @@ function normalizeAnalysisDailyRecord(item: Record<string, unknown>): Record<str
     restingHeartRate: nullableNumber(item.restingHeartRate),
     mealNotes: nullableString(item.mealNotes),
     diary: nullableString(item.diary),
+    aiCoachReview: nullableString(item.aiCoachReview),
+    aiCoachReviewedAtUtc: nullableString(item.aiCoachReviewedAt),
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
     createdAtUtc: nullableString(item.createdAt),
     updatedAtUtc: nullableString(item.updatedAt)
@@ -974,6 +976,8 @@ export function normalizeDailyRecordForMcp(item: Record<string, unknown>): Recor
     restingHeartRate: nullableNumber(item.restingHeartRate),
     mealNotes: nullableString(item.mealNotes),
     diary: nullableString(item.diary),
+    aiCoachReview: nullableString(item.aiCoachReview),
+    aiCoachReviewedAt: nullableString(item.aiCoachReviewedAt),
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
     createdAt: nullableString(item.createdAt),
     updatedAt: nullableString(item.updatedAt)
@@ -1056,7 +1060,7 @@ async function getAnalysisExportManifest(args: ToolArgs, userId: string): Promis
   return mcpToolResponse(200, {
     tool: "get_analysis_export_manifest",
     schema: "kintrain.analysis-export",
-    schemaVersion: 7,
+    schemaVersion: 8,
     generatedAtUtc: new Date().toISOString(),
     selection: analysisExportSelectionResponse(selection),
     currentContext: {
@@ -1123,7 +1127,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
 
   const tokenContext = JSON.stringify([
     "analysis-export",
-    4,
+    8,
     typedSection,
     selection.rangeMode,
     selection.from ?? null,
@@ -1269,7 +1273,7 @@ async function getAnalysisExportPage(args: ToolArgs, userId: string): Promise<Mc
   return mcpToolResponse(200, {
     tool: "get_analysis_export_page",
     schema: "kintrain.analysis-export",
-    schemaVersion: 7,
+    schemaVersion: 8,
     selection: analysisExportSelectionResponse(selection),
     section: typedSection,
     items,
@@ -2318,6 +2322,80 @@ async function saveDailyDiary(args: ToolArgs, userId: string): Promise<McpToolRe
     mode: mode ?? "overwrite",
     diary: nextDiary,
     updatedAt: ts,
+  });
+}
+
+export async function saveDailyAiCoachReview(args: ToolArgs, userId: string): Promise<McpToolResponse> {
+  const date = parseYmd(args.date);
+  if (!date) {
+    return mcpToolResponse(400, { message: "date is required in YYYY-MM-DD format." });
+  }
+  if (typeof args.aiCoachReview !== "string") {
+    return mcpToolResponse(400, {
+      message: "aiCoachReview is required as a string with at most 5000 characters."
+    });
+  }
+  const aiCoachReview = args.aiCoachReview.trim();
+  if (aiCoachReview.length < 1 || aiCoachReview.length > 5000) {
+    return mcpToolResponse(400, {
+      message: "aiCoachReview must contain between 1 and 5000 characters after trimming."
+    });
+  }
+  if (args.overwriteExisting !== undefined && typeof args.overwriteExisting !== "boolean") {
+    return mcpToolResponse(400, { message: "overwriteExisting must be a boolean." });
+  }
+
+  const ts = nowIsoSeconds();
+  let result;
+  try {
+    result = await ddb.send(
+      new UpdateCommand({
+        TableName: dailyRecordTableName,
+        Key: { userId, recordDate: date },
+        UpdateExpression: [
+          "SET #createdAt = if_not_exists(#createdAt, :timestamp)",
+          "#updatedAt = :timestamp",
+          "#timeZoneId = if_not_exists(#timeZoneId, :defaultTimeZoneId)",
+          "#otherActivities = if_not_exists(#otherActivities, :emptyActivities)",
+          "#aiCoachReview = :aiCoachReview",
+          "#aiCoachReviewedAt = :timestamp"
+        ].join(", "),
+        ...(args.overwriteExisting === true
+          ? {}
+          : { ConditionExpression: "attribute_not_exists(#aiCoachReview)" }),
+        ExpressionAttributeNames: {
+          "#createdAt": "createdAt",
+          "#updatedAt": "updatedAt",
+          "#timeZoneId": "timeZoneId",
+          "#otherActivities": "otherActivities",
+          "#aiCoachReview": "aiCoachReview",
+          "#aiCoachReviewedAt": "aiCoachReviewedAt"
+        },
+        ExpressionAttributeValues: {
+          ":timestamp": ts,
+          ":defaultTimeZoneId": "Asia/Tokyo",
+          ":emptyActivities": [],
+          ":aiCoachReview": aiCoachReview
+        },
+        ReturnValues: "ALL_NEW"
+      })
+    );
+  } catch (error) {
+    if (isConditionalCheckFailure(error)) {
+      return mcpToolResponse(409, {
+        message: "An AI coach review already exists for this date. Set overwriteExisting=true only after the user approves replacing it.",
+        recordDate: date
+      });
+    }
+    throw error;
+  }
+
+  return mcpToolResponse(200, {
+    tool: "save_daily_ai_coach_review",
+    recordDate: date,
+    overwritten: args.overwriteExisting === true,
+    aiCoachReviewedAt: ts,
+    item: normalizeDailyRecordForMcp((result.Attributes ?? {}) as Record<string, unknown>)
   });
 }
 
@@ -5958,6 +6036,9 @@ export const handler = async (event: ToolArgs = {}, context: LambdaToolContext =
     }
     if (toolName === "save_daily_diary") {
       return saveDailyDiary(event, userId);
+    }
+    if (toolName === "save_daily_ai_coach_review") {
+      return saveDailyAiCoachReview(event, userId);
     }
     if (toolName === "save_daily_meal_notes") {
       return saveDailyMealNotes(event, userId);

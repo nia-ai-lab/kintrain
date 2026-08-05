@@ -130,6 +130,15 @@ textarea {
   min-height: calc(6 * 1.5em + 20px);
 }
 
+.daily-ai-coach-review {
+  line-height: 1.75;
+  white-space: pre-wrap;
+}
+
+.daily-ai-coach-reviewed-at {
+  margin-top: 12px;
+}
+
 input:focus,
 select:focus,
 textarea:focus,

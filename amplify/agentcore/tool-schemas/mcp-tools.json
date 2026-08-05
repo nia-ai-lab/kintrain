@@ -315,6 +315,32 @@
     }
   },
   {
+    "name": "save_daily_ai_coach_review",
+    "description": "指定日のDailyへ、AIコーチが当日の筋トレ、日記、食事、回復状態と過去履歴を確認して作成した総合レビューを保存する。レビューを作成する前に対象日のDailyと実施内容、必要な過去履歴を取得する。ユーザーがレビューの保存を明示した場合だけ使用する。既存レビューを置き換える場合は、ユーザーの承認後にoverwriteExisting=trueを指定する。日記、食事、回復状態など他のDaily項目は変更しない。",
+    "inputSchema": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "レビューを保存する対象日（YYYY-MM-DD）。"
+        },
+        "aiCoachReview": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 5000,
+          "description": "保存するAIコーチレビューの全文。追記ではなく、その日時点の完成したレビューを指定する。"
+        },
+        "overwriteExisting": {
+          "type": "boolean",
+          "description": "既存レビューを置き換えることをユーザーが承認した場合だけtrueにする。省略時は既存レビューがあると保存を拒否する。"
+        }
+      },
+      "required": ["date", "aiCoachReview"]
+    }
+  },
+  {
     "name": "save_daily_meal_notes",
     "description": "Dailyの「食事内容・栄養メモ」(mealNotes)へ、朝食・昼食・夕食・間食・飲み物・水分・食事量・栄養・サプリメントを自由記述で保存する。食事に関する保存では必ずこのツールを使い、save_daily_diaryへ保存しない。既存メモがある場合はmode指定で追記または上書きする。",
     "inputSchema": {

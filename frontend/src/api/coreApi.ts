@@ -249,6 +249,8 @@ export type DailyRecordDto = {
   restingHeartRate?: number;
   mealNotes?: string;
   diary?: string;
+  aiCoachReview?: string;
+  aiCoachReviewedAt?: string;
   otherActivities?: string[];
   createdAt?: string;
   updatedAt?: string;

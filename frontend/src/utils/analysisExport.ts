@@ -75,6 +75,8 @@ function normalizeDailyRecord(item: DailyRecordDto) {
     restingHeartRate: nullableNumber(item.restingHeartRate),
     mealNotes: nullableString(item.mealNotes),
     diary: nullableString(item.diary),
+    aiCoachReview: nullableString(item.aiCoachReview),
+    aiCoachReviewedAtUtc: nullableString(item.aiCoachReviewedAt),
     otherActivities: Array.isArray(item.otherActivities) ? item.otherActivities : [],
     createdAtUtc: nullableString(item.createdAt),
     updatedAtUtc: nullableString(item.updatedAt)
@@ -240,7 +242,7 @@ export async function createAnalysisExport(
 
   const result = {
     schema: 'kintrain.analysis-export',
-    schemaVersion: 7,
+    schemaVersion: 8,
     generatedAtUtc: new Date().toISOString(),
     selection: {
       rangeMode: range.rangeMode,

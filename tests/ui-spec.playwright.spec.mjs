@@ -244,6 +244,8 @@ function buildCoreMockData() {
         conditionComment: '体調はまずまず',
         mealNotes: '朝：卵とヨーグルト',
         diary: 'UIテストの日記',
+        aiCoachReview: '継続できています。次回もフォームを優先しましょう。',
+        aiCoachReviewedAt: now,
         otherActivities: [],
         createdAt: now,
         updatedAt: now
@@ -1409,6 +1411,7 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
 
   await todayCell.click();
   await expect(page).toHaveURL(new RegExp(`/daily/${state.todayYmd}$`));
+  await expect(page.getByText('継続できています。次回もフォームを優先しましょう。')).toBeVisible();
 
   await page.getByLabel('体重 (kg)').fill('69.8');
   await page.getByLabel('体脂肪率 (%)').fill('17.5');
@@ -1586,7 +1589,7 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.ok(downloadPath);
   const exported = JSON.parse(await readFile(downloadPath, 'utf8'));
   assert.equal(exported.schema, 'kintrain.analysis-export');
-  assert.equal(exported.schemaVersion, 7);
+  assert.equal(exported.schemaVersion, 8);
   assert.equal(exported.selection.rangeMode, 'allAvailable');
   assert.equal(exported.coverage.dailyRecordCount, 1);
   assert.equal(exported.coverage.gymVisitCount, 1);
@@ -1594,6 +1597,7 @@ test('設定画面から全期間の分析用JSONをダウンロードできる'
   assert.equal(exported.history.dailyRecords[0].bodyWeightKg, 69.8);
   assert.equal(exported.history.dailyRecords[0].muscleMassKg, 52.1);
   assert.equal(exported.history.dailyRecords[0].mealNotes, '朝：卵とヨーグルト');
+  assert.equal(exported.history.dailyRecords[0].aiCoachReview, '継続できています。次回もフォームを優先しましょう。');
   assert.equal(exported.history.gymVisits[0].entries[0].trainingName, 'チェストプレス');
   assert.equal(exported.history.gymVisits[0].entries[0].weightInputMode, 'legacyUnspecified');
   assert.equal(exported.history.gymVisits[0].entries[0].calculatedTotalWeightKg, null);

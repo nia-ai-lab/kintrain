@@ -230,6 +230,7 @@
 - 安静時心拍数（20〜250 bpm）
 - 食事内容・量・時間・水分・サプリメントなどの栄養メモ（自由記述、最大5000文字）
 - 日記（任意）
+- AIコーチレビュー（任意、最大5000文字）とレビュー日時。MCP専用ツールから保存し、通常のDaily編集では読み取り専用とする。
 - その他トレーニング（フリー入力、複数可）
 - グラデーション付きスライダーで体調・気分を即記録できること（コメント入力なし可）。
 - `DailyRecord` は後から更新できること。
@@ -759,6 +760,7 @@
 - `update_coaching_context(goalSummary, constraints, preferences, trainingPolicy, nextReviewDate?, expectedVersion, source, changeReason, userConfirmed)`
 - `append_coaching_note(idempotencyKey, category, content, validFromDate?, validToDate?, source, userConfirmed)`
 - `save_daily_diary(date, diary, mode, timeZoneId)`
+- `save_daily_ai_coach_review(date, aiCoachReview, overwriteExisting?)`
 - `save_daily_meal_notes(mealNotes, date?, timeZoneId?, mode?)`
 - `save_daily_readiness(date?, timeZoneId?, sleepHours?, sleepStartedAtLocal?, wokeUpAtLocal?, sleepQuality?, fatigueLevel?, motivationLevel?, muscleSorenessLevel?, restingHeartRate?, painAreas?)`
 - `save_body_metrics(date, bodyWeightKg?, bodyFatPercent?, muscleMassKg?, bodyMetricMeasuredTimeLocal?, timeZoneId?)`
@@ -783,6 +785,7 @@
 - 一時メニューの取得・更新・日程変更・キャンセルは `docs/mcp-temporary-menu-lifecycle.md` を正とする。
 - 種目マスターの検索・更新・アーカイブは `docs/mcp-training-menu-item-lifecycle.md` を正とする。
 - Dailyの回復状態保存、睡眠時間計算、日記・食事の振り分けは `docs/mcp-daily-readiness.md` を正とする。
+- AIコーチレビューの保存は `docs/mcp-daily-ai-coach-review.md` を正とする。
 
 ### 9.3 連携方式
 
