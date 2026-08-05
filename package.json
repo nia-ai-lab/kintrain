@@ -30,11 +30,10 @@
   "devDependencies": {
     "@aws-amplify/backend": "^1.18.1",
     "@aws-amplify/backend-cli": "^1.8.2",
-    "@aws-cdk/aws-bedrock-agentcore-alpha": "^2.240.0-alpha.0",
     "@playwright/test": "^1.58.2",
     "@types/aws-lambda": "^8.10.147",
     "@types/node": "^25.3.2",
-    "aws-cdk-lib": "^2.188.0",
+    "aws-cdk-lib": "^2.263.0",
     "constructs": "^10.4.2",
     "tsx": "^4.23.0",
     "typescript": "^5.8.2"

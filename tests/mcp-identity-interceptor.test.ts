@@ -133,10 +133,16 @@ test("backend provisions and allowlists a dedicated Claude OAuth app client", as
   assert.match(source, /claudeOAuth:\s*\{\s*clientId: claudeOAuthClient\.userPoolClientId/);
 });
 
-test("gateway supports current and legacy MCP protocol versions", async () => {
+test("gateway uses stable AgentCore CDK and supports all required MCP protocol versions", async () => {
   const source = await readFile("amplify/backend.ts", "utf8");
+  const packageJson = JSON.parse(await readFile("package.json", "utf8")) as {
+    devDependencies: Record<string, string>;
+  };
+
+  assert.match(source, /from "aws-cdk-lib\/aws-bedrockagentcore"/);
+  assert.equal(Object.hasOwn(packageJson.devDependencies, "@aws-cdk/aws-bedrock-agentcore-alpha"), false);
   assert.match(
     source,
-    /supportedVersions:\s*\[\s*agentcore\.MCPProtocolVersion\.MCP_2025_06_18,\s*agentcore\.MCPProtocolVersion\.MCP_2025_03_26\s*\]/
+    /supportedVersions:\s*\[\s*agentcore\.MCPProtocolVersion\.of\("2026-07-28"\),\s*agentcore\.MCPProtocolVersion\.of\("2025-11-25"\),\s*agentcore\.MCPProtocolVersion\.MCP_2025_06_18,\s*agentcore\.MCPProtocolVersion\.MCP_2025_03_26\s*\]/
   );
 });

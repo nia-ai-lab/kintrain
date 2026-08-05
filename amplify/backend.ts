@@ -1,7 +1,7 @@
 import { defineBackend } from "@aws-amplify/backend";
 import { Duration, RemovalPolicy, Stack } from "aws-cdk-lib";
 import * as apigateway from "aws-cdk-lib/aws-apigateway";
-import * as agentcore from "@aws-cdk/aws-bedrock-agentcore-alpha";
+import * as agentcore from "aws-cdk-lib/aws-bedrockagentcore";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -592,6 +592,8 @@ if (enableAgentCoreResources) {
         ].join(" "),
       searchType: agentcore.McpGatewaySearchType.SEMANTIC,
       supportedVersions: [
+        agentcore.MCPProtocolVersion.of("2026-07-28"),
+        agentcore.MCPProtocolVersion.of("2025-11-25"),
         agentcore.MCPProtocolVersion.MCP_2025_06_18,
         agentcore.MCPProtocolVersion.MCP_2025_03_26
       ]
@@ -623,15 +625,15 @@ if (enableAgentCoreResources) {
     expirationDuration: Duration.days(90),
     memoryStrategies: [
       agentcore.MemoryStrategy.usingUserPreference({
-        name: "KinTrainUserPreference",
+        strategyName: "KinTrainUserPreference",
         namespaces: ["/preferences/{actorId}"]
       }),
       agentcore.MemoryStrategy.usingSummarization({
-        name: "KinTrainSummarization",
+        strategyName: "KinTrainSummarization",
         namespaces: ["/summaries/{actorId}/{sessionId}"]
       }),
       agentcore.MemoryStrategy.usingSemantic({
-        name: "KinTrainSemantic",
+        strategyName: "KinTrainSemantic",
         namespaces: ["/facts/{actorId}"]
       })
     ]
