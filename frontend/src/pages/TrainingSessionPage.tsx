@@ -1178,7 +1178,7 @@ function RecoverySessionPage({
 
   useEffect(() => {
     setConfirming(false);
-  }, [selectedMenuSetId]);
+  }, [selectedMenuSetId, targetDate]);
 
   const selected = items.filter((item) => drafts[item.menuSetItemId]?.checked);
   const relation = plannedSetId === null
@@ -1224,14 +1224,20 @@ function RecoverySessionPage({
           const key = item.menuSetItemId;
           const draft = drafts[key] ?? { checked: false, note: '' };
           return (
-            <article className="card stack-md training-session-card" key={key}>
-              <label className="row-wrap">
+            <article className={`card stack-md training-session-card${draft.checked ? ' is-entered' : ''}`} key={key}>
+              <label className="recovery-selection-control">
                 <input
                   type="checkbox"
                   checked={draft.checked}
-                  onChange={(event) => onDraftsChange({ ...drafts, [key]: { ...draft, checked: event.target.checked } })}
+                  onChange={(event) => {
+                    setStatus('');
+                    onDraftsChange({ ...drafts, [key]: { ...draft, checked: event.target.checked } });
+                  }}
                 />
-                <strong>{item.trainingName}</strong>
+                <span className="recovery-selection-copy">
+                  <strong>{item.trainingName}</strong>
+                  <small>{draft.checked ? '今回の記録に含めます' : 'チェックして今回の記録に含める'}</small>
+                </span>
               </label>
               {item.targetInstruction && <p className="muted">{item.targetInstruction}</p>}
               {item.targetDurationMinutes && <p className="muted">目標時間: {item.targetDurationMinutes}分</p>}
@@ -1244,10 +1250,18 @@ function RecoverySessionPage({
                     max={1440}
                     value={draft.actualDurationMinutes ?? ''}
                     placeholder="入力なしでも登録できます"
-                    onChange={(event) => onDraftsChange({
-                      ...drafts,
-                      [key]: { ...draft, actualDurationMinutes: event.target.value ? Number(event.target.value) : undefined }
-                    })}
+                    onChange={(event) => {
+                      const actualDurationMinutes = event.target.value ? Number(event.target.value) : undefined;
+                      setStatus('');
+                      onDraftsChange({
+                        ...drafts,
+                        [key]: {
+                          ...draft,
+                          checked: actualDurationMinutes !== undefined ? true : draft.checked,
+                          actualDurationMinutes
+                        }
+                      });
+                    }}
                   />
                 </label>
                 <label>
@@ -1255,7 +1269,14 @@ function RecoverySessionPage({
                   <input
                     value={draft.note}
                     maxLength={500}
-                    onChange={(event) => onDraftsChange({ ...drafts, [key]: { ...draft, note: event.target.value } })}
+                    onChange={(event) => {
+                      const note = event.target.value;
+                      setStatus('');
+                      onDraftsChange({
+                        ...drafts,
+                        [key]: { ...draft, checked: note.trim() !== '' ? true : draft.checked, note }
+                      });
+                    }}
                   />
                 </label>
               </div>
@@ -1266,7 +1287,19 @@ function RecoverySessionPage({
       </section>
 
       <section className="sticky-action">
-        <button type="button" className="btn primary large" disabled={selected.length === 0} onClick={() => setConfirming(true)}>
+        <button
+          type="button"
+          className="btn primary large"
+          disabled={isLoading || Boolean(error) || items.length === 0}
+          onClick={() => {
+            if (selected.length === 0) {
+              setStatus('記録するリカバリーを選択してください。チェックを入れるか、実施時間・メモを入力してください。');
+              return;
+            }
+            setStatus('');
+            setConfirming(true);
+          }}
+        >
           {targetDate < today ? `${ymdToDisplay(targetDate)} として記録を確認` : '記録内容を確認'}
         </button>
       </section>

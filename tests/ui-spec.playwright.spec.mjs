@@ -1263,6 +1263,26 @@ test('同じ実施画面から完全休養を時間入力なしで登録でき�
   assert.equal('actualDurationMinutes' in input.entries[0], false);
 });
 
+test('リカバリーは入力すると自動選択され、未選択時にも案内を表示する', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  const targetDate = addYmdDays(state.todayYmd, -1);
+  const displayDate = targetDate.replaceAll('-', '/');
+  await page.goto(`/training-session?date=${targetDate}`);
+
+  await page.getByLabel('この日のメニュー').selectOption('recovery-set-1');
+  const recoveryCheckbox = page.getByRole('checkbox', { name: '完全休養' });
+  await expect(recoveryCheckbox).not.toBeChecked();
+
+  await page.getByRole('button', { name: `${displayDate} として記録を確認` }).click();
+  await expect(page.getByText('記録するリカバリーを選択してください。チェックを入れるか、実施時間・メモを入力してください。')).toBeVisible();
+
+  await page.getByLabel('実施時間（分・任意）').fill('15');
+  await expect(recoveryCheckbox).toBeChecked();
+  await page.getByRole('button', { name: `${displayDate} として記録を確認` }).click();
+  await expect(page.getByRole('dialog', { name: '記録内容の確認' })).toBeVisible();
+});
+
 test('リカバリー実績も選択した過去日で登録できる', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
