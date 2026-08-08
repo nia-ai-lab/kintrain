@@ -1200,6 +1200,33 @@ test('トレーニング実施画面で入力を消すことができ、セッ�
   await expect(page.locator('.set-detail-list')).toHaveCount(0);
 });
 
+test('メニューセットを切り替えても確認を表示せず双方の下書きを保持する', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-session');
+
+  const dialogs = [];
+  page.on('dialog', async (dialog) => {
+    dialogs.push(dialog.message());
+    await dialog.dismiss();
+  });
+
+  const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  await chestCard.getByRole('button', { name: '設定値を入力' }).click();
+  await expect(chestCard.getByLabel('重量')).toHaveValue('25');
+
+  await page.getByLabel('この日のメニュー').selectOption('recovery-set-1');
+  await page.getByLabel('実施時間（分・任意）').fill('15');
+
+  await page.getByLabel('この日のメニュー').selectOption('set-1');
+  const restoredChestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
+  await expect(restoredChestCard.getByLabel('重量')).toHaveValue('25');
+
+  await page.getByLabel('この日のメニュー').selectOption('recovery-set-1');
+  await expect(page.getByLabel('実施時間（分・任意）')).toHaveValue('15');
+  assert.deepEqual(dialogs, []);
+});
+
 test('iPhone幅の実施画面で操作ボタンと主要入力欄がそれぞれ一行に収まる', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await attachCoreApiMock(page);

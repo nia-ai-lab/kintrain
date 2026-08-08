@@ -62,12 +62,6 @@ type RemovedConfirmEntry = {
 
 type RecoveryDraft = { checked: boolean; actualDurationMinutes?: number; note: string };
 
-function hasRecoveryDraft(drafts: Record<string, RecoveryDraft>): boolean {
-  return Object.values(drafts).some(
-    (draft) => draft.checked || draft.actualDurationMinutes !== undefined || draft.note.trim() !== ''
-  );
-}
-
 function normalizeTrainingFrequency(value: unknown): TrainingFrequencyDays {
   if (typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 8) {
     return value as TrainingFrequencyDays;
@@ -526,30 +520,6 @@ export function TrainingSessionPage() {
   }
 
   function selectMenuSet(nextMenuSetId: string) {
-    const nextKind = menuSets.find((set) => set.id === nextMenuSetId)?.menuSetKind;
-    if (nextKind && nextKind !== menuSetKind) {
-      const currentRecoveryDrafts = resolvedMenuSet
-        ? recoveryDraftsBySet[resolvedMenuSet.trainingMenuSetId] ?? {}
-        : {};
-      const hasCurrentDraft = menuSetKind === 'training'
-        ? enteredItems.length > 0
-        : hasRecoveryDraft(currentRecoveryDrafts);
-      if (hasCurrentDraft) {
-        const keep = window.confirm(
-          '入力途中の内容があります。\n「OK」で下書きを保持して切り替え、「キャンセル」で下書きを破棄して切り替えます。'
-        );
-        if (!keep) {
-          if (menuSetKind === 'training') {
-            clearDraft();
-          } else if (resolvedMenuSet) {
-            setRecoveryDraftsBySet((current) => ({
-              ...current,
-              [resolvedMenuSet.trainingMenuSetId]: {}
-            }));
-          }
-        }
-      }
-    }
     setSelectedMenuSetId(nextMenuSetId);
   }
 
