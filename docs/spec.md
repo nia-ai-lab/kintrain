@@ -384,9 +384,12 @@
 - `PUT /training-menu-items/reorder` リクエスト:
 - `items: [{ trainingMenuItemId, displayOrder }]`
 - `GET /training-session-view?date=YYYY-MM-DD` レスポンス:
+- クエリ `viewMode`: `menuSet | master | completed`
+- `master` は有効な全トレーニング種目、`completed` は対象日のメニューセット横断実施済み種目を返す
+- `viewMode: menuSet | master | completed`
 - `resolvedMenuSet: { trainingMenuSetId, setName, setType, source, isDefault } | null`
 - `resolvedFromDailyPlan: boolean`
-- `items: [{ trainingMenuItemId, trainingName, muscleTargets, movementPattern, laterality, loadModel, classificationVersion, equipment, description, trainingMenuSetItemId, targetWeightKg, targetRepsMin, targetRepsMax, targetSets, recommendedIntervalDays, instruction, createdBy, weightInputMode, loadMultiplier, fixedWeightKg, displayOrder, lastPerformanceSnapshot }]`
+- `items: [{ trainingMenuItemId, trainingName, muscleTargets, movementPattern, laterality, loadModel, classificationVersion, equipment, description, trainingMenuSetItemId?, hasMenuSetPrescription, targetWeightKg?, targetRepsMin?, targetRepsMax?, targetSets?, recommendedIntervalDays?, instruction?, createdBy, weightInputMode, loadMultiplier, fixedWeightKg, displayOrder, isReadOnly, performedOnTargetDateCount, targetDatePerformanceSnapshot?, lastPerformanceSnapshot? }]`
 - `todayDoneTrainingMenuItemIds: string[]`
 - `lastPerformanceSnapshot`（任意）:
 - `performedAtUtc: RFC3339 UTC`

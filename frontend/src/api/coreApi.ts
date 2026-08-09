@@ -39,6 +39,7 @@ export type TrainingMenuItemDto = {
   weightInputMode?: WeightInputMode;
   loadMultiplier?: WeightLoadMultiplier;
   fixedWeightKg?: number;
+  displayOrder: number;
   isActive: boolean;
   version: number;
   usageCount: number;
@@ -172,13 +173,14 @@ export type TrainingSessionViewItemDto = {
   cableSettings?: CableSettings;
   isAiGenerated?: boolean;
   description?: string;
-  trainingMenuSetItemId: string;
-  targetWeightKg: number;
-  targetRepsMin: number;
-  targetRepsMax: number;
-  targetSets: number;
-  recommendedIntervalDays: number;
-  instruction: string;
+  trainingMenuSetItemId?: string;
+  hasMenuSetPrescription: boolean;
+  targetWeightKg?: number;
+  targetRepsMin?: number;
+  targetRepsMax?: number;
+  targetSets?: number;
+  recommendedIntervalDays?: number;
+  instruction?: string;
   targetDurationMinutes?: number;
   createdBy: 'manual' | 'ai';
   weightInputMode?: WeightInputMode;
@@ -186,6 +188,20 @@ export type TrainingSessionViewItemDto = {
   fixedWeightKg?: number;
   displayOrder: number;
   isActive: boolean;
+  isReadOnly?: boolean;
+  performedOnTargetDateCount?: number;
+  targetDatePerformanceSnapshot?: {
+    performedAtUtc: string;
+    weightKg: number;
+    weightInputModeSnapshot?: WeightInputMode;
+    loadMultiplierSnapshot?: WeightLoadMultiplier;
+    fixedWeightKgSnapshot?: number;
+    calculatedTotalWeightKg?: number;
+    reps: number;
+    sets: number;
+    note?: string;
+    visitDateLocal: string;
+  };
   lastPerformanceSnapshot?: {
     performedAtUtc: string;
     weightKg: number;
@@ -209,6 +225,7 @@ export type TrainingSessionViewItemDto = {
 };
 
 export type TrainingSessionViewResponse = {
+  viewMode: 'menuSet' | 'master' | 'completed';
   menuSetKind: 'training' | 'recovery';
   resolvedMenuSet: {
     trainingMenuSetId: string;
@@ -455,6 +472,23 @@ export async function listTrainingMenuItems(params?: {
   return coreApiFetch<ListTrainingMenuItemsResponse>(query ? `/training-menu-items?${query}` : '/training-menu-items', {
     method: 'GET'
   });
+}
+
+export async function listAllTrainingMenuItems(params?: {
+  itemKind?: 'training' | 'recovery';
+}): Promise<TrainingMenuItemDto[]> {
+  const items: TrainingMenuItemDto[] = [];
+  let nextToken: string | undefined;
+  do {
+    const page = await listTrainingMenuItems({
+      limit: 200,
+      nextToken,
+      itemKind: params?.itemKind
+    });
+    items.push(...page.items);
+    nextToken = page.nextToken;
+  } while (nextToken);
+  return items;
 }
 
 export async function createTrainingMenuItem(input: {
@@ -761,11 +795,20 @@ export async function listGymVisits(params?: {
   });
 }
 
-export async function getTrainingSessionView(date: string, trainingMenuSetId?: string): Promise<TrainingSessionViewResponse> {
+export async function getTrainingSessionView(
+  date: string,
+  options?: {
+    trainingMenuSetId?: string;
+    viewMode?: 'menuSet' | 'master' | 'completed';
+  }
+): Promise<TrainingSessionViewResponse> {
   const search = new URLSearchParams();
   search.set('date', date);
-  if (trainingMenuSetId) {
-    search.set('trainingMenuSetId', trainingMenuSetId);
+  if (options?.trainingMenuSetId) {
+    search.set('trainingMenuSetId', options.trainingMenuSetId);
+  }
+  if (options?.viewMode) {
+    search.set('viewMode', options.viewMode);
   }
   return coreApiFetch<TrainingSessionViewResponse>(`/training-session-view?${search.toString()}`, {
     method: 'GET'

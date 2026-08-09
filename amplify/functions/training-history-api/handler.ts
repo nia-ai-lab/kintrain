@@ -28,6 +28,7 @@ const trainingMenuSetItemTableName = process.env.TRAINING_MENU_SET_ITEM_TABLE_NA
 const dailyTrainingPlanTableName = process.env.DAILY_TRAINING_PLAN_TABLE_NAME ?? "";
 
 const defaultMenuSetIndex = "UserDefaultMenuSetIndex";
+const menuItemOrderIndex = "UserDisplayOrderIndex";
 const setItemsBySetOrderIndex = "UserSetItemsBySetOrderIndex";
 const defaultSetMarker = "DEFAULT";
 const userStartedAtIndex = "UserStartedAtIndex";
@@ -834,6 +835,169 @@ async function listActiveMenuItemsForSet(
     });
 }
 
+async function listAllActiveTrainingMenuItems(userId: string): Promise<Array<Record<string, unknown>>> {
+  const items: Array<Record<string, unknown>> = [];
+  let exclusiveStartKey: Record<string, unknown> | undefined;
+  do {
+    const result = await ddb.send(new QueryCommand({
+      TableName: trainingMenuTableName,
+      IndexName: menuItemOrderIndex,
+      KeyConditionExpression: "userId = :userId",
+      FilterExpression: "(attribute_not_exists(isActive) OR isActive <> :false) AND (attribute_not_exists(itemKind) OR itemKind = :training)",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":false": false,
+        ":training": "training"
+      },
+      ExclusiveStartKey: exclusiveStartKey
+    }));
+    items.push(...((result.Items ?? []) as Array<Record<string, unknown>>));
+    exclusiveStartKey = result.LastEvaluatedKey as Record<string, unknown> | undefined;
+  } while (exclusiveStartKey);
+  return items;
+}
+
+async function listExecutionsForDate(userId: string, date: string): Promise<Array<Record<string, unknown>>> {
+  const result = await ddb.send(
+    new QueryCommand({
+      TableName: trainingHistoryTableName,
+      IndexName: userStartedAtIndex,
+      KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":fromUtc": `${addYmdDays(date, -1)}T00:00:00Z`,
+        ":toUtc": `${addYmdDays(date, 1)}T23:59:59Z`
+      }
+    })
+  );
+  return ((result.Items ?? []) as Array<Record<string, unknown>>).filter(
+    (visit) => String(visit.visitDateLocal ?? visit.executionDateLocal ?? "") === date
+  );
+}
+
+async function getMenuItemsById(
+  userId: string,
+  trainingMenuItemIds: string[]
+): Promise<Map<string, Record<string, unknown>>> {
+  const result = new Map<string, Record<string, unknown>>();
+  const uniqueIds = Array.from(new Set(trainingMenuItemIds.filter(Boolean)));
+  for (let index = 0; index < uniqueIds.length; index += 100) {
+    const chunk = uniqueIds.slice(index, index + 100);
+    const response = await ddb.send(new BatchGetCommand({
+      RequestItems: {
+        [trainingMenuTableName]: {
+          Keys: chunk.map((trainingMenuItemId) => ({ userId, trainingMenuItemId }))
+        }
+      }
+    }));
+    for (const item of response.Responses?.[trainingMenuTableName] ?? []) {
+      if (typeof item.trainingMenuItemId === "string") {
+        result.set(item.trainingMenuItemId, item as Record<string, unknown>);
+      }
+    }
+  }
+  return result;
+}
+
+function toPerformanceSnapshot(entry: ExerciseEntry, visitDateLocal: string): Record<string, unknown> {
+  return {
+    performedAtUtc: entry.performedAtUtc,
+    weightKg: entry.weightKg,
+    weightInputModeSnapshot: entry.weightInputModeSnapshot ?? "legacyUnspecified",
+    loadMultiplierSnapshot: entry.loadMultiplierSnapshot,
+    fixedWeightKgSnapshot: entry.fixedWeightKgSnapshot,
+    additionalLoadKg: entry.additionalLoadKg,
+    assistanceKg: entry.assistanceKg,
+    calculatedTotalWeightKg: entry.calculatedTotalWeightKg,
+    reps: entry.reps,
+    sets: entry.sets,
+    muscleTargetsSnapshot: entry.muscleTargetsSnapshot,
+    movementFamilySnapshot: entry.movementFamilySnapshot,
+    jointActionsSnapshot: entry.jointActionsSnapshot,
+    lateralitySnapshot: entry.lateralitySnapshot,
+    loadModelSnapshot: entry.loadModelSnapshot,
+    classificationVersionSnapshot: entry.classificationVersionSnapshot,
+    bodyWeightKgSnapshot: entry.bodyWeightKgSnapshot,
+    equipmentTypeSnapshot: entry.equipmentTypeSnapshot,
+    equipmentProfileIdSnapshot: entry.equipmentProfileIdSnapshot,
+    cableSettingsSnapshot: entry.cableSettingsSnapshot,
+    note: entry.note ?? "",
+    visitDateLocal
+  };
+}
+
+function toTrainingSessionViewItem(params: {
+  menu: Record<string, unknown>;
+  lastPerformanceSnapshot?: Record<string, unknown>;
+  performedOnTargetDateCount?: number;
+  targetDatePerformanceSnapshot?: Record<string, unknown>;
+  isReadOnly?: boolean;
+}): Record<string, unknown> {
+  const menu = params.menu;
+  const weightInputMode = normalizeWeightInputMode(menu.weightInputMode);
+  const hasMenuSetPrescription = typeof menu.trainingMenuSetItemId === "string" && menu.trainingMenuSetItemId.length > 0;
+  return {
+    trainingMenuItemId: String(menu.trainingMenuItemId),
+    trainingName: menu.trainingName,
+    itemKind: normalizeMenuKind(menu.itemKind),
+    standardDurationMinutes: typeof menu.standardDurationMinutes === "number" ? menu.standardDurationMinutes : undefined,
+    exerciseFamilyId: menu.exerciseFamilyId ?? menu.trainingMenuItemId,
+    muscleTargets: normalizeMuscleTargets(menu.muscleTargets) ?? [],
+    movementFamily: normalizeMovementFamily(menu.movementFamily),
+    jointActions: normalizeJointActions(menu.jointActions) ?? [],
+    laterality: normalizeLaterality(menu.laterality),
+    loadModel: normalizeLoadModel(menu.loadModel),
+    classificationVersion: Number(menu.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
+    equipmentType: normalizeEquipmentType(menu.equipmentType) ?? "other",
+    equipmentProfileId: toTrimmedString(menu.equipmentProfileId),
+    cableSettings: menu.cableSettings,
+    isAiGenerated: menu.isAiGenerated === true,
+    description: typeof menu.description === "string" ? menu.description : "",
+    trainingMenuSetItemId: hasMenuSetPrescription ? menu.trainingMenuSetItemId : undefined,
+    hasMenuSetPrescription,
+    targetWeightKg: hasMenuSetPrescription ? Number(menu.targetWeightKg) : undefined,
+    targetRepsMin: hasMenuSetPrescription ? Number(menu.targetRepsMin) : undefined,
+    targetRepsMax: hasMenuSetPrescription ? Number(menu.targetRepsMax) : undefined,
+    targetSets: hasMenuSetPrescription ? Number(menu.targetSets) : undefined,
+    recommendedIntervalDays: hasMenuSetPrescription
+      ? Number(menu.recommendedIntervalDays)
+      : toFrequencyDays(menu.frequency),
+    instruction: hasMenuSetPrescription && typeof menu.instruction === "string" ? menu.instruction : "",
+    targetDurationMinutes: typeof menu.targetDurationMinutes === "number" ? menu.targetDurationMinutes : undefined,
+    createdBy: menu.createdBy === "ai" ? "ai" : "manual",
+    weightInputMode,
+    loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
+    fixedWeightKg: weightInputMode === "direct" ? 0 : normalizeFixedWeightKg(menu.fixedWeightKg),
+    displayOrder: Number(menu.displayOrder ?? 0),
+    isActive: menu.isActive !== false,
+    isReadOnly: params.isReadOnly === true,
+    performedOnTargetDateCount: params.performedOnTargetDateCount ?? 0,
+    targetDatePerformanceSnapshot: params.targetDatePerformanceSnapshot,
+    lastPerformanceSnapshot: params.lastPerformanceSnapshot
+  };
+}
+
+async function mapMenuItemsWithLatestPerformance(
+  userId: string,
+  menus: Array<Record<string, unknown>>,
+  date: string
+): Promise<Array<Record<string, unknown>>> {
+  const items: Array<Record<string, unknown>> = [];
+  const concurrency = 12;
+  for (let index = 0; index < menus.length; index += concurrency) {
+    const chunk = menus.slice(index, index + concurrency);
+    items.push(...await Promise.all(chunk.map(async (menu) => {
+      const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(
+        userId,
+        String(menu.trainingMenuItemId),
+        date
+      );
+      return toTrainingSessionViewItem({ menu, lastPerformanceSnapshot });
+    })));
+  }
+  return items;
+}
+
 function exceedsTransactionLimit(stalePerformanceCount: number, newEntryCount: number): boolean {
   return stalePerformanceCount + newEntryCount + 1 > 25;
 }
@@ -865,6 +1029,14 @@ async function createGymVisit(event: APIGatewayProxyEvent, userId: string): Prom
   const visitId = body.visitId?.trim() || randomUUID();
   const ts = nowIsoSeconds();
   const normalizedEntries = normalizeEntries(body.entries);
+  const requestedMenuItemIds = Array.from(new Set(normalizedEntries.map((entry) => entry.trainingMenuItemId)));
+  const ownedMenuItems = await getMenuItemsById(userId, requestedMenuItemIds);
+  if (requestedMenuItemIds.some((trainingMenuItemId) => {
+    const item = ownedMenuItems.get(trainingMenuItemId);
+    return !item || item.isActive === false || normalizeMenuKind(item.itemKind) !== "training";
+  })) {
+    return response(400, { message: "Training entries must reference active training menu items owned by the user." });
+  }
   const planResult = await ddb.send(new GetCommand({
     TableName: dailyTrainingPlanTableName,
     Key: { userId, planDate: body.visitDateLocal }
@@ -1045,6 +1217,96 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
     return response(400, { message: "date is required in YYYY-MM-DD format." });
   }
 
+  const requestedViewMode = event.queryStringParameters?.viewMode ?? "menuSet";
+  if (requestedViewMode !== "menuSet" && requestedViewMode !== "master" && requestedViewMode !== "completed") {
+    return response(400, { message: "viewMode must be menuSet, master, or completed." });
+  }
+
+  if (requestedViewMode === "master") {
+    const menus = await listAllActiveTrainingMenuItems(userId);
+    const items = await mapMenuItemsWithLatestPerformance(userId, menus, date);
+    return response(200, {
+      viewMode: "master",
+      menuSetKind: "training",
+      resolvedMenuSet: null,
+      resolvedFromDailyPlan: false,
+      items,
+      todayDoneTrainingMenuItemIds: []
+    });
+  }
+
+  if (requestedViewMode === "completed") {
+    const executions = await listExecutionsForDate(userId, date);
+    const entries = executions.flatMap((execution) =>
+      ((execution.entries as ExerciseEntry[] | undefined) ?? [])
+        .filter((entry) => typeof entry.trainingMenuItemId === "string" && entry.trainingMenuItemId.length > 0)
+        .map((entry) => ({
+          entry,
+          visitDateLocal: String(execution.visitDateLocal ?? execution.executionDateLocal ?? date)
+        }))
+    );
+    const grouped = new Map<string, Array<{ entry: ExerciseEntry; visitDateLocal: string }>>();
+    for (const item of entries) {
+      const list = grouped.get(item.entry.trainingMenuItemId) ?? [];
+      list.push(item);
+      grouped.set(item.entry.trainingMenuItemId, list);
+    }
+    const orderedGroups = Array.from(grouped.entries())
+      .map(([trainingMenuItemId, values]) => ({
+        trainingMenuItemId,
+        values: values.sort((a, b) => a.entry.performedAtUtc.localeCompare(b.entry.performedAtUtc))
+      }))
+      .sort((a, b) => a.values[0].entry.performedAtUtc.localeCompare(b.values[0].entry.performedAtUtc));
+    const currentMenuItems = await getMenuItemsById(
+      userId,
+      orderedGroups.map((group) => group.trainingMenuItemId)
+    );
+    const items = orderedGroups.map((group, index) => {
+      const latest = group.values[group.values.length - 1];
+      const current = currentMenuItems.get(group.trainingMenuItemId);
+      const isEditable = Boolean(
+        current && current.isActive !== false && normalizeMenuKind(current.itemKind) === "training"
+      );
+      const historyMenu: Record<string, unknown> = isEditable && current ? current : {
+        trainingMenuItemId: group.trainingMenuItemId,
+        trainingName: latest.entry.trainingNameSnapshot,
+        itemKind: "training",
+        exerciseFamilyId: group.trainingMenuItemId,
+        muscleTargets: latest.entry.muscleTargetsSnapshot,
+        movementFamily: latest.entry.movementFamilySnapshot,
+        jointActions: latest.entry.jointActionsSnapshot,
+        laterality: latest.entry.lateralitySnapshot,
+        loadModel: latest.entry.loadModelSnapshot,
+        classificationVersion: latest.entry.classificationVersionSnapshot,
+        equipmentType: latest.entry.equipmentTypeSnapshot,
+        equipmentProfileId: latest.entry.equipmentProfileIdSnapshot,
+        cableSettings: latest.entry.cableSettingsSnapshot,
+        isAiGenerated: latest.entry.isAiGeneratedSnapshot === true,
+        description: "",
+        weightInputMode: latest.entry.weightInputModeSnapshot,
+        loadMultiplier: latest.entry.loadMultiplierSnapshot,
+        fixedWeightKg: latest.entry.fixedWeightKgSnapshot,
+        isActive: false
+      };
+      const latestSnapshot = toPerformanceSnapshot(latest.entry, latest.visitDateLocal);
+      return toTrainingSessionViewItem({
+        menu: { ...historyMenu, displayOrder: index + 1 },
+        lastPerformanceSnapshot: latestSnapshot,
+        performedOnTargetDateCount: group.values.length,
+        targetDatePerformanceSnapshot: latestSnapshot,
+        isReadOnly: !isEditable
+      });
+    });
+    return response(200, {
+      viewMode: "completed",
+      menuSetKind: "training",
+      resolvedMenuSet: null,
+      resolvedFromDailyPlan: false,
+      items,
+      todayDoneTrainingMenuItemIds: orderedGroups.map((group) => group.trainingMenuItemId)
+    });
+  }
+
   const requestedTrainingMenuSetId =
     typeof event.queryStringParameters?.trainingMenuSetId === "string"
       ? event.queryStringParameters.trainingMenuSetId.trim()
@@ -1055,74 +1317,20 @@ async function getTrainingSessionView(event: APIGatewayProxyEvent, userId: strin
   }
   const activeMenuItems = await listActiveMenuItemsForSet(userId, resolvedMenuSet.trainingMenuSetId);
 
-  const todayVisitsResult = await ddb.send(
-    new QueryCommand({
-      TableName: trainingHistoryTableName,
-      IndexName: userStartedAtIndex,
-      KeyConditionExpression: "userId = :userId AND startedAtUtc BETWEEN :fromUtc AND :toUtc",
-      ExpressionAttributeValues: {
-        ":userId": userId,
-        ":fromUtc": `${addYmdDays(date, -1)}T00:00:00Z`,
-        ":toUtc": `${addYmdDays(date, 1)}T23:59:59Z`
-      }
-    })
-  );
+  const todayVisits = await listExecutionsForDate(userId, date);
 
   const todayDoneTrainingMenuItemIds = new Set<string>();
-  for (const visit of todayVisitsResult.Items ?? []) {
-    if (String(visit.visitDateLocal ?? visit.executionDateLocal ?? "") !== date) {
-      continue;
-    }
+  for (const visit of todayVisits) {
     for (const entry of (visit.entries as ExerciseEntry[] | undefined) ?? []) {
       if (entry.trainingMenuItemId) {
         todayDoneTrainingMenuItemIds.add(entry.trainingMenuItemId);
       }
     }
   }
-  const items = await Promise.all(
-    activeMenuItems.map(async (menu) => {
-      const trainingMenuItemId = String(menu.trainingMenuItemId);
-      const weightInputMode = normalizeWeightInputMode(menu.weightInputMode);
-      const lastPerformanceSnapshot = await getLatestPerformanceSnapshot(userId, trainingMenuItemId, date);
-
-      return {
-        trainingMenuItemId,
-        trainingName: menu.trainingName,
-        itemKind: normalizeMenuKind(menu.itemKind),
-        standardDurationMinutes: typeof menu.standardDurationMinutes === "number" ? menu.standardDurationMinutes : undefined,
-        exerciseFamilyId: menu.exerciseFamilyId,
-        muscleTargets: normalizeMuscleTargets(menu.muscleTargets) ?? [],
-        movementFamily: normalizeMovementFamily(menu.movementFamily),
-        jointActions: normalizeJointActions(menu.jointActions) ?? [],
-        laterality: normalizeLaterality(menu.laterality),
-        loadModel: normalizeLoadModel(menu.loadModel),
-        classificationVersion: Number(menu.classificationVersion ?? MUSCLE_TAXONOMY_VERSION),
-        equipmentType: normalizeEquipmentType(menu.equipmentType) ?? "other",
-        equipmentProfileId: toTrimmedString(menu.equipmentProfileId),
-        cableSettings: menu.cableSettings,
-        isAiGenerated: menu.isAiGenerated === true,
-        description: typeof menu.description === "string" ? menu.description : "",
-        trainingMenuSetItemId: menu.trainingMenuSetItemId,
-        targetWeightKg: Number(menu.targetWeightKg),
-        targetRepsMin: Number(menu.targetRepsMin),
-        targetRepsMax: Number(menu.targetRepsMax),
-        targetSets: Number(menu.targetSets),
-        recommendedIntervalDays: Number(menu.recommendedIntervalDays),
-        instruction: typeof menu.instruction === "string" ? menu.instruction : "",
-        targetDurationMinutes: typeof menu.targetDurationMinutes === "number" ? menu.targetDurationMinutes : undefined,
-        createdBy: menu.createdBy === "ai" ? "ai" : "manual",
-        weightInputMode,
-        loadMultiplier: normalizeLoadMultiplier(menu.loadMultiplier, weightInputMode),
-        fixedWeightKg:
-          weightInputMode === "direct" ? 0 : normalizeFixedWeightKg(menu.fixedWeightKg),
-        displayOrder: menu.displayOrder,
-        isActive: menu.isActive,
-        lastPerformanceSnapshot
-      };
-    })
-  );
+  const items = await mapMenuItemsWithLatestPerformance(userId, activeMenuItems, date);
 
   return response(200, {
+    viewMode: "menuSet",
     menuSetKind: resolvedMenuSet.menuSetKind,
     resolvedMenuSet: resolvedMenuSet.menuSet
       ? {

@@ -10,8 +10,8 @@ import {
   getDailyRecord as getDailyRecordApi,
   getGoal as getGoalApi,
   getProfile,
+  listAllTrainingMenuItems,
   listGymVisits,
-  listTrainingMenuItems,
   listTrainingMenuSets,
   putAiCharacterProfile as putAiCharacterProfileApi,
   putDailyRecord as putDailyRecordApi,
@@ -493,6 +493,7 @@ function mapRemoteMenuItem(item: {
   weightInputMode?: unknown;
   loadMultiplier?: unknown;
   fixedWeightKg?: unknown;
+  displayOrder?: number;
   isActive: boolean;
   version?: number;
   usageCount?: number;
@@ -524,7 +525,7 @@ function mapRemoteMenuItem(item: {
     defaultRepsMin: 1,
     defaultRepsMax: 1,
     defaultSets: 1,
-    order: 0,
+    order: Number(item.displayOrder ?? 0),
     isActive: Boolean(item.isActive),
     version: Number(item.version ?? 0),
     usageCount: Number(item.usageCount ?? 0)
@@ -856,13 +857,13 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
       const [profile, menu, menuSetsResponse, visits, aiCharacterProfileResponse, goalResponse] =
         await Promise.all([
         getProfile(),
-        listTrainingMenuItems(),
+        listAllTrainingMenuItems(),
         listTrainingMenuSets(),
         listGymVisits({ limit: 200 }),
         getAiCharacterProfileApi(),
         getGoalApi()
       ]);
-      const menuItems = menu.items
+      const menuItems = menu
         .filter((item) => item.isActive)
         .map((item) => mapRemoteMenuItem(item))
         .sort((a, b) => a.order - b.order);

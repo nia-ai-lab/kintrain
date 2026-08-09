@@ -53,6 +53,7 @@ function buildCoreMockData() {
         loadModel: 'external_load',
         classificationVersion: 1,
         equipment: 'マシン',
+        equipmentType: 'selectorized_machine',
         weightInputMode: 'direct',
         loadMultiplier: 1,
         fixedWeightKg: 0,
@@ -78,6 +79,7 @@ function buildCoreMockData() {
         loadModel: 'external_load',
         classificationVersion: 1,
         equipment: 'マシン',
+        equipmentType: 'cable_machine',
         weightInputMode: 'direct',
         loadMultiplier: 1,
         fixedWeightKg: 0,
@@ -103,6 +105,7 @@ function buildCoreMockData() {
         loadModel: 'external_load',
         classificationVersion: 1,
         equipment: 'マシン',
+        equipmentType: 'plate_loaded_machine',
         weightInputMode: 'direct',
         loadMultiplier: 1,
         fixedWeightKg: 0,
@@ -128,6 +131,7 @@ function buildCoreMockData() {
         loadModel: 'external_load',
         classificationVersion: 1,
         equipment: 'マシン',
+        equipmentType: 'selectorized_machine',
         weightInputMode: 'direct',
         loadMultiplier: 1,
         fixedWeightKg: 0,
@@ -153,6 +157,7 @@ function buildCoreMockData() {
         loadModel: 'external_load',
         classificationVersion: 1,
         equipment: 'マシン',
+        equipmentType: 'cable_machine',
         weightInputMode: 'direct',
         loadMultiplier: 1,
         fixedWeightKg: 0,
@@ -544,10 +549,60 @@ async function attachCoreApiMock(page) {
     if (path === '/training-session-view' && method === 'GET') {
       const requestedSetId = url.searchParams.get('trainingMenuSetId');
       const requestedDate = url.searchParams.get('date') ?? state.todayYmd;
+      const viewMode = url.searchParams.get('viewMode') ?? 'menuSet';
+      if (viewMode === 'master') {
+        return json({
+          viewMode,
+          resolvedMenuSet: null,
+          menuSetKind: 'training',
+          resolvedFromDailyPlan: false,
+          items: mock.menuItems
+            .filter((item) => item.itemKind !== 'recovery' && item.isActive !== false)
+            .map((item) => ({
+              ...item,
+              itemKind: 'training',
+              equipmentType: item.equipmentType ?? 'other',
+              hasMenuSetPrescription: false,
+              performedOnTargetDateCount: 0,
+              isReadOnly: false
+            })),
+          todayDoneTrainingMenuItemIds: []
+        });
+      }
+      if (viewMode === 'completed') {
+        const item = mock.menuItems[1];
+        const snapshot = {
+          performedAtUtc: `${requestedDate}T10:00:00Z`,
+          weightKg: 30,
+          reps: 10,
+          sets: 3,
+          visitDateLocal: requestedDate
+        };
+        return json({
+          viewMode,
+          resolvedMenuSet: null,
+          menuSetKind: 'training',
+          resolvedFromDailyPlan: false,
+          items: [{
+            ...item,
+            itemKind: 'training',
+            equipmentType: item.equipmentType ?? 'other',
+            hasMenuSetPrescription: false,
+            performedOnTargetDateCount: 1,
+            targetDatePerformanceSnapshot: snapshot,
+            lastPerformanceSnapshot: snapshot,
+            isReadOnly: false
+          }],
+          todayDoneTrainingMenuItemIds: [item.trainingMenuItemId]
+        });
+      }
       const set = mock.menuSets.find((entry) => entry.trainingMenuSetId === requestedSetId) ?? mock.menuSets[0];
       const sorted = set.items.map((setItem, index) => ({
         ...mock.menuItems.find((item) => item.trainingMenuItemId === setItem.trainingMenuItemId),
         ...setItem,
+        hasMenuSetPrescription: true,
+        performedOnTargetDateCount: 0,
+        isReadOnly: false,
         ...(set.menuSetKind !== 'recovery' && index === 0 && state.todayYmd <= requestedDate
           ? {
               lastPerformanceSnapshot: {
@@ -561,6 +616,7 @@ async function attachCoreApiMock(page) {
           : {})
       }));
       return json({
+        viewMode,
         resolvedMenuSet: {
           trainingMenuSetId: set.trainingMenuSetId,
           setName: set.setName,
@@ -1079,6 +1135,34 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
   await expect(page.getByRole('heading', { name: '当日の筋トレ内容' })).toBeVisible();
 });
 
+test('実施画面で全種目・種目名と器具のAND検索・実施済み横断表示を切り替えられる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-session');
+
+  await page.getByLabel('この日のメニュー').selectOption({ label: '種目マスタ（全種目）' });
+  await expect(page.getByRole('heading', { name: 'レッグプレス' })).toBeVisible();
+
+  await page.getByLabel('種目名').fill('れっぐ ぷれ');
+  await expect(page.getByRole('heading', { name: 'レッグプレス' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'チェストプレス' })).toHaveCount(0);
+
+  await page.getByLabel('種目名').fill('');
+  await page.getByRole('button', { name: '器具', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: '使用する器具' });
+  await sheet.getByLabel('器具名で絞り込み').fill('けーぶる');
+  await sheet.getByLabel('ケーブルマシン').check();
+  await sheet.getByRole('button', { name: '1件を適用' }).click();
+  await expect(page.getByRole('heading', { name: 'ラットプルダウン' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'シーテッドロー' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'レッグプレス' })).toHaveCount(0);
+
+  await page.getByRole('button', { name: '実施済みのみ' }).click();
+  await expect(page.getByText('対象日の全メニューセットを横断しています。')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'ラットプルダウン' })).toBeVisible();
+  await expect(page.getByText('実施済み', { exact: true })).toBeVisible();
+});
+
 test('過去日のDailyから対象日を引き継ぎ、筋トレ実績をその日付で追加できる', async ({ page }) => {
   await attachCoreApiMock(page);
   await login(page);
@@ -1227,8 +1311,8 @@ test('メニューセットを切り替えても確認を表示せず双方の�
   assert.deepEqual(dialogs, []);
 });
 
-test('iPhone幅の実施画面で操作ボタンと主要入力欄がそれぞれ一行に収まる', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('iPhone 16 Pro幅の実施画面で日付・操作ボタン・主要入力欄がそれぞれ一行に収まる', async ({ page }) => {
+  await page.setViewportSize({ width: 402, height: 874 });
   await attachCoreApiMock(page);
   await login(page);
   await page.goto('/training-session');
@@ -1237,6 +1321,11 @@ test('iPhone幅の実施画面で操作ボタンと主要入力欄がそれぞ�
   await expect(page.getByRole('button', { name: '設定値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '前回値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '入力を消す' }).first()).toBeVisible();
+  const dateControlBoxes = await Promise.all([
+    page.getByLabel('実施日', { exact: true }).boundingBox(),
+    page.getByRole('button', { name: '昨日', exact: true }).boundingBox(),
+    page.getByRole('button', { name: '今日', exact: true }).boundingBox()
+  ]);
   const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
   const actionBoxes = await Promise.all([
     chestCard.getByRole('button', { name: '設定値を入力' }).boundingBox(),
@@ -1250,6 +1339,8 @@ test('iPhone幅の実施画面で操作ボタンと主要入力欄がそれぞ�
   ]);
   assert.equal(actionBoxes.every((box) => box !== null), true);
   assert.equal(metricBoxes.every((box) => box !== null), true);
+  assert.equal(dateControlBoxes.every((box) => box !== null), true);
+  assert.equal(new Set(dateControlBoxes.map((box) => Math.round(box.y))).size, 1);
   assert.equal(new Set(actionBoxes.map((box) => Math.round(box.y))).size, 1);
   assert.equal(new Set(metricBoxes.map((box) => Math.round(box.y))).size, 1);
   await chestCard.getByRole('button', { name: '設定値を入力' }).click();
