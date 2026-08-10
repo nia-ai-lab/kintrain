@@ -209,7 +209,7 @@ function buildCoreMockData() {
           targetRepsMax,
           targetSets,
           recommendedIntervalDays: 3,
-          instruction: '',
+          instruction: index === 0 ? '肩をすくめず、胸を張った姿勢を保つ。' : '',
           createdBy: 'manual'
         })),
         createdAt: now,
@@ -1095,6 +1095,9 @@ test('トレーニング実施画面で入力・下書き復元・前回コピ�
 
   const chestCard = page.locator('article.card').filter({ has: page.getByRole('heading', { name: 'チェストプレス' }) }).first();
   const description = chestCard.locator('details.training-description');
+  const prescriptionNote = chestCard.locator('.session-prescription-note');
+  await expect(prescriptionNote.getByText('このセットでの補足', { exact: true })).toBeVisible();
+  await expect(prescriptionNote.locator('p')).toHaveText('肩をすくめず、胸を張った姿勢を保つ。');
   await expect(description).toBeVisible();
   await expect(description).not.toHaveAttribute('open', '');
   await expect(chestCard.getByLabel('メモ')).toHaveValue('');
@@ -1337,6 +1340,9 @@ test('iPhone 16 Pro幅の実施画面で日付・操作ボタン・主要入力�
     chestCard.getByLabel('回数').boundingBox(),
     chestCard.getByLabel('セット').boundingBox()
   ]);
+  const prescriptionNote = chestCard.locator('.session-prescription-note');
+  await expect(prescriptionNote.getByText('このセットでの補足', { exact: true })).toBeVisible();
+  await expect(prescriptionNote.locator('p')).toHaveText('肩をすくめず、胸を張った姿勢を保つ。');
   assert.equal(actionBoxes.every((box) => box !== null), true);
   assert.equal(metricBoxes.every((box) => box !== null), true);
   assert.equal(dateControlBoxes.every((box) => box !== null), true);

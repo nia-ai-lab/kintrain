@@ -1024,6 +1024,12 @@ export function TrainingSessionPage() {
                     })} x {formatRepsTarget(item.targetRepsMin, item.targetRepsMax)} x {item.targetSets}set
                     </p>
                   )}
+                  {item.hasMenuSetPrescription && item.targetInstruction.trim() && (
+                    <div className="session-prescription-note">
+                      <span className="session-prescription-note-label">このセットでの補足</span>
+                      <p>{item.targetInstruction.trim()}</p>
+                    </div>
+                  )}
                   {item.targetDatePerformanceSnapshot && (
                     <p className="session-target-date-performance">
                       当日最新: {formatWeightLoad({
