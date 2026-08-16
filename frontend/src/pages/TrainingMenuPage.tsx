@@ -8,6 +8,7 @@ import {
   deleteTrainingMenuItem,
   deleteTrainingMenuSet,
   getDailyTrainingPlan,
+  listInactiveTemporaryTrainingMenuSets,
   putDailyTrainingPlan,
   removeTrainingMenuItemFromSet,
   reorderTrainingMenuSetItems,
@@ -45,6 +46,7 @@ import type {
   TrainingMenuSetItem,
   WeightInputMode
 } from '../types';
+import type { TrainingMenuSetDto } from '../api/coreApi';
 import { formatTrainingLabel } from '../utils/training';
 
 type MenuTab = 'sets' | 'items';
@@ -157,20 +159,120 @@ export function TrainingMenuPage() {
       </section>
 
       {tab === 'sets' ? (
-        <SetManagement
-          sets={menuSets}
-          items={menuItems}
-          selectedSet={selectedSet}
-          today={today}
-          disabled={isSaving || isCoreDataLoading}
-          onSelect={setSelectedSetId}
-          onRun={run}
-          onCreated={setSelectedSetId}
-        />
+        <>
+          <SetManagement
+            sets={menuSets}
+            items={menuItems}
+            selectedSet={selectedSet}
+            today={today}
+            disabled={isSaving || isCoreDataLoading}
+            onSelect={setSelectedSetId}
+            onRun={run}
+            onCreated={setSelectedSetId}
+          />
+          <InactiveTemporaryMenuSets
+            disabled={isSaving || isCoreDataLoading}
+            onRun={run}
+          />
+        </>
       ) : (
         <ItemLibrary items={menuItems} disabled={isSaving || isCoreDataLoading} onRun={run} />
       )}
     </div>
+  );
+}
+
+function InactiveTemporaryMenuSets({
+  disabled,
+  onRun
+}: {
+  disabled: boolean;
+  onRun: (action: () => Promise<void>, success: string) => Promise<void>;
+}) {
+  const [sets, setSets] = useState<TrainingMenuSetDto[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState('');
+
+  async function loadInactiveSets() {
+    setIsLoading(true);
+    setLoadError('');
+    try {
+      const result = await listInactiveTemporaryTrainingMenuSets();
+      setSets([...result.items].sort((a, b) =>
+        String(b.canceledAt ?? b.updatedAt ?? '').localeCompare(String(a.canceledAt ?? a.updatedAt ?? ''))
+      ));
+      setIsLoaded(true);
+    } catch (error) {
+      setLoadError(errorMessage(error, '無効化済みメニューの取得に失敗しました。'));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  return (
+    <details
+      className="card inactive-temporary-menu-panel"
+      onToggle={(event) => {
+        if (event.currentTarget.open && !isLoading) {
+          void loadInactiveSets();
+        }
+      }}
+    >
+      <summary>
+        <span>無効化済みの一時メニュー</span>
+        {isLoaded && <small>{sets.length}件</small>}
+      </summary>
+      <div className="stack-md inactive-temporary-menu-content">
+        <p className="muted">
+          MCPで無効化された一時メニューです。普段のメニュー一覧や利用日の候補には表示されません。
+        </p>
+        {isLoading && <p className="muted">読み込み中...</p>}
+        {loadError && (
+          <div className="stack-sm">
+            <p className="status-text">{loadError}</p>
+            <button type="button" className="btn subtle" onClick={() => void loadInactiveSets()}>
+              再読み込み
+            </button>
+          </div>
+        )}
+        {!isLoading && !loadError && isLoaded && sets.length === 0 && (
+          <p className="muted">無効化済みの一時メニューはありません。</p>
+        )}
+        {!isLoading && sets.map((set) => (
+          <article className="inactive-temporary-menu-row" key={set.trainingMenuSetId}>
+            <div className="stack-xs">
+              <strong>{set.setName}</strong>
+              <small className="muted">
+                {set.menuSetKind === 'recovery' ? 'リカバリー' : 'トレーニング'}
+                {set.source === 'ai' ? '・AI作成' : ''}
+                {set.canceledAt ? `・${set.canceledAt.slice(0, 10)}に無効化` : ''}
+                {set.items.length > 0 ? `・${set.items.length}${set.menuSetKind === 'recovery' ? '活動' : '種目'}` : ''}
+              </small>
+              {set.cancelReason && <small className="muted">理由: {set.cancelReason}</small>}
+            </div>
+            <button
+              type="button"
+              className="btn danger"
+              disabled={disabled}
+              onClick={async () => {
+                const confirmed = window.confirm(
+                  `「${set.setName}」を完全に削除しますか？ 無効化時のメニュー内容と監査情報は削除され、元に戻せません。確定済みの実施履歴は残ります。`
+                );
+                if (!confirmed) return;
+                await onRun(
+                  () => deleteTrainingMenuSet(set.trainingMenuSetId),
+                  '無効化済みの一時メニューを完全に削除しました。実施履歴は残ります。'
+                );
+                await loadInactiveSets();
+              }}
+            >
+              完全に削除
+            </button>
+          </article>
+        ))}
+      </div>
+    </details>
   );
 }
 

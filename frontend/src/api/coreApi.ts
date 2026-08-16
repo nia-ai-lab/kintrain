@@ -69,6 +69,9 @@ export type TrainingMenuSetDto = {
   items: TrainingMenuSetItemDto[];
   createdAt?: string;
   updatedAt?: string;
+  canceledAt?: string;
+  canceledBy?: string;
+  cancelReason?: string;
 };
 
 export type TrainingMenuSetItemDto = {
@@ -562,6 +565,12 @@ export async function reorderTrainingMenuItems(items: Array<{ trainingMenuItemId
 
 export async function listTrainingMenuSets(): Promise<ListTrainingMenuSetsResponse> {
   return coreApiFetch<ListTrainingMenuSetsResponse>('/training-menu-sets', {
+    method: 'GET'
+  });
+}
+
+export async function listInactiveTemporaryTrainingMenuSets(): Promise<ListTrainingMenuSetsResponse> {
+  return coreApiFetch<ListTrainingMenuSetsResponse>('/training-menu-sets?state=inactive-temporary', {
     method: 'GET'
   });
 }

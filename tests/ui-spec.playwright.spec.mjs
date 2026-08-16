@@ -236,6 +236,36 @@ function buildCoreMockData() {
         updatedAt: now
       }
     ],
+    inactiveTemporaryMenuSets: [
+      {
+        trainingMenuSetId: 'inactive-temporary-set-1',
+        setName: '無効化したAIメニュー',
+        menuSetOrder: 99,
+        isDefault: false,
+        setType: 'temporary',
+        source: 'ai',
+        menuSetKind: 'training',
+        validFromDate: '2026-07-01',
+        validToDate: '2026-07-07',
+        isActive: false,
+        version: 2,
+        canceledAt: '2026-07-08T09:00:00Z',
+        cancelReason: '利用者の依頼',
+        items: [{
+          trainingMenuSetItemId: 'inactive-set-item-1',
+          trainingMenuSetId: 'inactive-temporary-set-1',
+          trainingMenuItemId: 'm-1',
+          displayOrder: 1,
+          targetWeightKg: 25,
+          targetRepsMin: 8,
+          targetRepsMax: 12,
+          targetSets: 3,
+          recommendedIntervalDays: 3,
+          instruction: '',
+          createdBy: 'ai'
+        }]
+      }
+    ],
     dailyRecords: [
       {
         recordDate: state.todayYmd,
@@ -486,7 +516,19 @@ async function attachCoreApiMock(page) {
       return json({ items: sorted, nextToken: null });
     }
     if (path === '/training-menu-sets' && method === 'GET') {
-      return json({ items: mock.menuSets });
+      return json({
+        items: url.searchParams.get('state') === 'inactive-temporary'
+          ? mock.inactiveTemporaryMenuSets
+          : mock.menuSets
+      });
+    }
+    if (path.startsWith('/training-menu-sets/') && method === 'DELETE') {
+      const setId = path.split('/').pop();
+      mock.inactiveTemporaryMenuSets = mock.inactiveTemporaryMenuSets.filter(
+        (set) => set.trainingMenuSetId !== setId
+      );
+      mock.menuSets = mock.menuSets.filter((set) => set.trainingMenuSetId !== setId);
+      return route.fulfill({ status: 204, body: '' });
     }
     if (path === '/training-menu-sets/set-1/items' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
@@ -1489,6 +1531,45 @@ test('トレーニングメニューで追加・編集・削除ができる', as
     () => document.documentElement.scrollWidth > window.innerWidth
   );
   assert.equal(hasHorizontalOverflow, false);
+});
+
+test('無効化済みの一時メニューを通常一覧から分離して完全削除できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  await login(page);
+  await page.goto('/training-menu');
+
+  const panel = page.locator('details.inactive-temporary-menu-panel');
+  await expect(panel).toBeVisible();
+  await expect(page.getByText('無効化したAIメニュー', { exact: true })).toHaveCount(0);
+
+  const listRequest = page.waitForRequest((request) => {
+    const url = new URL(request.url());
+    return request.method() === 'GET' &&
+      url.pathname.endsWith('/training-menu-sets') &&
+      url.searchParams.get('state') === 'inactive-temporary';
+  });
+  await panel.locator('summary').click();
+  await listRequest;
+
+  await expect(panel.getByText('無効化したAIメニュー', { exact: true })).toBeVisible();
+  await expect(panel.getByText('1件', { exact: true })).toBeVisible();
+  await expect(panel.getByText('理由: 利用者の依頼', { exact: true })).toBeVisible();
+
+  page.once('dialog', async (dialog) => {
+    assert.match(dialog.message(), /監査情報は削除され、元に戻せません/);
+    assert.match(dialog.message(), /確定済みの実施履歴は残ります/);
+    await dialog.accept();
+  });
+  const deleteRequest = page.waitForRequest((request) =>
+    request.method() === 'DELETE' &&
+    new URL(request.url()).pathname.endsWith('/training-menu-sets/inactive-temporary-set-1')
+  );
+  await panel.getByRole('button', { name: '完全に削除' }).click();
+  await deleteRequest;
+
+  await expect(panel.getByText('無効化したAIメニュー', { exact: true })).toHaveCount(0);
+  await expect(panel.getByText('無効化済みの一時メニューはありません。')).toBeVisible();
+  await expect(page.getByText('無効化済みの一時メニューを完全に削除しました。実施履歴は残ります。')).toBeVisible();
 });
 
 test('iPhone幅で筋肉と役割を見やすく選択できる', async ({ page }) => {

@@ -402,7 +402,10 @@ function toMenuSetResponse(set: Record<string, unknown>, items: Record<string, u
     updateReason: set.updateReason,
     items: items.map(toSetItemResponse),
     createdAt: set.createdAt,
-    updatedAt: set.updatedAt
+    updatedAt: set.updatedAt,
+    canceledAt: set.canceledAt,
+    canceledBy: set.canceledBy,
+    cancelReason: set.cancelReason
   };
 }
 
@@ -899,7 +902,8 @@ async function deleteMenuItem(userId: string, trainingMenuItemId: string): Promi
   return response(204, {});
 }
 
-async function listMenuSets(userId: string): Promise<APIGatewayProxyResult> {
+async function listMenuSets(event: APIGatewayProxyEvent, userId: string): Promise<APIGatewayProxyResult> {
+  const inactiveTemporaryOnly = event.queryStringParameters?.state === "inactive-temporary";
   const [setsResult, setItems] = await Promise.all([
     ddb.send(new QueryCommand({
       TableName: trainingMenuSetTableName,
@@ -916,7 +920,9 @@ async function listMenuSets(userId: string): Promise<APIGatewayProxyResult> {
   }
   return response(200, {
     items: (setsResult.Items ?? [])
-      .filter((set) => set.isActive !== false)
+      .filter((set) => inactiveTemporaryOnly
+        ? set.isActive === false && normalizeSetType(set.setType) === "temporary"
+        : set.isActive !== false)
       .map((set) => toMenuSetResponse(
         set as Record<string, unknown>,
         itemsBySet.get(String(set.trainingMenuSetId)) ?? []
@@ -1580,7 +1586,7 @@ export const handler = async (event: APIGatewayProxyEvent): Promise<APIGatewayPr
   }
 
   if (/^\/training-menu-sets\/?$/.test(path)) {
-    if (method === "GET") return listMenuSets(userId);
+    if (method === "GET") return listMenuSets(event, userId);
     if (method === "POST") return createMenuSet(event, userId);
   }
   const reorderMatch = path.match(/^\/training-menu-sets\/([^/]+)\/items\/reorder\/?$/);
