@@ -1366,6 +1366,9 @@ test('iPhone 16 Pro幅の実施画面で日付・操作ボタン・主要入力�
   await expect(page.getByRole('button', { name: '設定値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '前回値を入力' }).first()).toBeVisible();
   await expect(page.getByRole('button', { name: '入力を消す' }).first()).toBeVisible();
+  const viewportMeta = await page.locator('meta[name="viewport"]').getAttribute('content');
+  assert.match(viewportMeta ?? '', /minimum-scale=1(?:\.0)?/);
+  assert.match(viewportMeta ?? '', /shrink-to-fit=no/);
   const dateControlBoxes = await Promise.all([
     page.getByLabel('実施日', { exact: true }).boundingBox(),
     page.getByRole('button', { name: '昨日', exact: true }).boundingBox(),
@@ -1391,6 +1394,20 @@ test('iPhone 16 Pro幅の実施画面で日付・操作ボタン・主要入力�
   assert.equal(new Set(dateControlBoxes.map((box) => Math.round(box.y))).size, 1);
   assert.equal(new Set(actionBoxes.map((box) => Math.round(box.y))).size, 1);
   assert.equal(new Set(metricBoxes.map((box) => Math.round(box.y))).size, 1);
+  const trainingLayout = await page.evaluate(() => {
+    const pageRoot = document.querySelector('.app-root').getBoundingClientRect();
+    const sessionCard = document.querySelector('.training-session-card').getBoundingClientRect();
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      contentWidth: document.documentElement.scrollWidth,
+      pageRoot: { left: pageRoot.left, right: pageRoot.right, width: pageRoot.width },
+      sessionCard: { left: sessionCard.left, right: sessionCard.right, width: sessionCard.width }
+    };
+  });
+  assert.equal(trainingLayout.contentWidth, trainingLayout.viewportWidth);
+  assert.ok(trainingLayout.pageRoot.width >= trainingLayout.viewportWidth - 1);
+  assert.ok(trainingLayout.sessionCard.width >= trainingLayout.viewportWidth - 25);
+  assert.ok(Math.abs(trainingLayout.sessionCard.left - (trainingLayout.viewportWidth - trainingLayout.sessionCard.right)) < 1);
   await chestCard.getByRole('button', { name: '設定値を入力' }).click();
   await page.getByRole('button', { name: '記録して終了' }).click();
   const dialog = page.getByRole('dialog', { name: '記録内容の確認' });
