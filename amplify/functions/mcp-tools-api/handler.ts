@@ -1735,6 +1735,7 @@ export function buildTrainingCoachingSummary(
   timeZoneId: string
 ): Record<string, unknown> {
   const trainingDates = new Set<string>();
+  const recoveryDates = new Set<string>();
   const weeklySets = new Map<string, number>();
   const muscleSets = new Map<string, MuscleSetStats>();
   const muscleGroupSets = new Map<string, MuscleSetStats>();
@@ -1758,9 +1759,14 @@ export function buildTrainingCoachingSummary(
       continue;
     }
     const entries = Array.isArray(visit.entries) ? visit.entries : [];
-    if (entries.length) {
-      trainingDates.add(date);
+    if (!entries.length) {
+      continue;
     }
+    if (visit.menuSetKind === "recovery") {
+      recoveryDates.add(date);
+      continue;
+    }
+    trainingDates.add(date);
     for (const rawEntry of entries) {
       if (!rawEntry || typeof rawEntry !== "object" || Array.isArray(rawEntry)) {
         continue;
@@ -1842,6 +1848,7 @@ export function buildTrainingCoachingSummary(
     currentTrainingStreak += 1;
   }
   const inclusiveDays = daysBetweenYmd(from, to) + 1;
+  const executionDates = new Set([...trainingDates, ...recoveryDates]);
   const exercises = Array.from(exerciseMap.values())
     .map((exercise) => ({
       trainingMenuItemId: exercise.trainingMenuItemId,
@@ -1888,7 +1895,8 @@ export function buildTrainingCoachingSummary(
   return {
     range: { from, to, timeZoneId, inclusive: true },
     trainingDays: trainingDates.size,
-    restDays: Math.max(0, inclusiveDays - trainingDates.size),
+    recoveryDays: recoveryDates.size,
+    noExecutionDays: Math.max(0, inclusiveDays - executionDates.size),
     totalSets,
     longestTrainingStreak,
     currentTrainingStreakThroughEndDate: currentTrainingStreak,
@@ -1989,7 +1997,10 @@ async function getTrainingCoachingSummary(args: ToolArgs, userId: string): Promi
     summary: buildTrainingCoachingSummary(visits, dailyRecords, from, to, timeZoneId),
     definitions: {
       weekStartsOn: "Monday",
-      restDay: "A local date in the requested range without a gym visit containing entries.",
+      trainingDay: "A local date in the requested range with a training execution containing entries.",
+      recoveryDay:
+        "A local date in the requested range with a recovery execution containing entries. A date can be both a training day and a recovery day.",
+      noExecutionDay: "A local date in the requested range with neither a training nor recovery execution containing entries.",
       estimated1Rm:
         "Epley formula for external loads and assisted-bodyweight resistance (body weight minus assistance), calculated for 1-10 repetitions. Plain bodyweight movements are excluded.",
       effectiveSets: "Each target receives the exercise-specific effectiveSetFactor stored in muscleTargets.",

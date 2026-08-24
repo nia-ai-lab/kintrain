@@ -68,7 +68,8 @@ test("coaching summary aggregates sets, streaks, trends, and recorded-sample ave
   ) as Record<string, any>;
 
   assert.equal(summary.trainingDays, 2);
-  assert.equal(summary.restDays, 5);
+  assert.equal(summary.recoveryDays, 0);
+  assert.equal(summary.noExecutionDays, 5);
   assert.equal(summary.totalSets, 7);
   assert.equal(summary.longestTrainingStreak, 2);
   assert.equal(summary.currentTrainingStreakThroughEndDate, 2);
@@ -177,6 +178,83 @@ test("coaching summary excludes visits outside the requested local-date range", 
   ) as Record<string, any>;
 
   assert.equal(summary.trainingDays, 0);
+  assert.equal(summary.recoveryDays, 0);
+  assert.equal(summary.noExecutionDays, 8);
   assert.equal(summary.totalSets, 0);
   assert.deepEqual(summary.exercises, []);
+});
+
+test("coaching summary distinguishes training, recovery, and days without executions", () => {
+  const summary = buildTrainingCoachingSummary(
+    [
+      {
+        visitDateLocal: "2026-08-21",
+        entries: [{ trainingMenuItemId: "bench", trainingNameSnapshot: "ベンチプレス", reps: 5, sets: 3 }]
+      },
+      {
+        menuSetKind: "recovery",
+        visitDateLocal: "2026-08-22",
+        entries: [{ menuItemId: "stretch", activityNameSnapshot: "ストレッチ" }]
+      }
+    ],
+    [],
+    "2026-08-21",
+    "2026-08-23",
+    "Asia/Tokyo"
+  ) as Record<string, any>;
+
+  assert.equal(summary.trainingDays, 1);
+  assert.equal(summary.recoveryDays, 1);
+  assert.equal(summary.noExecutionDays, 1);
+  assert.equal(summary.totalSets, 3);
+  assert.equal(summary.longestTrainingStreak, 1);
+  assert.equal(summary.currentTrainingStreakThroughEndDate, 0);
+  assert.deepEqual(summary.weeklySets, [{ weekStartDate: "2026-08-17", sets: 3 }]);
+});
+
+test("coaching summary counts training and recovery independently when both occur on the same day", () => {
+  const summary = buildTrainingCoachingSummary(
+    [
+      {
+        visitDateLocal: "2026-08-24",
+        entries: [{ trainingMenuItemId: "squat", trainingNameSnapshot: "スクワット", reps: 5, sets: 4 }]
+      },
+      {
+        menuSetKind: "recovery",
+        visitDateLocal: "2026-08-24",
+        entries: [{ menuItemId: "massage", activityNameSnapshot: "マッサージ" }]
+      }
+    ],
+    [],
+    "2026-08-24",
+    "2026-08-24",
+    "Asia/Tokyo"
+  ) as Record<string, any>;
+
+  assert.equal(summary.trainingDays, 1);
+  assert.equal(summary.recoveryDays, 1);
+  assert.equal(summary.noExecutionDays, 0);
+  assert.equal(summary.totalSets, 4);
+  assert.equal(summary.longestTrainingStreak, 1);
+  assert.equal(summary.currentTrainingStreakThroughEndDate, 1);
+});
+
+test("coaching summary treats legacy executions without menuSetKind as training", () => {
+  const summary = buildTrainingCoachingSummary(
+    [
+      {
+        visitDateLocal: "2026-08-24",
+        entries: [{ trainingMenuItemId: "deadlift", trainingNameSnapshot: "デッドリフト", reps: 5, sets: 2 }]
+      }
+    ],
+    [],
+    "2026-08-24",
+    "2026-08-24",
+    "Asia/Tokyo"
+  ) as Record<string, any>;
+
+  assert.equal(summary.trainingDays, 1);
+  assert.equal(summary.recoveryDays, 0);
+  assert.equal(summary.noExecutionDays, 0);
+  assert.equal(summary.totalSets, 2);
 });
