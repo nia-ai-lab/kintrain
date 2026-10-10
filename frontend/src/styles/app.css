@@ -182,6 +182,22 @@ select {
   text-overflow: ellipsis;
 }
 
+/* iOS Safari keeps a native intrinsic width on date inputs unless the
+   native appearance is removed, which pushes them past narrow containers. */
+input[type='date'] {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  text-align: left;
+}
+
+input[type='date']::-webkit-date-and-time-value {
+  text-align: left;
+  min-width: 0;
+}
+
 input[type='time'] {
   width: 100%;
   max-width: 100%;
@@ -662,8 +678,18 @@ a {
   border-top: 1px solid var(--line);
 }
 
+.menu-set-detail-head {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.menu-set-detail-head > div:first-child {
+  min-width: 0;
+}
+
 .menu-set-use-actions {
   justify-content: flex-end;
+  min-width: 0;
 }
 
 .menu-set-use-date {
@@ -3018,7 +3044,7 @@ a {
 
 .session-actions .btn,
 .row-wrap .btn.subtle {
-  min-height: 40px;
+  min-height: var(--tap);
 }
 
 .chat-page .card {

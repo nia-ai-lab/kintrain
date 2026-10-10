@@ -479,7 +479,7 @@ function SetEditor({
   return (
     <>
       <section className="card stack-md">
-        <div className="row-between">
+        <div className="row-between menu-set-detail-head">
           <div>
             <div className="row-wrap">
               <span className="priority-chip">{set.setType === 'temporary' ? '一時' : '恒常'}</span>
