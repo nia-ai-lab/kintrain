@@ -787,15 +787,29 @@ a {
 
   .menu-set-use-actions {
     width: 100%;
-    justify-content: stretch;
+    justify-content: flex-start;
+    align-items: flex-end;
+    gap: 8px;
   }
 
   .menu-set-use-date {
-    flex: 1 1 100%;
+    flex: 0 1 158px;
+    min-width: 0;
   }
 
   .menu-set-use-actions .btn {
-    flex: 1;
+    flex: 0 0 auto;
+    padding-inline: 14px;
+  }
+
+  .menu-set-use-date input {
+    height: var(--tap);
+    min-height: var(--tap);
+    padding-block: 0;
+  }
+
+  .menu-set-use-actions .btn.danger {
+    margin-left: auto;
   }
 }
 
