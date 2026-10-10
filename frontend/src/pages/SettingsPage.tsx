@@ -310,7 +310,10 @@ export function SettingsPage() {
               <img src={userAvatarUrl} alt="ユーザアイコン" className="avatar-large" />
             ) : (
               <span className="settings-avatar-fallback" aria-hidden="true">
-                👤
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <circle cx="12" cy="8.5" r="4" />
+                  <path d="M4.5 20c.6-3.9 3.7-6.5 7.5-6.5s6.9 2.6 7.5 6.5Z" />
+                </svg>
               </span>
             )}
             <button
