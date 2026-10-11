@@ -1656,7 +1656,22 @@ test('カレンダーとDailyで記録の入力・参照ができる', async ({ 
     .locator('button.calendar-cell')
     .filter({ has: page.locator('.day-number', { hasText: String(dayNumber) }) })
     .first();
-  await expect(todayCellAfter.locator('.calendar-rating-stripe').first()).toHaveAttribute('title', '体調 7/10');
+  await expect(page.getByRole('button', { name: '前月', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '次月', exact: true })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'ダッシュボードへ' })).toHaveCount(0);
+  const viewSwitch = page.getByRole('group', { name: 'カレンダーの表示' });
+  await expect(viewSwitch.getByRole('button', { name: '実施', exact: true })).toHaveAttribute('aria-pressed', 'true');
+
+  await viewSwitch.getByRole('button', { name: '体調', exact: true }).click();
+  await expect(todayCellAfter).toHaveAttribute('aria-label', `${dayNumber}日 体調 7/10`);
+  await expect(todayCellAfter.locator('.calendar-rating-value')).toHaveText('7');
+
+  await viewSwitch.getByRole('button', { name: '気分', exact: true }).click();
+  await expect(todayCellAfter).toHaveAttribute('aria-label', `${dayNumber}日 気分 8/10`);
+
+  await page.reload();
+  await expect(viewSwitch.getByRole('button', { name: '気分', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await expect(todayCellAfter.locator('.calendar-rating-value')).toHaveText('8');
 });
 
 test('iPhone幅で体重・体脂肪率・筋肉量が横一列に収まる', async ({ page }) => {
