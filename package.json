@@ -26,7 +26,8 @@
     "test:coaching-context": "tsx --test tests/coaching-context.test.ts",
     "test:training-priority": "tsx --test tests/training-priority.test.ts",
     "test:ui-spec": "playwright test -c playwright.config.mjs",
-    "test:ai-chat": "tsx --test tests/ai-chat-*.test.ts"
+    "test:ai-chat": "tsx --test tests/ai-chat-*.test.ts",
+    "test:gym-visit-edit": "tsx --test tests/gym-visit-edit.test.ts"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.18.1",

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { listGymVisits, listRecoveryExecutions } from '../api/coreApi';
+import { listAllGymVisits, listRecoveryExecutions } from '../api/coreApi';
 import type { GymVisitDto, RecoveryExecutionDto } from '../api/coreApi';
 import { ymdToDisplay } from '../utils/date';
 
@@ -18,11 +18,11 @@ export function HistoryPage() {
     let active = true;
     setLoading(true);
     setError('');
-    void Promise.all([listGymVisits({ limit: 200 }), listRecoveryExecutions()])
+    void Promise.all([listAllGymVisits(), listRecoveryExecutions()])
       .then(([training, recovery]) => {
         if (!active) return;
         setItems([
-          ...training.items.map((value) => ({
+          ...training.map((value) => ({
             kind: 'training' as const,
             id: value.visitId,
             date: value.visitDateLocal,

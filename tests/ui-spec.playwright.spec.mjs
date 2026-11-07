@@ -358,9 +358,10 @@ function buildCoreMockData() {
   };
 }
 
-async function attachCoreApiMock(page) {
+async function attachCoreApiMock(page, customizeMock) {
   assert.ok(state.auth, 'auth context is required');
   const mock = buildCoreMockData();
+  customizeMock?.(mock);
   const baseUrl = state.auth.coreApiEndpoint.replace(/\/+$/, '');
   const basePath = new URL(baseUrl).pathname.replace(/\/$/, '');
 
@@ -392,10 +393,15 @@ async function attachCoreApiMock(page) {
     if (path === '/gym-visits' && method === 'GET') {
       const from = url.searchParams.get('from');
       const to = url.searchParams.get('to');
-      const items = from && to
+      const matched = from && to
         ? mock.gymVisits.filter((visit) => visit.visitDateLocal >= from && visit.visitDateLocal <= to)
         : mock.gymVisits;
-      return json({ items, nextToken: null });
+      // Same paging as the real API: oldest first, at most 200 per page.
+      const limit = Math.min(200, Number(url.searchParams.get('limit') ?? '100'));
+      const offset = Number(url.searchParams.get('nextToken') ?? '0');
+      const items = matched.slice(offset, offset + limit);
+      const nextToken = offset + limit < matched.length ? String(offset + limit) : null;
+      return json({ items, nextToken });
     }
     if (path === '/menu-executions' && method === 'GET') {
       return json({ items: [], nextToken: null });
@@ -672,6 +678,18 @@ async function attachCoreApiMock(page) {
         items: sorted,
         todayDoneTrainingMenuItemIds: []
       });
+    }
+    const gymVisitMatch = path.match(/^\/gym-visits\/([^/]+)$/);
+    if (gymVisitMatch && method === 'GET') {
+      const visit = mock.gymVisits.find((item) => item.visitId === decodeURIComponent(gymVisitMatch[1]));
+      return visit ? json({ ...visit, userId: 'mock-user' }) : json({ message: 'gym visit not found.' }, 404);
+    }
+    if (gymVisitMatch && method === 'PUT') {
+      const index = mock.gymVisits.findIndex((item) => item.visitId === decodeURIComponent(gymVisitMatch[1]));
+      if (index < 0) return json({ message: 'gym visit not found.' }, 404);
+      const input = JSON.parse(req.postData() ?? '{}');
+      mock.gymVisits[index] = { ...mock.gymVisits[index], ...input, updatedAt: now };
+      return json(mock.gymVisits[index]);
     }
     if (path === '/gym-visits' && method === 'POST') {
       const input = JSON.parse(req.postData() ?? '{}');
@@ -1705,6 +1723,64 @@ test('iPhone幅で体重・体脂肪率・筋肉量が横一列に収まる', as
     assert.ok(layout.contentWidth <= layout.viewportWidth);
     assert.ok(timeBox.y > boxes[0].y + boxes[0].height);
   }
+});
+
+test('実施記録が200件を超えても当日の筋トレ内容をDailyに表示する', async ({ page }) => {
+  await attachCoreApiMock(page, (mock) => {
+    const [todayVisit] = mock.gymVisits;
+    const olderVisits = Array.from({ length: 205 }, (_, index) => {
+      const day = new Date(Date.UTC(2025, 0, 1 + index)).toISOString().slice(0, 10);
+      return {
+        ...todayVisit,
+        visitId: `visit-old-${index}`,
+        visitDateLocal: day,
+        startedAtUtc: `${day}T09:00:00Z`,
+        endedAtUtc: `${day}T10:00:00Z`,
+        entries: todayVisit.entries.map((entry) => ({ ...entry, trainingNameSnapshot: '過去の種目' }))
+      };
+    });
+    mock.gymVisits = [...olderVisits, todayVisit];
+  });
+  await login(page);
+  await page.goto(`/daily/${state.todayYmd}`);
+
+  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: '当日の筋トレ内容' }) });
+  await expect(section.getByText(/チェストプレス/)).toBeVisible();
+  await expect(section.getByText('この日の筋トレ記録はまだありません。')).toHaveCount(0);
+});
+
+test('Dailyで実施済みの筋トレ記録を修正できる', async ({ page }) => {
+  await attachCoreApiMock(page, (mock) => {
+    const [todayVisit] = mock.gymVisits;
+    const [entry] = todayVisit.entries;
+    todayVisit.entries = [
+      { ...entry, sets: 1, note: null, bodyWeightKgSnapshot: null },
+      { ...entry, trainingMenuItemId: 'm-extra', trainingNameSnapshot: '誤って追加した種目', sets: 2 }
+    ];
+  });
+  await login(page);
+  await page.goto(`/daily/${state.todayYmd}`);
+
+  const section = page.locator('section').filter({ has: page.getByRole('heading', { name: '当日の筋トレ内容' }) });
+  await expect(section.getByText(/チェストプレス.*x 12回 x 1set/)).toBeVisible();
+  await section.getByRole('button', { name: '記録を修正' }).click();
+  await section.getByLabel('チェストプレスのセット数').fill('3');
+  await section.getByRole('button', { name: '誤って追加した種目を記録から外す' }).click();
+
+  const requestPromise = page.waitForRequest(
+    (request) => request.method() === 'PUT' && /\/gym-visits\/visit-export-1$/.test(new URL(request.url()).pathname)
+  );
+  await section.getByRole('button', { name: '修正を保存' }).click();
+  const body = (await requestPromise).postDataJSON();
+  assert.equal(body.entries.length, 1);
+  assert.equal(body.entries[0].sets, 3);
+  assert.equal(body.entries[0].reps, 12);
+  assert.equal(body.visitDateLocal, state.todayYmd);
+  assert.ok(!('note' in body.entries[0]) && !('bodyWeightKgSnapshot' in body.entries[0]), 'null fields must be omitted');
+
+  await expect(section.getByText('記録を修正しました。')).toBeVisible();
+  await expect(section.getByText(/チェストプレス.*x 12回 x 3set/)).toBeVisible();
+  await expect(section.getByText(/誤って追加した種目/)).toHaveCount(0);
 });
 
 test('Dailyで筋肉量を空欄に戻すと削除要求を送る', async ({ page }) => {

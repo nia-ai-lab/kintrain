@@ -11,7 +11,7 @@ import {
   getGoal as getGoalApi,
   getProfile,
   listAllTrainingMenuItems,
-  listGymVisits,
+  listAllGymVisits,
   listTrainingMenuSets,
   putAiCharacterProfile as putAiCharacterProfileApi,
   putDailyRecord as putDailyRecordApi,
@@ -879,7 +879,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         getProfile(),
         listAllTrainingMenuItems(),
         listTrainingMenuSets(),
-        listGymVisits({ limit: 200 }),
+        listAllGymVisits(),
         getAiCharacterProfileApi(),
         getGoalApi()
       ]);
@@ -891,7 +891,7 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
         .map((item) => mapRemoteMenuSet(item))
         .filter((set) => set.isActive)
         .sort((a, b) => a.order - b.order);
-      const gymVisits = visits.items
+      const gymVisits = visits
         .map((item) => mapRemoteGymVisit(item))
         .sort((a, b) => a.startedAtLocal.localeCompare(b.startedAtLocal));
       setData((prev) => ({

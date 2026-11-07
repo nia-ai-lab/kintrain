@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useAppState, useTodayYmd } from '../AppState';
 import { getDailyTrainingPlan, listRecoveryExecutions, type DailyTrainingPlanDto, type RecoveryExecutionDto } from '../api/coreApi';
 import { DailyRatingSlider } from '../components/DailyRatingSlider';
+import { GymVisitEditor } from '../components/GymVisitEditor';
 import { ymdToDisplay } from '../utils/date';
 import { formatTrainingLabel } from '../utils/training';
 import { formatWeightLoad } from '../utils/weightLoad';
@@ -21,7 +22,8 @@ export function DailyPage() {
     addOtherActivity,
     removeOtherActivity,
     flushDailyRecord,
-    getDailySaveStatus
+    getDailySaveStatus,
+    refreshCoreData
   } =
     useAppState();
   const [activityInput, setActivityInput] = useState('');
@@ -29,6 +31,8 @@ export function DailyPage() {
   const [saveMessage, setSaveMessage] = useState('');
   const [recoveryExecutions, setRecoveryExecutions] = useState<RecoveryExecutionDto[]>([]);
   const [dailyPlan, setDailyPlan] = useState<DailyTrainingPlanDto | null>(null);
+  const [editingVisitId, setEditingVisitId] = useState<string | null>(null);
+  const [visitMessage, setVisitMessage] = useState('');
 
   const record = data.dailyRecords[targetDate] ?? {
     date: targetDate,
@@ -40,7 +44,6 @@ export function DailyPage() {
     () => data.gymVisits.filter((visit) => visit.date === targetDate),
     [data.gymVisits, targetDate]
   );
-  const visitEntries = useMemo(() => visits.flatMap((visit) => visit.entries), [visits]);
   const dailySaveStatus = getDailySaveStatus(targetDate);
   const painAreas = record.painAreas ?? [];
 
@@ -57,6 +60,11 @@ export function DailyPage() {
       setDailyPlan(null);
     });
   }, [refreshDailyRecord, targetDate]);
+
+  useEffect(() => {
+    setEditingVisitId(null);
+    setVisitMessage('');
+  }, [targetDate]);
 
   return (
     <div className="stack-lg daily-page">
@@ -420,17 +428,48 @@ export function DailyPage() {
 
       <section className="card daily-section-card">
         <h2>当日の筋トレ内容</h2>
-        {visitEntries.length === 0 ? (
+        {visits.length === 0 ? (
           <p className="muted">この日の筋トレ記録はまだありません。</p>
         ) : (
-          <ol className="simple-list numbered-list">
-            {visitEntries.map((entry) => (
-              <li key={entry.id}>
-                {formatTrainingLabel(entry.trainingName, entry.muscleTargetsSnapshot, entry.equipmentTypeSnapshot)} {formatWeightLoad(entry)} x {entry.reps}回 x {entry.sets}set
-              </li>
-            ))}
-          </ol>
+          visits.map((visit) =>
+            editingVisitId === visit.id ? (
+              <GymVisitEditor
+                key={visit.id}
+                visitId={visit.id}
+                onCancel={() => setEditingVisitId(null)}
+                onSaved={async () => {
+                  await refreshCoreData();
+                  setEditingVisitId(null);
+                  setVisitMessage('記録を修正しました。');
+                }}
+              />
+            ) : (
+              <div key={visit.id} className="visit-record">
+                <ol className="simple-list numbered-list">
+                  {visit.entries.map((entry) => (
+                    <li key={entry.id}>
+                      {formatTrainingLabel(entry.trainingName, entry.muscleTargetsSnapshot, entry.equipmentTypeSnapshot)} {formatWeightLoad(entry)} x {entry.reps}回 x {entry.sets}set
+                    </li>
+                  ))}
+                </ol>
+                <div className="visit-record-actions">
+                  <button
+                    type="button"
+                    className="btn subtle"
+                    disabled={editingVisitId !== null}
+                    onClick={() => {
+                      setVisitMessage('');
+                      setEditingVisitId(visit.id);
+                    }}
+                  >
+                    記録を修正
+                  </button>
+                </div>
+              </div>
+            )
+          )
         )}
+        {visitMessage && <p className="status-text">{visitMessage}</p>}
       </section>
 
       <section className="card daily-section-card">

@@ -255,7 +255,7 @@ function calculateTotalWeightKg(weightKg: number, multiplier: number, fixedWeigh
   return Math.round((weightKg * multiplier + fixedWeightKg) * 100) / 100;
 }
 
-function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
+export function validateEntries(entries: ExerciseEntry[] | undefined): boolean {
   if (!Array.isArray(entries)) {
     return false;
   }

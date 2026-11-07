@@ -804,6 +804,32 @@ export async function listGymVisits(params?: {
   });
 }
 
+export type UpdateGymVisitInput = CreateGymVisitInput;
+export type GymVisitEntry = GymVisitEntryInput;
+
+export async function getGymVisit(visitId: string): Promise<GymVisitDto> {
+  return coreApiFetch<GymVisitDto>(`/gym-visits/${encodeURIComponent(visitId)}`, { method: 'GET' });
+}
+
+export async function updateGymVisit(visitId: string, input: UpdateGymVisitInput): Promise<GymVisitDto> {
+  return coreApiFetch<GymVisitDto>(`/gym-visits/${encodeURIComponent(visitId)}`, {
+    method: 'PUT',
+    body: JSON.stringify(input)
+  });
+}
+
+/** Every gym visit in the range, oldest first. The API returns at most 200 per page. */
+export async function listAllGymVisits(params?: { from?: string; to?: string }): Promise<GymVisitDto[]> {
+  const items: GymVisitDto[] = [];
+  let nextToken: string | undefined;
+  do {
+    const page = await listGymVisits({ ...params, limit: 200, nextToken });
+    items.push(...page.items);
+    nextToken = page.nextToken || undefined;
+  } while (nextToken);
+  return items;
+}
+
 export async function getTrainingSessionView(
   date: string,
   options?: {
