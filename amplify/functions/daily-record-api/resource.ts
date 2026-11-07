@@ -4,5 +4,6 @@ export const dailyRecordApiFunction = defineFunction({
   name: "kintrain-daily-record-api",
   entry: "./handler.ts",
   timeoutSeconds: 30,
-  memoryMB: 512
+  memoryMB: 512,
+  logging: { retention: "1 month" }
 });

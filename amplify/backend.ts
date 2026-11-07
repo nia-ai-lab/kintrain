@@ -68,6 +68,10 @@ for (const callbackUrl of chatGptOAuthCallbackUrls) {
 }
 
 const authStack = Stack.of(backend.auth.resources.userPool);
+// KinTrain has no sign-up screen; accounts are created by an administrator only.
+backend.auth.resources.cfnResources.cfnUserPool.adminCreateUserConfig = {
+  allowAdminCreateUserOnly: true
+};
 const chatGptOAuthDomain = backend.auth.resources.userPool.addDomain("ChatGptOAuthDomain", {
   cognitoDomain: {
     domainPrefix: `kintrain-${deploymentBranchSuffix.slice(0, 20)}-${authStack.account}`
@@ -693,6 +697,14 @@ if (enableAgentCoreResources) {
 
   const aiCoachRuntimeEndpoint = aiCoachRuntime.addEndpoint(aiCoachRuntimeQualifier);
   aiRuntimeEndpointArn = aiCoachRuntimeEndpoint.agentRuntimeEndpointArn;
+
+  // AgentCore creates the runtime log groups itself, so their retention is applied here.
+  for (const endpointName of [aiCoachRuntimeQualifier, "DEFAULT"]) {
+    new logs.LogRetention(agentCoreStack, `AiCoachRuntimeLogRetention-${endpointName}`, {
+      logGroupName: `/aws/bedrock-agentcore/runtimes/${aiCoachRuntime.agentRuntimeId}-${endpointName}`,
+      retention: logs.RetentionDays.ONE_MONTH
+    });
+  }
 
   // The browser talks to the AI coach only through this API: Cognito authorizer,
   // throttling, and a streaming Lambda that invokes the runtime with IAM.

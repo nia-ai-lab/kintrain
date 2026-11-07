@@ -4,5 +4,6 @@ export const mcpIdentityInterceptorFunction = defineFunction({
   name: "kintrain-mcp-identity-interceptor",
   entry: "./handler.ts",
   timeoutSeconds: 10,
-  memoryMB: 256
+  memoryMB: 256,
+  logging: { retention: "1 month" }
 });
