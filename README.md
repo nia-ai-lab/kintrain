@@ -121,8 +121,10 @@ AgentCoreを利用するブランチで必須:
 
 AI Runtime設定（任意、未指定時はデフォルト値）:
 
-- `MODEL_ID`  
-  例: `global.anthropic.claude-sonnet-5`
+- `AI_COACH_MODEL_ID`（省略時は `global.anthropic.claude-sonnet-5-5`）  
+  例: `global.anthropic.claude-sonnet-5-5`
+- `AI_COACH_MODEL_MAX_TOKENS`（省略時は `16000`）
+- `AI_COACH_MODEL_EFFORT`（省略時は `medium`。`low` / `medium` / `high` / `xhigh` / `max`、空文字で送らない）
 - `APP_TIMEZONE_DEFAULT`  
   例: `Asia/Tokyo`
 - `ENABLE_MCP_TOOLS`  

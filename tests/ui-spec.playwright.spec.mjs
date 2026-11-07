@@ -1724,18 +1724,33 @@ test('Dailyで筋肉量を空欄に戻すと削除要求を送る', async ({ pag
   await expect(page.getByText('保存しました。')).toBeVisible();
 });
 
-test('AIチャットで送信とモック応答の表示ができる', async ({ page }) => {
+test('AIチャットで送信とストリーミング応答の表示ができる', async ({ page }) => {
   await attachCoreApiMock(page);
-  await page.route('**/invocations**', async (route) => {
+  const chatRequests = [];
+  await page.route('**/chat', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+    chatRequests.push({
+      authorization: route.request().headers().authorization ?? '',
+      body: JSON.parse(route.request().postData() ?? '{}')
+    });
     await route.fulfill({
       status: 200,
       contentType: 'text/event-stream; charset=utf-8',
       body: [
-        'event: chunk',
-        `data: ${JSON.stringify({ chunk: '今日の混雑前提なら、優先1〜3を先に押さえましょう。' })}`,
+        ': connected',
         '',
-        'event: done',
-        `data: ${JSON.stringify({ runtimeSessionId: 'runtime-session-ui-test-000000000000' })}`,
+        `data: ${JSON.stringify({ event: 'status', status: 'thinking' })}`,
+        '',
+        `data: ${JSON.stringify({ event: 'tool', name: 'kintrain-core-tools___get_daily_record' })}`,
+        '',
+        `data: ${JSON.stringify({ event: 'delta', text: '今日の混雑前提なら、' })}`,
+        '',
+        `data: ${JSON.stringify({ event: 'delta', text: '優先1〜3を先に押さえましょう。' })}`,
+        '',
+        `data: ${JSON.stringify({ event: 'done' })}`,
         '',
         ''
       ].join('\n')
@@ -1745,13 +1760,53 @@ test('AIチャットで送信とモック応答の表示ができる', async ({ 
   await page.goto('/ai-chat');
 
   const prompt = '今日はジムが混んでいます。優先順を教えて';
-  await page.getByPlaceholder('例: 今日ジムが混んでいます。優先順を教えて').fill(prompt);
+  await page.getByRole('textbox', { name: 'メッセージ' }).fill(prompt);
   await page.getByRole('button', { name: '送信' }).click();
 
-  await expect(page.getByText(prompt)).toBeVisible();
+  await expect(page.locator('.message-row.user').last()).toHaveText(prompt);
+  const lastAssistantMessage = page.locator('.message-row.assistant .message-bubble').last();
+  await expect(lastAssistantMessage).toHaveText('今日の混雑前提なら、優先1〜3を先に押さえましょう。');
+  await expect(page.getByRole('button', { name: '送信' })).toBeVisible();
 
-  const lastAssistantBubble = page.locator('.message-row.assistant .message-bubble').last();
-  await expect.poll(async () => (await lastAssistantBubble.textContent()) ?? '').toContain('今日の混雑前提なら');
+  assert.equal(chatRequests.length, 1);
+  assert.match(chatRequests[0].authorization, /^Bearer \S+/);
+  assert.equal(chatRequests[0].body.message, prompt);
+  assert.match(chatRequests[0].body.sessionId, /^[A-Za-z0-9_-]{8,128}$/);
+});
+
+test('AIチャットの応答エラーを表示し、再送信できる', async ({ page }) => {
+  await attachCoreApiMock(page);
+  let attempts = 0;
+  await page.route('**/chat', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+    attempts += 1;
+    const events =
+      attempts === 1
+        ? [{ event: 'error', code: 'busy', message: 'AIコーチが混み合っています。少し待ってからもう一度送信してください。' }]
+        : [{ event: 'delta', text: '再送信後の回答です。' }, { event: 'done' }];
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream; charset=utf-8',
+      body: `${events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join('')}`
+    });
+  });
+  await login(page);
+  await page.goto('/ai-chat');
+
+  await page.getByRole('textbox', { name: 'メッセージ' }).fill('今日のメニューは？');
+  await page.getByRole('button', { name: '送信' }).click();
+
+  const alert = page.getByRole('alert');
+  await expect(alert).toContainText('AIコーチが混み合っています');
+  await alert.getByRole('button', { name: '再送信' }).click();
+
+  await expect(page.locator('.message-row.assistant .message-bubble').last()).toHaveText('再送信後の回答です。');
+  await expect(page.getByRole('alert')).toHaveCount(0);
+  await expect(page.locator('.message-row.user')).toHaveCount(1);
+  assert.equal(attempts, 2);
 });
 
 test('設定保存とログアウトができる', async ({ page }) => {

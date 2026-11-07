@@ -118,6 +118,8 @@ interface AppStateContextValue {
     patch?: Omit<Partial<AiCharacterProfile>, 'coachAvatarObjectKey'> & { coachAvatarObjectKey?: string | null }
   ) => Promise<{ ok: boolean; message?: string }>;
   restartActiveAiChatSession: () => void;
+  setAssistantMessageError: (messageId: string, error: { message: string; retryable: boolean }) => void;
+  removeChatMessage: (messageId: string) => void;
   appendUserMessage: (content: string) => void;
   createAssistantMessage: () => string;
   appendAssistantChunk: (messageId: string, chunk: string) => void;
@@ -447,9 +449,27 @@ function normalizeAppData(rawData: AppData): AppData {
       }
     : null;
 
+  const legacyGreetingIds = new Set(['c-1']);
+  const sourceAiChatSessions =
+    Array.isArray(legacy.aiChatSessions) && legacy.aiChatSessions.length > 0
+      ? legacy.aiChatSessions
+      : initialAppData.aiChatSessions;
+  const normalizedAiChatSessions = sourceAiChatSessions.map((session) => ({
+    ...session,
+    // The fixed greeting from the original mock data is not a real conversation turn.
+    messages: (session.messages ?? []).filter((message) => !legacyGreetingIds.has(message.id))
+  }));
+  const normalizedActiveAiChatSessionId = normalizedAiChatSessions.some(
+    (session) => session.id === legacy.activeAiChatSessionId
+  )
+    ? legacy.activeAiChatSessionId
+    : normalizedAiChatSessions[0].id;
+
   return {
     ...initialAppData,
     ...legacyWithoutTimeZone,
+    aiChatSessions: normalizedAiChatSessions,
+    activeAiChatSessionId: normalizedActiveAiChatSessionId,
     userProfile,
     menuItems: normalizedMenuItems,
     menuSets: normalizedMenuSetState.menuSets,
@@ -2092,6 +2112,31 @@ export function AppStateProvider({ children }: { children: React.ReactNode }) {
             })
           };
         });
+      },
+      setAssistantMessageError: (messageId, error) => {
+        setData((prev) => ({
+          ...prev,
+          aiChatSessions: prev.aiChatSessions.map((session) =>
+            session.id !== prev.activeAiChatSessionId
+              ? session
+              : {
+                  ...session,
+                  messages: session.messages.map((message) =>
+                    message.id === messageId ? { ...message, error } : message
+                  )
+                }
+          )
+        }));
+      },
+      removeChatMessage: (messageId) => {
+        setData((prev) => ({
+          ...prev,
+          aiChatSessions: prev.aiChatSessions.map((session) =>
+            session.id !== prev.activeAiChatSessionId
+              ? session
+              : { ...session, messages: session.messages.filter((message) => message.id !== messageId) }
+          )
+        }));
       },
       finalizeAssistantMessage: (messageId) => {
         setData((prev) => {

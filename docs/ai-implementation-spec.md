@@ -29,18 +29,21 @@
 - AgentCore は CDK L2 Construct（alpha）を利用する。
 
 注記:
-- AI用途のAPI Gatewayエンドポイント（例: `/ai/chat`, `/ai/advice`）は作成しない。
-- UIは `AiRuntimeEndpoint` に直接 `InvokeAgentRuntime` を実行する。
+- UIはAgentCore Runtimeを直接呼び出さない。AIチャット専用API（`AiChatApiEndpoint`、`POST /chat`）を経由する。
+- AIチャットAPIはAgentCoreと同じスタックに置くREST API（Cognito authorizer + scope、ステージ単位のスロットリング）で、
+  レスポンスストリーミング（`responseTransferMode=STREAM`）のLambdaがIAMで `InvokeAgentRuntime` を実行する。
+- Core APIとは別のREST APIとする（AgentCoreスタックがCore API側のLambdaに依存するため、同一APIにすると循環参照になる）。
 
 ### 2.4 実装ステータス（2026-07-29）
 
 - 実装済み:
 - Core API 側の認証/認可（Cognito access token + scope）
 - AIキャラクター設定API（`GET/PUT /ai-character-profile`）
-- AgentCore Runtime 呼び出し（`AiRuntimeEndpoint` / SSE）
+- AIチャットAPI（`AiChatApiEndpoint` / SSE）経由のAgentCore Runtime呼び出し
 - Runtime の `SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt` 読込
-- Runtime の `chatSessionId` 管理（UIと同一IDを `sessionId` に利用）
-- Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
+- Runtime セッションIDの導出（`sha256(sub + chatSessionId)` からAIチャットAPIが生成）
+- Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=検証済みsub`, `sessionId=導出したRuntimeセッションID`）
+- Runtime プラットフォームバージョン V2（スナップショット起動）、Python 3.13
 - AgentCore Gateway、MCP Lambda target、全26ツール
 - Gateway REQUEST InterceptorによるJWT再検証、ユーザーID照合、内部identity注入
 - AIメニュー生成画面と `create_temporary_training_menu_set_from_ai`
@@ -56,8 +59,8 @@
 - 認証トークンは Cognito のアクセストークン（JWT）を使用する。
 - トークンは `Authorization: Bearer <token>` で送信する。
 - 以下の全経路でJWTを使う。
-- `UI -> API Gateway`
-- `UI -> AgentCore Runtime`
+- `UI -> API Gateway`（Core API / AIチャットAPI）
+- `AIチャットAPI Lambda -> AgentCore Runtime`（IAM署名。JWTはカスタムヘッダで転送）
 - `AgentCore Runtime -> AgentCore Gateway`
 - 本書で「アクセスキー」と記載する場合は、AWSアクセスキーではなく Cognito アクセストークン（JWT）を指す。
 
@@ -69,17 +72,21 @@
 - IDトークンは Core API の認可トークンとして使用しない。
 - JWT の `sub` をユーザー識別子として扱う。
 
-## 3.3 UI -> AgentCore Runtime
+## 3.3 UI -> AIチャットAPI -> AgentCore Runtime
 
-- Runtime は Inbound JWT authorizer を設定する。
-- Cognito の discovery URL / allowedClients / allowedScopes / requiredClaims を authorizer に設定する。
-- UI は Runtime invoke 時に Cognito JWT を `Authorization` ヘッダで送る。
+- UIは `POST {AiChatApiEndpoint}/chat` に `Authorization: Bearer <access token>` を付けて送る。
+- AIチャットAPIはCognito authorizerと `authorizationScopes` でトークンを検証する。
+- Lambdaはauthorizerが検証したclaimsの `sub` と、UIの `sessionId`（`[A-Za-z0-9_-]{8,128}`）から
+  `kintrain-chat-<sha256>` 形式のRuntimeセッションIDを導出する。異なるユーザーが同じRuntimeセッションを共有しない。
+- Runtime の Inbound認証は IAM とし、AIチャットAPI Lambdaの実行ロールだけに `bedrock-agentcore:InvokeAgentRuntime` を付与する。UIから直接は呼び出せない。
+- Lambdaはユーザーのアクセストークンを `X-Amzn-Bedrock-AgentCore-Runtime-Custom-User-Access-Token` ヘッダでRuntimeへ転送する（SigV4署名対象）。
+- Runtime の request header allowlistはこのヘッダだけとする。`Authorization` や旧 `X-Amzn-Bedrock-AgentCore-Runtime-Custom-Authorization` は使わない。
 
-## 3.4 AgentCore Runtime -> AgentCore Gateway（JWT使い回し）
+## 3.4 Runtime でのトークン検証と Gateway への転送
 
-- Runtime 側で `Authorization` ヘッダを受け取るため、Runtime のrequest header allowlistに `Authorization` を設定する。
-- Runtime のエントリポイントで `context.request_headers["Authorization"]` を取得する。
-- 取得した同一JWTを、GatewayへのMCP接続ヘッダ `Authorization: Bearer ...` にそのまま設定する。
+- Runtime は転送されたアクセストークンを Cognito JWKS で検証する（署名、issuer、有効期限、`token_use=access`、`client_id`（Webアプリのクライアント）、scope）。
+- 検証済みの `sub` だけを Memory の `actorId` に使う。署名のないトークンや他ユーザーの `sub` を含む偽造トークンは拒否する。
+- 同じトークンを GatewayへのMCP接続ヘッダ `Authorization: Bearer ...` に設定する。
 - Gateway 側にも Inbound JWT authorizer を設定し、同じ Cognito 設定で検証する。
 
 ## 3.5 Gateway -> Lambda
@@ -117,11 +124,17 @@
 
 ### 4.2 MVP採用方式
 
-- `InvokeAgentRuntime` のストリーミング応答（`text/event-stream`）を採用する。
+- `InvokeAgentRuntime` のストリーミング応答（`text/event-stream`）を、AIチャットAPIのLambdaがそのままUIへ中継する。
 - UIは `fetch` + `ReadableStream` で逐次描画する。
-- 会話継続は `chatSessionId`（= Runtime `sessionId`）を再利用する。
-- テキスト本体だけでなく、Runtime内部ステータス（例: `thinking`, `tool_calling`, `tool_succeeded`）もストリームイベントとしてUIへ表示する。
-- 内部ステータスは Runtime 側で明示的にイベント生成し、UIは `message` イベントと `status` イベントを分離描画する。
+- 会話継続は `chatSessionId` を再利用する（RuntimeセッションIDはサーバー側で導出）。
+- SSEの `data` はJSONで、`event` は以下のいずれかとする。
+  - `status`（`status=thinking`）: 応答作成開始
+  - `tool`（`name`）: MCPツールの呼び出し開始。UIは日本語のラベル（例: 「Dailyの記録を確認しています」）で表示する
+  - `delta`（`text`）: 回答本文の差分
+  - `error`（`code`, `message`）: 利用者に表示できるエラー。`code` は `unauthorized` / `invalid_request` / `busy` / `timeout` / `internal`
+  - `done`: 応答完了
+- Lambdaは接続直後と15秒ごとにSSEコメント（`: keep-alive`）を送る。UIは60秒無通信で中断し、再送信を促す。
+- 応答本文はRuntimeのログに出力しない（Strandsの既定コールバックを無効化）。
 - AIメニュー生成も同一 Runtime を利用し、用途切替は Runtime 側の専用 mode ではなく、UI が送る固定プロンプトで制御する。
 - AIメニュー生成時も通常AIチャットと同様に `userProfile` / `aiCharacterProfile` を metadata に載せて送る。
 
@@ -137,12 +150,15 @@
 - Runtime内のアプリは Strands を使用する。
 - Runtimeエージェントの役割名（ドメイン上の正本）は `AIコーチ` とする。
 - モデルは BedrockModel を使い、モデルIDは環境変数で切替可能にする。
-- 初期候補は Claude Sonnet 5 系を利用する（利用可能リージョンで有効化）。
+- 既定モデルは Claude Sonnet 5.5（`global.anthropic.claude-sonnet-5-5`）とし、`max_tokens` を明示する。
 - Runtime は AIチャットとAIメニュー生成で共通利用し、用途別のエージェント分岐や mode 切替は設けない。
 
 ### 5.1.1 Runtime環境変数（必須）
 
-- `MODEL_ID`: 利用モデルID（例: `global.anthropic.claude-sonnet-5`）
+- `MODEL_ID`: 利用モデルID（例: `global.anthropic.claude-sonnet-5-5`）。CDKではAmplify環境変数 `AI_COACH_MODEL_ID` で上書きする
+- `MODEL_MAX_TOKENS`: 1回の応答の最大出力トークン（既定 `16000`）
+- `MODEL_EFFORT`: 指定時だけ `output_config.effort` を送る（`low` / `medium` / `high` / `xhigh` / `max`）
+- `USER_POOL_ID` / `USER_POOL_CLIENT_IDS`: 転送されたアクセストークンの検証に使用
 - `AWS_REGION`: Runtime実行リージョン
 - `MCP_GATEWAY_URL`: GatewayのMCPエンドポイント
 - `SOUL_FILE_PATH` / `PERSONA_FILE_PATH` / `SYSTEM_PROMPT_FILE_PATH`
@@ -151,14 +167,19 @@
 - `ENABLE_WEB_SEARCH_TOOL`: Web取得ツールを読み込むか（既定 `false`）
 - `WEB_SEARCH_PROVIDER`: `http_request` / `tavily` / `exa`
 
-現行コードでは `WEB_SEARCH_PROVIDER=http_request` の場合に `ENABLE_WEB_SEARCH_TOOL` を確認せずツールをロードする。設定契約との不一致であり、falseなら空配列を返すよう修正する。HTTP取得を有効にする場合も、loopback、link-local、private IP、AWS metadata/credential endpointsを拒否する。
+`ENABLE_WEB_SEARCH_TOOL=false` の場合、Web取得ツールは読み込まない（`http_request` を含む）。HTTP取得を有効にする場合は、loopback、link-local、private IP、AWS metadata/credential endpointsを拒否する対策を別途入れる。
 
-### 5.2 トークン使い回し処理（必須）
+### 5.2 トークン検証と使い回し（必須）
 
-- Runtimeエントリポイントで `Authorization` ヘッダを取得する。
-- Bearerプレフィックスを除去してJWT claims（`sub` など）を取得する。
-- 取得した元のBearerトークンを Gateway の `streamablehttp_client(..., headers={"Authorization": ...})` に渡す。
-- これにより `UI -> Runtime` で受けたJWTを `Runtime -> Gateway` に使い回す。
+- Runtimeエントリポイントで `X-Amzn-Bedrock-AgentCore-Runtime-Custom-User-Access-Token` ヘッダを取得する。
+- PyJWT と Cognito JWKS で検証し、検証済みの `sub` を `actorId` にする。署名を検証せずにclaimsを読まない。
+- 同じトークンを `MCPClient(url=..., headers={"Authorization": "Bearer ..."})` に渡し、Gatewayで再検証させる。
+
+### 5.2.1 プラットフォームバージョン V2
+
+- Runtime は `platformVersion=V2` とし、初期化済みのスナップショットから起動する。
+- 重いimportと静的設定（プロンプトファイル）はモジュールスコープで行う。
+- 現在時刻、乱数、ID、トークンなどリクエストごとに変わる値はハンドラ内で生成する。
 
 ### 5.3 ユーザー境界
 
@@ -257,9 +278,10 @@
 ## 7. モデル方針
 
 - Runtimeのモデル指定は `MODEL_ID` 環境変数で管理する。
-- Claude Sonnet 5 を使う場合のモデルID例:
-- `global.anthropic.claude-sonnet-5`（推奨。東京リージョンから Global Cross-Region inference で利用する場合）
-- `anthropic.claude-sonnet-5`（In-Region 対応リージョンで利用する場合の foundation-model ID）
+- Claude Sonnet 5.5 を使う場合のモデルID例:
+- `global.anthropic.claude-sonnet-5-5`（既定。東京リージョンから Global Cross-Region inference で利用する場合）
+- `anthropic.claude-sonnet-5-5`（In-Region 対応リージョンで利用する場合の foundation-model ID）
+- Sonnet 5.5 では `thinking: {type: "disabled"}` と強制ツール選択（`tool_choice` の `any` / `tool`）が400になるため使わない。
 - モデル可用性はリージョンに依存するため、デプロイ時にBedrock有効化を確認する。
 
 ## 8. システムプロンプト管理方針（非ハードコード）
@@ -331,8 +353,8 @@
 ### 9.2 Memoryリソース設計
 
 - `memoryId`: 環境ごとに1つ（`kintrain-memory-dev` など）
-- `actorId`: Cognito `sub` を使用
-- `sessionId`: `chatSessionId` を使用（AiChatSession単位）
+- `actorId`: 検証済みの Cognito `sub` を使用
+- `sessionId`: `sub` と `chatSessionId` から導出したRuntimeセッションIDを使用（AiChatSession単位）
 - `eventExpiryDuration`: 90日（短期イベント保持期間）
 
 補足:
@@ -353,7 +375,7 @@
 ### 9.4 イベント投入
 
 - Strands 連携では `AgentCoreMemorySessionManager` を使用し、各チャットターンの会話イベントをMemoryへ自動連携する。
-- `actorId = sub`、`sessionId = chatSessionId` を必須で付与する。
+- `actorId = 検証済みsub`、`sessionId = 導出したRuntimeセッションID` を必須で付与する。
 - `payload` はユーザー発話/AI応答を記録する。
 - `eventTimestamp` はRFC3339 UTCでサーバー時刻を使用する。
 - `eventMetadata` に機微情報を入れない。

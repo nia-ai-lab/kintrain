@@ -2,28 +2,32 @@
 
 Runtime contract:
 - /ping and /invocations are managed by BedrockAgentCoreApp
+- the runtime is invoked only through the AI chat API (IAM inbound auth)
+- the caller forwards the user's Cognito access token in a custom header; the
+  runtime verifies it itself and derives the Memory actor from the verified sub
 - streaming payload is emitted as SSE data frames (JSON per frame)
+
+Platform version V2 restores every instance from a snapshot taken after module
+import, so heavy imports and static configuration live at module scope and
+per-request values (time, ids, credentials) are produced inside the handler.
 """
 
 from __future__ import annotations
 
 import asyncio
-import base64
-import json
 import os
 import re
 import sys
-import uuid
-from contextlib import nullcontext
+from collections.abc import AsyncGenerator, Mapping
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
-from collections.abc import AsyncGenerator
-from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
 
-MODEL_ID = os.getenv("MODEL_ID", "global.anthropic.claude-sonnet-5")
+MODEL_ID = os.getenv("MODEL_ID", "global.anthropic.claude-sonnet-5-5")
+MODEL_MAX_TOKENS = int(os.getenv("MODEL_MAX_TOKENS", "16000"))
+MODEL_EFFORT = os.getenv("MODEL_EFFORT", "").strip().lower()
 MEMORY_ID = os.getenv("MEMORY_ID", "").strip()
 AWS_REGION = os.getenv("AWS_REGION") or os.getenv("AWS_DEFAULT_REGION") or "ap-northeast-1"
 APP_TIMEZONE_DEFAULT = os.getenv("APP_TIMEZONE_DEFAULT", "Asia/Tokyo")
@@ -45,9 +49,42 @@ LTM_FACTS_TOP_K = int(os.getenv("LTM_FACTS_TOP_K", "10"))
 LTM_FACTS_MIN_SCORE = float(os.getenv("LTM_FACTS_MIN_SCORE", "0.3"))
 LTM_SUMMARIES_TOP_K = int(os.getenv("LTM_SUMMARIES_TOP_K", "5"))
 LTM_SUMMARIES_MIN_SCORE = float(os.getenv("LTM_SUMMARIES_MIN_SCORE", "0.5"))
+USER_POOL_ID = os.getenv("USER_POOL_ID", "").strip()
+USER_POOL_CLIENT_IDS = frozenset(
+    value.strip() for value in os.getenv("USER_POOL_CLIENT_IDS", "").split(",") if value.strip()
+)
+REQUIRED_TOKEN_SCOPE = "aws.cognito.signin.user.admin"
+USER_ACCESS_TOKEN_HEADER = "x-amzn-bedrock-agentcore-runtime-custom-user-access-token"
 
 if VENDOR_DIR.exists():
     sys.path.insert(0, str(VENDOR_DIR))
+
+import jwt  # noqa: E402  # type: ignore
+from bedrock_agentcore.memory.integrations.strands.config import (  # noqa: E402  # type: ignore
+    AgentCoreMemoryConfig,
+    RetrievalConfig,
+)
+from bedrock_agentcore.memory.integrations.strands.session_manager import (  # noqa: E402  # type: ignore
+    AgentCoreMemorySessionManager,
+)
+from bedrock_agentcore.runtime import BedrockAgentCoreApp, BedrockAgentCoreContext  # noqa: E402  # type: ignore
+from strands import Agent  # noqa: E402  # type: ignore
+from strands.models import BedrockModel  # noqa: E402  # type: ignore
+from strands.tools.mcp import MCPClient  # noqa: E402  # type: ignore
+
+COGNITO_ISSUER = f"https://cognito-idp.{AWS_REGION}.amazonaws.com/{USER_POOL_ID}" if USER_POOL_ID else ""
+# Keys are fetched lazily on the first request and cached; nothing is fetched before the snapshot.
+JWKS_CLIENT = jwt.PyJWKClient(f"{COGNITO_ISSUER}/.well-known/jwks.json", cache_keys=True) if COGNITO_ISSUER else None
+
+
+class UserFacingError(Exception):
+    """An error whose message is safe to show to the end user."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+        self.message = message
+
 
 def _read_prompt(path_str: str) -> str:
     path = Path(path_str)
@@ -68,84 +105,44 @@ def _load_system_prompt_template() -> str:
 SYSTEM_PROMPT_TEMPLATE = _load_system_prompt_template()
 VARIABLE_PATTERN = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 
-try:
-    from bedrock_agentcore.runtime import BedrockAgentCoreApp, BedrockAgentCoreContext  # type: ignore
-except Exception:
-    from bedrock_agentcore import BedrockAgentCoreApp  # type: ignore
-    from bedrock_agentcore.runtime import BedrockAgentCoreContext  # type: ignore
-
 app = BedrockAgentCoreApp()
 
 
-def _get_strands_dependencies() -> tuple[Any, Any, Any, Any, Any]:
+def verify_user_access_token(token: str) -> str:
+    """Verify a Cognito access token and return its sub.
+
+    The token signature, issuer, expiry, token_use, client and scope are all
+    checked, so a forged or tampered token can never select another user's Memory.
+    """
+    if JWKS_CLIENT is None or not USER_POOL_CLIENT_IDS:
+        raise RuntimeError("USER_POOL_ID and USER_POOL_CLIENT_IDS must be configured.")
     try:
-        from bedrock_agentcore.memory.integrations.strands.config import (  # type: ignore
-            AgentCoreMemoryConfig,
-            RetrievalConfig,
+        signing_key = JWKS_CLIENT.get_signing_key_from_jwt(token)
+        claims = jwt.decode(
+            token,
+            signing_key.key,
+            algorithms=["RS256"],
+            issuer=COGNITO_ISSUER,
+            leeway=30,
+            options={"require": ["exp", "iat", "sub", "token_use", "client_id"], "verify_aud": False},
         )
-        from bedrock_agentcore.memory.integrations.strands.session_manager import (  # type: ignore
-            AgentCoreMemorySessionManager,
-        )
-        from strands import Agent  # type: ignore
-        from strands.models import BedrockModel  # type: ignore
+    except jwt.PyJWKClientConnectionError:
+        # Could not reach the Cognito key endpoint; this is not the user's fault.
+        raise
+    except jwt.PyJWTError as exc:
+        raise UserFacingError("unauthorized", "ログインの有効期限が切れました。ページを再読み込みしてください。") from exc
 
-        return Agent, BedrockModel, AgentCoreMemoryConfig, RetrievalConfig, AgentCoreMemorySessionManager
-    except Exception as exc:
-        raise RuntimeError(
-            "Required Strands/AgentCore packages are not available. "
-            "Install `strands-agents` and `bedrock-agentcore` in runtime package."
-        ) from exc
-
-
-def _get_mcp_dependencies() -> tuple[Any, Any]:
-    try:
-        from mcp.client.streamable_http import streamablehttp_client  # type: ignore
-        from strands.tools.mcp import MCPClient  # type: ignore
-
-        return MCPClient, streamablehttp_client
-    except Exception:
-        from mcp.client.streamable_http import streamablehttp_client  # type: ignore
-        from strands.tools.mcp.mcp_client import MCPClient  # type: ignore
-
-        return MCPClient, streamablehttp_client
-
-
-def _extract_bearer_token(authorization_header: str | None) -> str | None:
-    if not authorization_header:
-        return None
-    value = authorization_header.strip()
-    if not value.lower().startswith("bearer "):
-        return None
-    token = value[7:].strip()
-    if not token:
-        return None
-    return token
-
-
-def _decode_jwt_payload_without_verification(token: str) -> dict[str, Any]:
-    try:
-        parts = token.split(".")
-        if len(parts) < 2:
-            return {}
-        payload_part = parts[1]
-        payload_part += "=" * ((4 - len(payload_part) % 4) % 4)
-        payload_raw = base64.urlsafe_b64decode(payload_part.encode("utf-8"))
-        payload = json.loads(payload_raw.decode("utf-8"))
-        if isinstance(payload, dict):
-            return payload
-        return {}
-    except Exception:
-        return {}
-
-
-def _resolve_actor_id(authorization_header: str | None) -> str:
-    token = _extract_bearer_token(authorization_header)
-    if token:
-        claims = _decode_jwt_payload_without_verification(token)
-        sub = claims.get("sub")
-        if isinstance(sub, str) and sub.strip():
-            return sub.strip()
-    raise RuntimeError("Cognito access token sub claim is required for actorId.")
+    scopes = str(claims.get("scope", "")).split()
+    sub = claims.get("sub")
+    if (
+        claims.get("token_use") != "access"
+        or claims.get("client_id") not in USER_POOL_CLIENT_IDS
+        or REQUIRED_TOKEN_SCOPE not in scopes
+        or not isinstance(sub, str)
+        or not sub.strip()
+    ):
+        raise UserFacingError("unauthorized", "ログインの有効期限が切れました。ページを再読み込みしてください。")
+    return sub.strip()
 
 
 def _normalize_header_mapping(headers_obj: Any) -> dict[str, str]:
@@ -169,15 +166,11 @@ def _get_request_headers_from_context(context: Any) -> dict[str, str]:
     return fallback_headers
 
 
-def _resolve_authorization_header(headers: dict[str, str]) -> str | None:
-    custom_authorization = headers.get("x-amzn-bedrock-agentcore-runtime-custom-authorization")
-    if isinstance(custom_authorization, str) and custom_authorization.strip():
-        return custom_authorization.strip()
-
-    authorization = headers.get("authorization")
-    if isinstance(authorization, str) and authorization.strip():
-        return authorization.strip()
-    return None
+def _resolve_user_access_token(headers: dict[str, str]) -> str:
+    token = headers.get(USER_ACCESS_TOKEN_HEADER, "").strip()
+    if not token:
+        raise UserFacingError("unauthorized", "ログイン情報を確認できませんでした。ページを再読み込みしてください。")
+    return token
 
 
 def _resolve_runtime_session_id(payload: dict[str, Any], context: Any) -> str:
@@ -188,93 +181,6 @@ def _resolve_runtime_session_id(payload: dict[str, Any], context: Any) -> str:
     if not session_id or len(session_id) < 33:
         raise RuntimeError("A valid runtime session id is required (minimum 33 characters).")
     return session_id
-
-
-def _response_to_text(response: Any) -> str:
-    if isinstance(response, str):
-        return response
-    if isinstance(response, dict):
-        for key in ("text", "content", "output_text", "message"):
-            value = response.get(key)
-            if isinstance(value, str) and value.strip():
-                return value
-    for attr in ("text", "content", "output_text", "message"):
-        value = getattr(response, attr, None)
-        if isinstance(value, str) and value.strip():
-            return value
-    text = str(response)
-    return text if isinstance(text, str) else ""
-
-
-def _chunk_text(text: str, chunk_size: int) -> list[str]:
-    if not text:
-        return []
-    size = max(1, chunk_size)
-    return [text[index : index + size] for index in range(0, len(text), size)]
-
-
-def _get_nested_mapping_value(mapping: Mapping[str, Any], path: tuple[str, ...]) -> Any:
-    current: Any = mapping
-    for key in path:
-        if not isinstance(current, Mapping):
-            return None
-        current = current.get(key)
-    return current
-
-
-def _extract_event_text(event: Any) -> str:
-    if isinstance(event, str):
-        return event
-
-    mapping: Mapping[str, Any] | None = event if isinstance(event, Mapping) else None
-    if mapping is None and hasattr(event, "model_dump"):
-        try:
-            dumped = event.model_dump()
-            if isinstance(dumped, Mapping):
-                mapping = dumped
-        except Exception:
-            mapping = None
-    if mapping is None and hasattr(event, "__dict__"):
-        raw = getattr(event, "__dict__", None)
-        if isinstance(raw, Mapping):
-            mapping = raw
-
-    if mapping is not None:
-        for path in (
-            ("contentBlockDelta", "delta", "text"),
-            ("delta", "text"),
-            ("delta",),
-            ("chunk",),
-            ("text",),
-            ("output_text",),
-            ("content",),
-            ("message",),
-        ):
-            value = _get_nested_mapping_value(mapping, path)
-            if isinstance(value, str) and value:
-                return value
-
-        content_list = mapping.get("content")
-        if isinstance(content_list, list):
-            fragments: list[str] = []
-            for item in content_list:
-                if isinstance(item, Mapping):
-                    text = item.get("text")
-                    if isinstance(text, str) and text:
-                        fragments.append(text)
-            if fragments:
-                return "".join(fragments)
-
-    for attr in ("text", "delta", "chunk", "content", "message"):
-        value = getattr(event, attr, None)
-        if isinstance(value, str) and value:
-            return value
-        if isinstance(value, Mapping):
-            nested_text = value.get("text")
-            if isinstance(nested_text, str) and nested_text:
-                return nested_text
-
-    return ""
 
 
 def _is_sentence_break(buffer: str) -> bool:
@@ -457,6 +363,11 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
 
 
 def _load_web_search_tools() -> list[Any]:
+    # A web tool is exposed to the model only when explicitly enabled; the generic
+    # HTTP tool can otherwise reach arbitrary URLs from model-chosen arguments.
+    if not ENABLE_WEB_SEARCH_TOOL:
+        return []
+
     provider = WEB_SEARCH_PROVIDER.strip().lower()
     if not provider or provider == "http_request":
         from strands_tools.http_request import http_request  # type: ignore
@@ -464,8 +375,6 @@ def _load_web_search_tools() -> list[Any]:
         return [http_request]
 
     if provider == "tavily":
-        if not ENABLE_WEB_SEARCH_TOOL:
-            raise RuntimeError("ENABLE_WEB_SEARCH_TOOL must be true when WEB_SEARCH_PROVIDER=tavily.")
         if not _to_non_empty_string(os.getenv("TAVILY_API_KEY")):
             raise RuntimeError("TAVILY_API_KEY is required when WEB_SEARCH_PROVIDER=tavily.")
         from strands_tools.tavily import tavily_search  # type: ignore
@@ -473,41 +382,32 @@ def _load_web_search_tools() -> list[Any]:
         return [tavily_search]
 
     if provider == "exa":
-        if not ENABLE_WEB_SEARCH_TOOL:
-            raise RuntimeError("ENABLE_WEB_SEARCH_TOOL must be true when WEB_SEARCH_PROVIDER=exa.")
         if not _to_non_empty_string(os.getenv("EXA_API_KEY")):
             raise RuntimeError("EXA_API_KEY is required when WEB_SEARCH_PROVIDER=exa.")
         from strands_tools.exa import exa_search  # type: ignore
 
         return [exa_search]
 
-    raise RuntimeError(
-        "WEB_SEARCH_PROVIDER must be one of: http_request, tavily, exa."
-    )
+    raise RuntimeError("WEB_SEARCH_PROVIDER must be one of: http_request, tavily, exa.")
 
 
-def _list_mcp_tools(mcp_client: Any) -> list[Any]:
-    tools: list[Any] = []
-    pagination_token: str | None = None
-    while True:
-        if pagination_token is None:
-            page = mcp_client.list_tools_sync()
-        else:
-            page = mcp_client.list_tools_sync(pagination_token=pagination_token)
+def _build_model() -> Any:
+    model_config: dict[str, Any] = {"model_id": MODEL_ID, "max_tokens": MODEL_MAX_TOKENS}
+    if MODEL_EFFORT in {"low", "medium", "high", "xhigh", "max"}:
+        model_config["additional_request_fields"] = {"output_config": {"effort": MODEL_EFFORT}}
+    return BedrockModel(region_name=AWS_REGION, **model_config)
 
-        page_tools: list[Any] = []
-        try:
-            page_tools = list(page)
-        except Exception:
-            raw_tools = getattr(page, "tools", None)
-            if isinstance(raw_tools, list):
-                page_tools = raw_tools
 
-        tools.extend(page_tools)
-        pagination_token = getattr(page, "pagination_token", None)
-        if not pagination_token:
-            break
-    return tools
+def _to_user_facing_error(exc: BaseException) -> UserFacingError:
+    if isinstance(exc, UserFacingError):
+        return exc
+    name = type(exc).__name__
+    text = str(exc)
+    if "Throttling" in name or "Throttling" in text or "TooManyRequests" in text:
+        return UserFacingError("busy", "AIコーチが混み合っています。少し待ってからもう一度送信してください。")
+    if "Timeout" in name or "timed out" in text.lower():
+        return UserFacingError("timeout", "AIコーチの応答に時間がかかりすぎました。もう一度送信してください。")
+    return UserFacingError("internal", "AIコーチの応答中にエラーが発生しました。もう一度送信してください。")
 
 
 async def _run_agent_turn_stream(
@@ -515,13 +415,11 @@ async def _run_agent_turn_stream(
     actor_id: str,
     user_text: str,
     system_prompt: str,
-    authorization_header: str | None,
-) -> AsyncGenerator[str, None]:
+    user_access_token: str,
+) -> AsyncGenerator[tuple[str, str], None]:
+    """Run one agent turn and yield ("delta", text) and ("tool", name) items."""
     if not MEMORY_ID:
         raise RuntimeError("MEMORY_ID is not configured in runtime environment variables.")
-
-    Agent, BedrockModel, AgentCoreMemoryConfig, RetrievalConfig, AgentCoreMemorySessionManager = _get_strands_dependencies()
-    model = BedrockModel(model_id=MODEL_ID)
 
     memory_config = AgentCoreMemoryConfig(
         memory_id=MEMORY_ID,
@@ -534,83 +432,79 @@ async def _run_agent_turn_stream(
         agentcore_memory_config=memory_config,
         region_name=AWS_REGION,
     ) as session_manager:
-        system_prompt_for_turn = (
-            f"{system_prompt}\n\n"
-            "When calling a save_daily_* tool without an explicit date, include timeZoneId from the user profile."
-        )
-        web_search_tools = _load_web_search_tools()
+        tools: list[Any] = [*_load_web_search_tools()]
         mcp_url = _normalize_mcp_gateway_url(MCP_GATEWAY_URL)
-        mcp_context = nullcontext()
-        mcp_client = None
-
-        if ENABLE_MCP_TOOLS and mcp_url and authorization_header:
-            try:
-                MCPClient, streamablehttp_client = _get_mcp_dependencies()
-                mcp_client = MCPClient(
-                    lambda: streamablehttp_client(
-                        url=mcp_url,
-                        headers={
-                            "Authorization": authorization_header
-                        },
-                    )
+        if ENABLE_MCP_TOOLS and mcp_url:
+            # The Gateway verifies this token again and scopes every tool to its sub.
+            tools.append(
+                MCPClient(
+                    url=mcp_url,
+                    headers={"Authorization": f"Bearer {user_access_token}"},
+                    startup_timeout=20,
                 )
-                mcp_context = mcp_client
-            except Exception as exc:
-                print(f"mcp-client-init-failed: {type(exc).__name__}: {exc}")
+            )
 
-        with mcp_context:
-            mcp_tools: list[Any] = []
-            if mcp_client is not None:
-                try:
-                    mcp_tools = _list_mcp_tools(mcp_client)
-                except Exception as exc:
-                    print(f"mcp-tool-list-failed: {type(exc).__name__}: {exc}")
+        agent = Agent(
+            model=_build_model(),
+            system_prompt=(
+                f"{system_prompt}\n\n"
+                "When calling a save_daily_* tool without an explicit date, include timeZoneId from the user profile."
+            ),
+            session_manager=session_manager,
+            tools=tools or None,
+            # The default handler prints every token to stdout, which would copy
+            # conversations into CloudWatch Logs.
+            callback_handler=None,
+        )
 
-            tools = [*mcp_tools, *web_search_tools]
-            agent_kwargs = {
-                "model": model,
-                "system_prompt": system_prompt_for_turn,
-                "session_manager": session_manager,
-            }
-            if tools:
-                agent_kwargs["tools"] = tools
-            agent = Agent(**agent_kwargs)
-            stream_async = getattr(agent, "stream_async", None)
-            if not callable(stream_async):
-                raise RuntimeError("Agent stream_async is not available.")
-
-            async for event in stream_async(user_text):
-                text = _extract_event_text(event)
-                if text:
-                    yield text
+        announced_tool_ids: set[str] = set()
+        async for event in agent.stream_async(user_text):
+            if not isinstance(event, Mapping):
+                continue
+            if event.get("force_stop"):
+                raise RuntimeError(f"Agent stopped: {event.get('force_stop_reason')}")
+            text = event.get("data")
+            if isinstance(text, str) and text:
+                yield ("delta", text)
+            tool_use = event.get("current_tool_use")
+            if isinstance(tool_use, Mapping):
+                tool_use_id = tool_use.get("toolUseId")
+                tool_name = tool_use.get("name")
+                if isinstance(tool_use_id, str) and isinstance(tool_name, str) and tool_use_id not in announced_tool_ids:
+                    announced_tool_ids.add(tool_use_id)
+                    yield ("tool", tool_name)
 
 
 async def _stream_runtime_response(payload: dict[str, Any], context: Any) -> AsyncGenerator[dict[str, Any], None]:
     user_text = str(payload.get("inputText", "")).strip()
     if not user_text:
-        raise ValueError("inputText is required")
+        raise UserFacingError("invalid_request", "メッセージを入力してください。")
 
     session_id = _resolve_runtime_session_id(payload, context)
     headers = _get_request_headers_from_context(context)
-    print(f"runtime-request-headers keys={sorted(headers.keys())}")
-    authorization_header = _resolve_authorization_header(headers)
-    if not authorization_header:
-        raise RuntimeError("Authorization header is required.")
-    actor_id = _resolve_actor_id(authorization_header)
+    user_access_token = _resolve_user_access_token(headers)
+    actor_id = verify_user_access_token(user_access_token)
     system_prompt = _build_system_prompt(payload)
 
-    yield {"event": "status", "status": "thinking", "message": "考え中です..."}
+    yield {"event": "status", "status": "thinking"}
     loop = asyncio.get_running_loop()
     last_flush_at = loop.time()
     buffered = ""
-    async for delta_text in _run_agent_turn_stream(
+    async for kind, value in _run_agent_turn_stream(
         session_id=session_id,
         actor_id=actor_id,
         user_text=user_text,
         system_prompt=system_prompt,
-        authorization_header=authorization_header,
+        user_access_token=user_access_token,
     ):
-        buffered += delta_text
+        if kind == "tool":
+            if buffered:
+                yield {"event": "delta", "text": buffered}
+                buffered = ""
+            yield {"event": "tool", "name": value}
+            continue
+
+        buffered += value
         now = loop.time()
         elapsed_ms = int((now - last_flush_at) * 1000)
         if (
@@ -621,13 +515,13 @@ async def _stream_runtime_response(payload: dict[str, Any], context: Any) -> Asy
                 and len(buffered) >= max(1, STREAM_MIN_CHARS_FOR_INTERVAL_FLUSH)
             )
         ):
-            yield {"event": "chunk", "chunk": buffered}
+            yield {"event": "delta", "text": buffered}
             buffered = ""
             last_flush_at = now
 
     if buffered:
-        yield {"event": "chunk", "chunk": buffered}
-    yield {"event": "done", "runtimeSessionId": session_id}
+        yield {"event": "delta", "text": buffered}
+    yield {"event": "done"}
 
 
 @app.entrypoint
@@ -636,9 +530,9 @@ async def invoke(payload: dict[str, Any], context: Any) -> AsyncGenerator[dict[s
         async for event in _stream_runtime_response(payload, context):
             yield event
     except Exception as exc:
-        fallback_session_id = str(payload.get("sessionId") or getattr(context, "session_id", None) or uuid.uuid4())
-        yield {"event": "status", "status": "error", "message": f"{type(exc).__name__}: {exc}"}
-        yield {"event": "done", "runtimeSessionId": fallback_session_id}
+        error = _to_user_facing_error(exc)
+        print(f"runtime-turn-failed code={error.code} type={type(exc).__name__}: {exc}")
+        yield {"event": "error", "code": error.code, "message": error.message}
 
 
 if __name__ == "__main__":

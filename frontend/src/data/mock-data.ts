@@ -40,14 +40,7 @@ export const initialAppData: AppData = {
       id: 'chat-main',
       title: 'トレーニング相談',
       updatedAtLocal: '2026-02-28T10:00:00+09:00',
-      messages: [
-        {
-          id: 'c-1',
-          role: 'assistant',
-          createdAtLocal: '2026-02-28T10:00:00+09:00',
-          content: 'こんにちは、AIコーチです。今日のジム状況に合わせて一緒に進めましょう。'
-        }
-      ]
+      messages: []
     }
   ],
   activeAiChatSessionId: 'chat-main'

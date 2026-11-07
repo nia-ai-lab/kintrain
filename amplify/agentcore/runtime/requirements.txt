@@ -1,4 +1,6 @@
-boto3==1.42.59
-strands-agents==1.28.0
-strands-agents-tools==0.2.21
-bedrock-agentcore==1.4.1
+boto3==1.43.126
+strands-agents==1.64.0
+strands-agents-tools==0.9.0
+bedrock-agentcore==1.25.4
+mcp==2.3.0
+PyJWT[crypto]==2.15.1

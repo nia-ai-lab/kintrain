@@ -82,7 +82,7 @@
 
 ## 5. Runtime連携
 
-- UIは通常チャットと同じ `AiRuntimeEndpoint` へSSEで接続する。
+- UIは通常チャットと同じ `AiChatApiEndpoint`（`POST /chat`）へSSEで接続する。
 - UIがメニュー生成条件と固定ルールを `inputText` に組み込む。
 - Runtimeに専用モードは持たせず、会話内容と固定ルールで用途を区別する。
 - RuntimeはGatewayのMCPツールを利用して参照・登録する。

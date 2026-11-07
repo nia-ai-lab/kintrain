@@ -27,9 +27,9 @@
 - iPhoneホーム画面追加対応（manifest + standaloneメタタグ）
 - AIチャットUIのSSEストリーミング
 - AIキャラクター設定API（`GET/PUT /ai-character-profile`）
-- AgentCore Runtime 接続（`AiRuntimeEndpoint`）
+- AIチャットAPI（`AiChatApiEndpoint`）経由のAgentCore Runtime接続
 - Runtime のプロンプトファイル読込（`SOUL.md` / `PERSONA.md` / `system-prompt.ja.txt`）
-- Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=sub`, `sessionId=chatSessionId`）
+- Runtime の `AgentCoreMemorySessionManager` 連携（`actorId=検証済みsub`, `sessionId=sub+chatSessionIdから導出`）
 - AgentCore Gateway（MCP）とDynamoDB参照・日記／食事メモ保存・AIメニューセット登録ツール
 - UIからのAIキャラクター設定、ユーザー／AIコーチアバターの永続保存
 - 複数トレーニングメニューセットと実施画面でのセット切替
@@ -83,7 +83,7 @@
 
 - `User`: 認証済み利用者
 - `CoreApiEndpoint`: UIがトレーニング記録・マシン管理・体組成管理のCRUDを呼び出すAPI Gatewayエンドポイント
-- `AiRuntimeEndpoint`: UIがAIチャット/提案生成を呼び出すAgentCore Runtimeエンドポイント
+- `AiChatApiEndpoint`: UIがAIチャット/提案生成を呼び出すAPI Gatewayエンドポイント（Lambda経由でAgentCore Runtimeを呼び出す）
 - `GymVisit`: ジム来館1回分の記録
 - `ExerciseEntry`: GymVisit内の1種目記録（例: チェストプレス 22.5kg 12回 3セット）
 - `TrainingHistory`: 確定済みトレーニング実施履歴の集合（`GymVisit` + `ExerciseEntry`）
@@ -253,7 +253,7 @@
 - ChatThread上で継続相談できること。
 - AiChatSession単位で会話を継続できること。
 - 会話継続の識別子は `chatSessionId` で統一し、同一会話内ではIDを変更しないこと。
-- AI機能は `AiRuntimeEndpoint`（AgentCore Runtime）経由で提供すること。
+- AI機能は `AiChatApiEndpoint`（API Gateway → Lambda → AgentCore Runtime）経由で提供すること。
 - AIのシステムプロンプトはプログラムへハードコードせず、コードとは別のテキストファイルで管理すること。
 - AI回答は一般的助言のみとし、医療診断は行わないこと。
 - `AiCharacterProfile` を設定できること（`characterId`、キャラクター名、アイコン、口調プリセット）。
@@ -325,10 +325,11 @@
 - `PUT /goals`
 - `POST /avatar-upload/presign`
 
-### 6.1 AI Runtime呼び出し要件（AiRuntimeEndpoint）
+### 6.1 AI Runtime呼び出し要件（AiChatApiEndpoint）
 
-- UIはAIチャット/提案生成を `AiRuntimeEndpoint` の `InvokeAgentRuntime` で実行すること。
-- API Gateway配下に `/ai/*` エンドポイントは設けないこと。
+- UIはAIチャット/提案生成を `POST {AiChatApiEndpoint}/chat` で実行すること（レスポンスはSSE）。
+- AgentCore Runtime はIAM認証とし、UIから直接呼び出さないこと。
+- Runtime はAIチャットAPIが転送したアクセストークンを自ら検証し、検証済みの `sub` だけをMemoryの `actorId` に使うこと。
 
 ### 6.2 トレーニングメニューAPIデータモデル
 

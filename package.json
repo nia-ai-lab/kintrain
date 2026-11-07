@@ -25,7 +25,8 @@
     "test:mcp-identity": "tsx --test tests/mcp-identity-interceptor.test.ts",
     "test:coaching-context": "tsx --test tests/coaching-context.test.ts",
     "test:training-priority": "tsx --test tests/training-priority.test.ts",
-    "test:ui-spec": "playwright test -c playwright.config.mjs"
+    "test:ui-spec": "playwright test -c playwright.config.mjs",
+    "test:ai-chat": "tsx --test tests/ai-chat-*.test.ts"
   },
   "devDependencies": {
     "@aws-amplify/backend": "^1.18.1",
@@ -33,12 +34,13 @@
     "@playwright/test": "^1.58.2",
     "@types/aws-lambda": "^8.10.147",
     "@types/node": "^25.3.2",
-    "aws-cdk-lib": "^2.263.0",
+    "aws-cdk-lib": "^2.275.0",
     "constructs": "^10.4.2",
     "tsx": "^4.23.0",
     "typescript": "^5.8.2"
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "^3.1164.0",
     "@aws-sdk/client-cognito-identity-provider": "^3.840.0",
     "@aws-sdk/client-dynamodb": "^3.840.0",
     "@aws-sdk/client-s3": "^3.1001.0",

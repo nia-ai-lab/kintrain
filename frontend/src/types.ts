@@ -234,6 +234,10 @@ export interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   createdAtLocal: string;
+  error?: {
+    message: string;
+    retryable: boolean;
+  };
 }
 
 export interface ChatSession {

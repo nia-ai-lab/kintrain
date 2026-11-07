@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { Link } from 'react-router-dom';
-import { invokeAiRuntimeStream, isAiRuntimeConfigured } from '../api/aiRuntimeApi';
+import { AiChatError, describeTool, isAiChatConfigured, streamAiChat } from '../api/aiChatApi';
 import { useAppState, useTodayYmd } from '../AppState';
 import { useAuth } from '../AuthState';
 import type { ChatMessage } from '../types';
@@ -368,8 +368,8 @@ export function TrainingMenuAiGeneratePage() {
     nextConditionKey: string;
     refreshAfterDone?: boolean;
   }) {
-    if (!isAiRuntimeConfigured()) {
-      setPageError('AI Runtime endpoint が未設定です。');
+    if (!isAiChatConfigured()) {
+      setPageError('AIコーチは現在利用できません。');
       return;
     }
 
@@ -381,22 +381,22 @@ export function TrainingMenuAiGeneratePage() {
     setShouldRefreshAfterStream(Boolean(refreshAfterDone));
 
     try {
-      appendStatus('status', 'AI Runtimeへ接続しています...');
-      await invokeAiRuntimeStream(
+      appendStatus('status', '考えています');
+      await streamAiChat(
         {
-          runtimeSessionId: nextSessionId,
-          userMessage: runtimeMessage,
+          sessionId: nextSessionId,
+          message: runtimeMessage,
           userProfile: data.userProfile,
           aiCharacterProfile: data.aiCharacterProfile
         },
         (event) => {
-          if (event.type === 'status') {
-            appendStatus(event.status, event.message);
+          if (event.type === 'tool') {
+            appendStatus('tool', describeTool(event.name));
             return;
           }
-          if (event.type === 'chunk') {
+          if (event.type === 'delta') {
             setStatusEvents([]);
-            appendAssistantChunk(assistantMessageId, event.chunk);
+            appendAssistantChunk(assistantMessageId, event.text);
             return;
           }
           if (event.type === 'done') {
@@ -408,7 +408,8 @@ export function TrainingMenuAiGeneratePage() {
         await refreshCoreData();
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'AI Runtimeとの通信に失敗しました。';
+      const message =
+        error instanceof AiChatError || error instanceof Error ? error.message : 'AIコーチとの通信に失敗しました。';
       setPageError(message);
       appendAssistantChunk(assistantMessageId, `エラー: ${message}`);
     } finally {
@@ -624,9 +625,13 @@ export function TrainingMenuAiGeneratePage() {
             return (
               <div key={message.id}>
                 {showStatusAboveAssistant && latestStatusEvent && (
-                  <div className="chat-status-inline" aria-live="polite">
-                    <span className="chat-status-label">Runtime {latestStatusEvent.status}</span>
-                    <span className="chat-status-text">{latestStatusEvent.message}</span>
+                  <div className="chat-typing" role="status" aria-live="polite">
+                    <span className="chat-typing-dots" aria-hidden="true">
+                      <span />
+                      <span />
+                      <span />
+                    </span>
+                    <span className="chat-typing-label">{latestStatusEvent.message}</span>
                   </div>
                 )}
                 <div className={isAssistant ? 'message-row assistant' : 'message-row user'}>

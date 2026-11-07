@@ -6,6 +6,8 @@ import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as lambdaNodejs from "aws-cdk-lib/aws-lambda-nodejs";
+import * as logs from "aws-cdk-lib/aws-logs";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 import * as path from "node:path";
@@ -546,7 +548,7 @@ if (deploymentBranchSuffix === "main" && !enableAgentCoreResources) {
       "This guard prevents an accidental deletion of the production MCP gateway, runtime, and memory."
   );
 }
-let aiRuntimeEndpoint = process.env.AI_RUNTIME_ENDPOINT_URL ?? "";
+let aiChatApiEndpoint = "";
 let aiRuntimeEndpointArn = "";
 let aiGatewayUrl = "";
 let aiGatewayId = "";
@@ -639,29 +641,29 @@ if (enableAgentCoreResources) {
     ]
   });
 
+  const aiCoachRuntimeQualifier = "prod";
+  const userAccessTokenHeader = "X-Amzn-Bedrock-AgentCore-Runtime-Custom-User-Access-Token";
   const aiCoachRuntime = new agentcore.Runtime(agentCoreStack, "AiCoachRuntime", {
     runtimeName,
     description: "KinTrain AI coach runtime (Strands / Python)",
     protocolConfiguration: agentcore.ProtocolType.HTTP,
+    platformVersion: agentcore.PlatformVersion.V2,
     agentRuntimeArtifact: agentcore.AgentRuntimeArtifact.fromCodeAsset({
       path: path.join(process.cwd(), "amplify", "agentcore", "runtime"),
-      runtime: agentcore.AgentCoreRuntime.PYTHON_3_12,
+      runtime: agentcore.AgentCoreRuntime.PYTHON_3_13,
       entrypoint: ["main.py"]
     }),
-    authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingJWT(
-      cognitoDiscoveryUrl,
-      undefined,
-      undefined,
-      ["aws.cognito.signin.user.admin"]
-    ),
+    // Only the AI chat API Lambda (IAM) can invoke the runtime. The user's access token
+    // travels in a custom header and the runtime verifies its signature before using
+    // its sub as the Memory actor.
+    authorizerConfiguration: agentcore.RuntimeAuthorizerConfiguration.usingIAM(),
     requestHeaderConfiguration: {
-      allowlistedHeaders: [
-        "Authorization",
-        "X-Amzn-Bedrock-AgentCore-Runtime-Custom-Authorization"
-      ]
+      allowlistedHeaders: [userAccessTokenHeader]
     },
     environmentVariables: {
-      MODEL_ID: process.env.MODEL_ID ?? "global.anthropic.claude-sonnet-5",
+      MODEL_ID: process.env.AI_COACH_MODEL_ID ?? "global.anthropic.claude-sonnet-5-5",
+      MODEL_MAX_TOKENS: process.env.AI_COACH_MODEL_MAX_TOKENS ?? "16000",
+      MODEL_EFFORT: process.env.AI_COACH_MODEL_EFFORT ?? "medium",
       APP_TIMEZONE_DEFAULT: process.env.APP_TIMEZONE_DEFAULT ?? "Asia/Tokyo",
       MCP_GATEWAY_URL: aiCoachGateway.gatewayUrl ?? "",
       ENABLE_MCP_TOOLS: process.env.ENABLE_MCP_TOOLS ?? "true",
@@ -670,6 +672,8 @@ if (enableAgentCoreResources) {
       TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? "",
       EXA_API_KEY: process.env.EXA_API_KEY ?? "",
       MEMORY_ID: aiCoachMemory.memoryId,
+      USER_POOL_ID: backend.auth.resources.userPool.userPoolId,
+      USER_POOL_CLIENT_IDS: backend.auth.resources.userPoolClient.userPoolClientId,
       SOUL_FILE_PATH: "config/prompts/SOUL.md",
       PERSONA_FILE_PATH: "config/prompts/PERSONA.md",
       SYSTEM_PROMPT_FILE_PATH: "config/prompts/system-prompt.ja.txt"
@@ -687,8 +691,69 @@ if (enableAgentCoreResources) {
   aiCoachMemory.grantRead(aiCoachRuntime.role);
   aiCoachMemory.grantWrite(aiCoachRuntime.role);
 
-  const aiCoachRuntimeEndpoint = aiCoachRuntime.addEndpoint("prod");
+  const aiCoachRuntimeEndpoint = aiCoachRuntime.addEndpoint(aiCoachRuntimeQualifier);
   aiRuntimeEndpointArn = aiCoachRuntimeEndpoint.agentRuntimeEndpointArn;
+
+  // The browser talks to the AI coach only through this API: Cognito authorizer,
+  // throttling, and a streaming Lambda that invokes the runtime with IAM.
+  const aiChatStreamLambda = new lambdaNodejs.NodejsFunction(agentCoreStack, "AiChatStreamApiFunction", {
+    entry: path.join(process.cwd(), "amplify", "functions", "ai-chat-stream-api", "handler.ts"),
+    runtime: lambda.Runtime.NODEJS_22_X,
+    architecture: lambda.Architecture.ARM_64,
+    memorySize: 512,
+    timeout: Duration.minutes(10),
+    bundling: {
+      minify: true,
+      target: "node22",
+      externalModules: []
+    },
+    environment: {
+      AI_RUNTIME_ARN: aiCoachRuntime.agentRuntimeArn,
+      AI_RUNTIME_QUALIFIER: aiCoachRuntimeQualifier
+    },
+    logGroup: new logs.LogGroup(agentCoreStack, "AiChatStreamApiLogGroup", {
+      retention: logs.RetentionDays.ONE_MONTH,
+      removalPolicy: RemovalPolicy.DESTROY
+    })
+  });
+  aiCoachRuntime.grantInvokeRuntime(aiChatStreamLambda);
+
+  const aiChatApi = new apigateway.RestApi(agentCoreStack, "AiChatApiGateway", {
+    restApiName: `KinTrainAiChatApi-${deploymentBranchSuffix}`,
+    defaultCorsPreflightOptions: {
+      allowOrigins: apigateway.Cors.ALL_ORIGINS,
+      allowMethods: ["POST", "OPTIONS"],
+      allowHeaders: ["Content-Type", "Authorization"]
+    },
+    deployOptions: {
+      stageName: "prod",
+      throttlingRateLimit: 5,
+      throttlingBurstLimit: 10
+    }
+  });
+  aiChatApi.addGatewayResponse("AiChatDefault4xxWithCors", {
+    type: apigateway.ResponseType.DEFAULT_4XX,
+    responseHeaders: gatewayCorsResponseHeaders
+  });
+  aiChatApi.addGatewayResponse("AiChatDefault5xxWithCors", {
+    type: apigateway.ResponseType.DEFAULT_5XX,
+    responseHeaders: gatewayCorsResponseHeaders
+  });
+  const aiChatAuthorizer = new apigateway.CognitoUserPoolsAuthorizer(agentCoreStack, "AiChatApiAuthorizer", {
+    cognitoUserPools: [backend.auth.resources.userPool]
+  });
+  aiChatApi.root.addResource("chat").addMethod(
+    "POST",
+    new apigateway.LambdaIntegration(aiChatStreamLambda, {
+      responseTransferMode: apigateway.ResponseTransferMode.STREAM
+    }),
+    {
+      authorizer: aiChatAuthorizer,
+      authorizationType: apigateway.AuthorizationType.COGNITO,
+      authorizationScopes: ["aws.cognito.signin.user.admin"]
+    }
+  );
+  aiChatApiEndpoint = aiChatApi.url;
   aiGatewayUrl = aiCoachGateway.gatewayUrl ?? "";
   aiGatewayId = aiCoachGateway.gatewayId;
   aiMemoryId = aiCoachMemory.memoryId;
@@ -698,7 +763,7 @@ backend.addOutput({
   custom: {
     endpoints: {
       coreApiEndpoint: coreApi.url,
-      aiRuntimeEndpoint,
+      aiChatApiEndpoint,
       aiRuntimeEndpointArn,
       aiGatewayUrl
     },

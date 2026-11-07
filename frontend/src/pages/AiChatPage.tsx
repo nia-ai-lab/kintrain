@@ -1,28 +1,13 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { useAppState } from '../AppState';
-import { invokeAiRuntimeStream, isAiRuntimeConfigured } from '../api/aiRuntimeApi';
+import { AiChatError, describeTool, isAiChatConfigured, streamAiChat } from '../api/aiChatApi';
 import { useAuth } from '../AuthState';
-import type { TonePreset } from '../types';
+import type { ChatMessage } from '../types';
 
-function buildMockAdvice(input: string, tone: TonePreset): string {
-  const base = [
-    '今日の混雑前提なら、優先1〜3を先に押さえる進め方が安定します。',
-    '昨日実施部位は負荷を抑え、未実施期間の長い種目を先に入れましょう。',
-    '前回値を基準に、余裕があれば +2.5kg または +1回を試してください。',
-    '最後はフォーム品質が落ちる前に終了し、Dailyへ体調を残すと次回精度が上がります。'
-  ].join(' ');
-
-  if (tone === 'polite') {
-    return `ご相談ありがとうございます。${base} 入力内容「${input}」を踏まえ、無理のない範囲で進めてください。`;
-  }
-  if (tone === 'strict-coach') {
-    return `結論です。${base} 「${input}」については、実施可否を30秒以内に判断して次へ進みましょう。`;
-  }
-  return `了解です。${base} 「${input}」に合わせて、今日は実行優先でいきましょう。`;
-}
+const MAX_INPUT_LENGTH = 4000;
 
 function MarkdownMessage({ content }: { content: string }) {
   return (
@@ -39,6 +24,23 @@ function MarkdownMessage({ content }: { content: string }) {
   );
 }
 
+function TypingIndicator({ label }: { label?: string }) {
+  return (
+    <div className="chat-typing" role="status" aria-live="polite">
+      <span className="chat-typing-dots" aria-hidden="true">
+        <span />
+        <span />
+        <span />
+      </span>
+      <span className={label ? 'chat-typing-label' : 'sr-only'}>{label ?? '応答を作成しています'}</span>
+    </div>
+  );
+}
+
+function prefersEnterToSend(): boolean {
+  return typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+}
+
 export function AiChatPage() {
   const { isAuthenticated } = useAuth();
   const {
@@ -47,202 +49,252 @@ export function AiChatPage() {
     appendUserMessage,
     createAssistantMessage,
     appendAssistantChunk,
-    finalizeAssistantMessage
+    finalizeAssistantMessage,
+    setAssistantMessageError,
+    removeChatMessage
   } = useAppState();
 
   const [input, setInput] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [statusEvents, setStatusEvents] = useState<Array<{ id: string; status: string; message: string }>>([]);
+  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
+  const [activity, setActivity] = useState<string | undefined>(undefined);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const abortRef = useRef<AbortController | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const session = useMemo(
     () => data.aiChatSessions.find((s) => s.id === data.activeAiChatSessionId) ?? data.aiChatSessions[0],
     [data.aiChatSessions, data.activeAiChatSessionId]
   );
-  const latestAssistantMessageId = useMemo(() => {
-    for (let index = session.messages.length - 1; index >= 0; index -= 1) {
-      if (session.messages[index].role === 'assistant') {
-        return session.messages[index].id;
-      }
+  const isStreaming = streamingMessageId !== null;
+  const coachName = data.aiCharacterProfile.characterName || 'AIコーチ';
+  const avatar = data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
+
+  const scrollToBottom = useCallback((behavior: ScrollBehavior = 'auto') => {
+    const list = listRef.current;
+    if (list) {
+      list.scrollTo({ top: list.scrollHeight, behavior });
     }
-    return undefined;
-  }, [session.messages]);
-  const latestStatusEvent = statusEvents.length > 0 ? statusEvents[statusEvents.length - 1] : undefined;
+  }, []);
 
-  const listRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (isNearBottom) {
+      scrollToBottom();
+    }
+  }, [session.messages, activity, isNearBottom, scrollToBottom]);
 
-  useEffect(() => {
-    if (!listRef.current) {
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  useLayoutEffect(() => {
+    const textarea = inputRef.current;
+    if (!textarea) {
       return;
     }
-    listRef.current.scrollTop = listRef.current.scrollHeight;
-  }, [session.messages.length, isStreaming, statusEvents.length]);
+    textarea.style.height = 'auto';
+    textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+  }, [input]);
 
-  function appendStatus(status: string, message: string) {
-    setStatusEvents((prev) => {
-      const next = [
-        ...prev,
-        {
-          id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-          status,
-          message
-        }
-      ];
-      return next.slice(-8);
-    });
+  function onScroll() {
+    const list = listRef.current;
+    if (list) {
+      setIsNearBottom(list.scrollHeight - list.scrollTop - list.clientHeight < 80);
+    }
   }
 
-  async function streamMockResponse(messageId: string, inputText: string): Promise<void> {
-    appendStatus('status', 'Runtime未接続のためモック応答を使用します。');
-    const full = buildMockAdvice(inputText, data.aiCharacterProfile.tonePreset);
-    const chunks = full.match(/.{1,18}/g) ?? [full];
-
-    await new Promise<void>((resolve) => {
-      let cursor = 0;
-      const timer = window.setInterval(() => {
-        if (cursor === 0) {
-          setStatusEvents([]);
-        }
-        appendAssistantChunk(messageId, chunks[cursor]);
-        cursor += 1;
-        if (cursor >= chunks.length) {
-          window.clearInterval(timer);
-          resolve();
-        }
-      }, 80);
-    });
-  }
-
-  async function onSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const text = input.trim();
+  async function send(text: string) {
     if (!text || isStreaming || !isAuthenticated) {
       return;
     }
-
-    setInput('');
     appendUserMessage(text);
-
     const messageId = createAssistantMessage();
-    setIsStreaming(true);
-    setStatusEvents([]);
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setStreamingMessageId(messageId);
+    setActivity(undefined);
+    setIsNearBottom(true);
 
     try {
-      if (!isAiRuntimeConfigured()) {
-        await streamMockResponse(messageId, text);
-      } else {
-        appendStatus('status', 'AI Runtimeへ接続しています...');
-        await invokeAiRuntimeStream(
-          {
-            runtimeSessionId: session.id,
-            userMessage: text,
-            userProfile: data.userProfile,
-            aiCharacterProfile: data.aiCharacterProfile
-          },
-          (event) => {
-            if (event.type === 'status') {
-              appendStatus(event.status, event.message);
-              return;
-            }
-            if (event.type === 'chunk') {
-              setStatusEvents([]);
-              appendAssistantChunk(messageId, event.chunk);
-              return;
-            }
-            if (event.type === 'done') {
-              setStatusEvents([]);
-            }
-          }
-        );
+      if (!isAiChatConfigured()) {
+        throw new AiChatError('not_configured', 'AIコーチは現在利用できません。', false);
       }
+      await streamAiChat(
+        {
+          sessionId: session.id,
+          message: text,
+          userProfile: data.userProfile,
+          aiCharacterProfile: data.aiCharacterProfile
+        },
+        (event) => {
+          if (event.type === 'tool') {
+            setActivity(describeTool(event.name));
+          } else if (event.type === 'delta') {
+            setActivity(undefined);
+            appendAssistantChunk(messageId, event.text);
+          }
+        },
+        controller.signal
+      );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'AI Runtimeとの通信に失敗しました。';
-      appendStatus('error', message);
-      appendAssistantChunk(messageId, `エラー: ${message}`);
+      const chatError =
+        error instanceof AiChatError
+          ? error
+          : new AiChatError('internal', 'AIコーチの応答中にエラーが発生しました。もう一度送信してください。', true);
+      if (chatError.code !== 'aborted') {
+        setAssistantMessageError(messageId, { message: chatError.message, retryable: chatError.retryable });
+      }
     } finally {
-      setStatusEvents([]);
       finalizeAssistantMessage(messageId);
-      setIsStreaming(false);
+      abortRef.current = null;
+      setStreamingMessageId(null);
+      setActivity(undefined);
     }
+  }
+
+  function onSubmit(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const text = input.trim();
+    if (!text) {
+      return;
+    }
+    setInput('');
+    void send(text);
+  }
+
+  function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    // Japanese IME confirms conversions with Enter; never treat that as send.
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing || event.keyCode === 229) {
+      return;
+    }
+    if (prefersEnterToSend()) {
+      event.preventDefault();
+      onSubmit();
+    }
+  }
+
+  function onRetry(failedMessage: ChatMessage) {
+    const index = session.messages.findIndex((message) => message.id === failedMessage.id);
+    const previousUser = [...session.messages.slice(0, index)].reverse().find((message) => message.role === 'user');
+    if (!previousUser || isStreaming) {
+      return;
+    }
+    removeChatMessage(failedMessage.id);
+    removeChatMessage(previousUser.id);
+    void send(previousUser.content);
   }
 
   function onStartNewChat() {
     if (isStreaming) {
       return;
     }
-    setStatusEvents([]);
     setInput('');
     restartActiveAiChatSession();
+    inputRef.current?.focus();
   }
 
-  const avatar = data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
-
   return (
-    <div className="stack-lg chat-page">
-      <section className="card chat-header-card chat-header-compact">
-        <div className="chat-agent-head">
-          <img src={avatar} alt={data.aiCharacterProfile.characterName} className="avatar-medium" />
-          <div>
-            <p className="eyebrow">AI コーチ</p>
-            <h2>{data.aiCharacterProfile.characterName}</h2>
+    <div className="coach-chat">
+      <header className="chat-header">
+        <img src={avatar} alt="" className="chat-header-avatar" aria-hidden="true" />
+        <h1 className="chat-header-name">{coachName}</h1>
+        <button
+          type="button"
+          className="chat-icon-button"
+          onClick={onStartNewChat}
+          disabled={isStreaming || session.messages.length === 0}
+          aria-label="新しいチャット"
+          title="新しいチャット"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 20h8M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+          </svg>
+        </button>
+      </header>
+
+      <div className="chat-thread" ref={listRef} onScroll={onScroll} aria-live="polite">
+        {session.messages.length === 0 ? (
+          <div className="chat-empty">
+            <img src={avatar} alt="" className="chat-empty-avatar" aria-hidden="true" />
+            <p className="chat-empty-name">{coachName}</p>
           </div>
-        </div>
-      </section>
-
-      <section className="chat-body card" ref={listRef}>
-        {session.messages.map((message) => {
-          const isAssistant = message.role === 'assistant';
-          const messageAvatar = data.aiCharacterProfile.avatarImageUrl || '/assets/characters/default.png';
-          const showStatusAboveAssistant =
-            isStreaming && isAssistant && message.id === latestAssistantMessageId && Boolean(latestStatusEvent);
-
-          return (
-            <div key={message.id}>
-              {showStatusAboveAssistant &&
-                latestStatusEvent && (
-                  <div className="chat-status-inline" aria-live="polite">
-                    <span className="chat-status-label">Runtime {latestStatusEvent.status}</span>
-                    <span className="chat-status-text">{latestStatusEvent.message}</span>
-                  </div>
-                )}
-              <div className={isAssistant ? 'message-row assistant' : 'message-row user'}>
-                {isAssistant && <img src={messageAvatar} alt="ai" className="avatar-small" />}
-                <div className={isAssistant ? 'message-bubble assistant' : 'message-bubble user'}>
-                  {isAssistant && <p className="message-name">{data.aiCharacterProfile.characterName}</p>}
-                  {message.content ? (
-                    <MarkdownMessage content={message.content} />
-                  ) : (
-                    <p className="message-markdown-placeholder">{isStreaming ? '...' : ''}</p>
+        ) : (
+          session.messages.map((message) => {
+            if (message.role === 'user') {
+              return (
+                <div key={message.id} className="message-row user">
+                  <div className="message-bubble user">{message.content}</div>
+                </div>
+              );
+            }
+            const isActive = message.id === streamingMessageId;
+            return (
+              <div key={message.id} className="message-row assistant">
+                <img src={avatar} alt="" className="message-avatar" aria-hidden="true" />
+                <div className="message-body">
+                  {message.content && (
+                    <div className="message-bubble assistant">
+                      <MarkdownMessage content={message.content} />
+                    </div>
+                  )}
+                  {isActive && (!message.content || activity) && <TypingIndicator label={activity} />}
+                  {message.error && (
+                    <div className="chat-error" role="alert">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" />
+                        <path d="M12 7.5v5M12 16h.01" />
+                      </svg>
+                      <span>{message.error.message}</span>
+                      {message.error.retryable && (
+                        <button type="button" className="chat-retry-button" onClick={() => onRetry(message)} disabled={isStreaming}>
+                          再送信
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>
-            </div>
-          );
-        })}
-      </section>
+            );
+          })
+        )}
+      </div>
 
-      <form className="card chat-input" onSubmit={onSubmit}>
+      {!isNearBottom && (
+        <button type="button" className="chat-jump-button" onClick={() => scrollToBottom('smooth')} aria-label="最新のメッセージへ移動">
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 5v14M6 13l6 6 6-6" />
+          </svg>
+        </button>
+      )}
+
+      <form className="chat-composer" onSubmit={onSubmit}>
         <textarea
+          ref={inputRef}
           value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="例: 今日ジムが混んでいます。優先順を教えて"
-          rows={3}
+          onChange={(event) => setInput(event.target.value.slice(0, MAX_INPUT_LENGTH))}
+          onKeyDown={onKeyDown}
+          placeholder="メッセージ"
+          aria-label="メッセージ"
+          rows={1}
+          enterKeyHint={prefersEnterToSend() ? 'send' : 'enter'}
         />
-        <div className="chat-input-actions">
-          <button className="btn ghost chat-new-session-button" type="button" onClick={onStartNewChat} disabled={isStreaming}>
-            新規チャット
+        {isStreaming ? (
+          <button type="button" className="chat-send-button is-stop" onClick={() => abortRef.current?.abort()} aria-label="停止" title="停止">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <rect x="7" y="7" width="10" height="10" rx="2" />
+            </svg>
           </button>
+        ) : (
           <button
-            className="btn primary chat-send-icon-button"
             type="submit"
-            disabled={isStreaming || !input.trim() || !isAuthenticated}
+            className="chat-send-button"
+            disabled={!input.trim() || !isAuthenticated}
             aria-label="送信"
             title="送信"
           >
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-              <path d="M3.4 11.1 20 4.2c.7-.3 1.4.4 1.1 1.1l-6.9 16.6c-.3.8-1.5.8-1.8 0l-2.2-6-6-2.2c-.8-.3-.8-1.5 0-1.8Z" />
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M12 19V5M5.5 11.5 12 5l6.5 6.5" />
             </svg>
           </button>
-        </div>
+        )}
       </form>
     </div>
   );
