@@ -1843,11 +1843,71 @@ test('AIチャットで送信とストリーミング応答の表示ができる
   const lastAssistantMessage = page.locator('.message-row.assistant .message-bubble').last();
   await expect(lastAssistantMessage).toHaveText('今日の混雑前提なら、優先1〜3を先に押さえましょう。');
   await expect(page.getByRole('button', { name: '送信' })).toBeVisible();
+  // A reply read on the chat page is never unread.
+  await expect(page.getByTestId('ai-chat-unread-badge')).toHaveCount(0);
 
   assert.equal(chatRequests.length, 1);
   assert.match(chatRequests[0].authorization, /^Bearer \S+/);
   assert.equal(chatRequests[0].body.message, prompt);
   assert.match(chatRequests[0].body.sessionId, /^[A-Za-z0-9_-]{8,128}$/);
+});
+
+test('AIチャットの応答中に別の画面へ移動しても受信を続け、未読を表示する', async ({ page }) => {
+  await attachCoreApiMock(page);
+  let releaseReply;
+  const replyReleased = new Promise((resolve) => {
+    releaseReply = resolve;
+  });
+  let chatRequestCount = 0;
+  await page.route('**/chat', async (route) => {
+    if (route.request().method() !== 'POST') {
+      await route.fallback();
+      return;
+    }
+    chatRequestCount += 1;
+    await replyReleased;
+    await route
+      .fulfill({
+        status: 200,
+        contentType: 'text/event-stream; charset=utf-8',
+        body: [
+          `data: ${JSON.stringify({ event: 'delta', text: '移動していても、' })}`,
+          '',
+          `data: ${JSON.stringify({ event: 'delta', text: '応答は届きます。' })}`,
+          '',
+          `data: ${JSON.stringify({ event: 'done' })}`,
+          '',
+          ''
+        ].join('\n')
+      })
+      .catch(() => undefined);
+  });
+  await login(page);
+  await page.goto('/ai-chat');
+
+  await page.getByRole('textbox', { name: 'メッセージ' }).fill('今日のメニューは？');
+  await page.getByRole('button', { name: '送信' }).click();
+  await expect(page.getByRole('button', { name: '停止' })).toBeVisible();
+
+  const nav = page.getByRole('navigation', { name: 'メインナビゲーション' });
+  await nav.getByRole('link', { name: 'カレンダー' }).click();
+  await expect(page).toHaveURL(/\/calendar$/);
+  const unreadBadge = nav.getByTestId('ai-chat-unread-badge');
+  await expect(unreadBadge).toHaveCount(0);
+  releaseReply();
+
+  // The reply arrived while the chat was closed, so the tab shows it as unread, even after a reload.
+  await expect(unreadBadge).toBeVisible();
+  await expect(nav.getByRole('link', { name: /AIチャット.*未読の返信あり/ })).toBeVisible();
+  await page.reload();
+  await expect(unreadBadge).toBeVisible();
+
+  await nav.getByRole('link', { name: 'AIチャット' }).click();
+  await expect(unreadBadge).toHaveCount(0);
+  await expect(page.locator('.message-row.assistant .message-bubble').last()).toHaveText('移動していても、応答は届きます。');
+  await expect(page.getByRole('button', { name: '送信' })).toBeVisible();
+  await expect(page.locator('.chat-error')).toHaveCount(0);
+  assert.equal(chatRequestCount, 1);
 });
 
 test('AIチャットの応答エラーを表示し、再送信できる', async ({ page }) => {

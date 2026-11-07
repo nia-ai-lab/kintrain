@@ -1,9 +1,9 @@
-import { FormEvent, KeyboardEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { FormEvent, KeyboardEvent, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { useAiChatStream } from '../AiChatStream';
 import { useAppState } from '../AppState';
-import { AiChatError, describeTool, isAiChatConfigured, streamAiChat } from '../api/aiChatApi';
 import { useAuth } from '../AuthState';
 import type { ChatMessage } from '../types';
 
@@ -43,22 +43,11 @@ function prefersEnterToSend(): boolean {
 
 export function AiChatPage() {
   const { isAuthenticated } = useAuth();
-  const {
-    data,
-    restartActiveAiChatSession,
-    appendUserMessage,
-    createAssistantMessage,
-    appendAssistantChunk,
-    finalizeAssistantMessage,
-    setAssistantMessageError,
-    removeChatMessage
-  } = useAppState();
+  const { data, restartActiveAiChatSession, removeChatMessage } = useAppState();
+  const { streamingMessageId, activity, send: sendToCoach, stop } = useAiChatStream();
 
   const [input, setInput] = useState('');
-  const [streamingMessageId, setStreamingMessageId] = useState<string | null>(null);
-  const [activity, setActivity] = useState<string | undefined>(undefined);
   const [isNearBottom, setIsNearBottom] = useState(true);
-  const abortRef = useRef<AbortController | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
@@ -83,8 +72,6 @@ export function AiChatPage() {
     }
   }, [session.messages, activity, isNearBottom, scrollToBottom]);
 
-  useEffect(() => () => abortRef.current?.abort(), []);
-
   useLayoutEffect(() => {
     const textarea = inputRef.current;
     if (!textarea) {
@@ -101,53 +88,12 @@ export function AiChatPage() {
     }
   }
 
-  async function send(text: string) {
+  function send(text: string) {
     if (!text || isStreaming || !isAuthenticated) {
       return;
     }
-    appendUserMessage(text);
-    const messageId = createAssistantMessage();
-    const controller = new AbortController();
-    abortRef.current = controller;
-    setStreamingMessageId(messageId);
-    setActivity(undefined);
     setIsNearBottom(true);
-
-    try {
-      if (!isAiChatConfigured()) {
-        throw new AiChatError('not_configured', 'AIコーチは現在利用できません。', false);
-      }
-      await streamAiChat(
-        {
-          sessionId: session.id,
-          message: text,
-          userProfile: data.userProfile,
-          aiCharacterProfile: data.aiCharacterProfile
-        },
-        (event) => {
-          if (event.type === 'tool') {
-            setActivity(describeTool(event.name));
-          } else if (event.type === 'delta') {
-            setActivity(undefined);
-            appendAssistantChunk(messageId, event.text);
-          }
-        },
-        controller.signal
-      );
-    } catch (error) {
-      const chatError =
-        error instanceof AiChatError
-          ? error
-          : new AiChatError('internal', 'AIコーチの応答中にエラーが発生しました。もう一度送信してください。', true);
-      if (chatError.code !== 'aborted') {
-        setAssistantMessageError(messageId, { message: chatError.message, retryable: chatError.retryable });
-      }
-    } finally {
-      finalizeAssistantMessage(messageId);
-      abortRef.current = null;
-      setStreamingMessageId(null);
-      setActivity(undefined);
-    }
+    void sendToCoach(text);
   }
 
   function onSubmit(event?: FormEvent<HTMLFormElement>) {
@@ -157,7 +103,7 @@ export function AiChatPage() {
       return;
     }
     setInput('');
-    void send(text);
+    send(text);
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -179,7 +125,7 @@ export function AiChatPage() {
     }
     removeChatMessage(failedMessage.id);
     removeChatMessage(previousUser.id);
-    void send(previousUser.content);
+    send(previousUser.content);
   }
 
   function onStartNewChat() {
@@ -277,7 +223,7 @@ export function AiChatPage() {
           enterKeyHint={prefersEnterToSend() ? 'send' : 'enter'}
         />
         {isStreaming ? (
-          <button type="button" className="chat-send-button is-stop" onClick={() => abortRef.current?.abort()} aria-label="停止" title="停止">
+          <button type="button" className="chat-send-button is-stop" onClick={stop} aria-label="停止" title="停止">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <rect x="7" y="7" width="10" height="10" rx="2" />
             </svg>

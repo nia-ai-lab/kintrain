@@ -1443,9 +1443,36 @@ a {
 }
 
 .nav-item-icon {
+  position: relative;
   display: inline-flex;
   width: 26px;
   height: 26px;
+}
+
+/* Unread AI reply: an app-style badge on the icon, distinct from the small "you are here" dot. */
+.nav-item-badge {
+  position: absolute;
+  top: -2px;
+  right: -4px;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--danger);
+  box-shadow: 0 0 0 2px var(--surface);
+  animation: nav-badge-pop 220ms ease-out;
+}
+
+@keyframes nav-badge-pop {
+  from {
+    transform: scale(0.4);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-item-badge {
+    animation: none;
+  }
 }
 
 .nav-item-icon svg {

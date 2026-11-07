@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet } from 'react-router-dom';
+import { useAiChatStream } from '../AiChatStream';
 import { useAppState } from '../AppState';
 
 const links = [
@@ -57,6 +58,7 @@ const links = [
 
 export function AppLayout() {
   const { data } = useAppState();
+  const { hasUnreadReply } = useAiChatStream();
   const userAvatarUrl = data.userProfile.userAvatarImageUrl;
 
   return (
@@ -87,14 +89,19 @@ export function AppLayout() {
       </main>
 
       <nav className="bottom-nav" aria-label="メインナビゲーション">
-        {links.map((link) => (
-          <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}>
-            <span className="nav-item-icon" aria-hidden="true">
-              <svg viewBox="0 0 24 24">{link.icon}</svg>
-            </span>
-            <span className="nav-item-label">{link.label}</span>
-          </NavLink>
-        ))}
+        {links.map((link) => {
+          const showUnread = link.to === '/ai-chat' && hasUnreadReply;
+          return (
+            <NavLink key={link.to} to={link.to} className={({ isActive }) => (isActive ? 'nav-item active' : 'nav-item')}>
+              <span className="nav-item-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24">{link.icon}</svg>
+                {showUnread && <span className="nav-item-badge" data-testid="ai-chat-unread-badge" />}
+              </span>
+              <span className="nav-item-label">{link.label}</span>
+              {showUnread && <span className="sr-only">（未読の返信あり）</span>}
+            </NavLink>
+          );
+        })}
       </nav>
     </div>
   );
