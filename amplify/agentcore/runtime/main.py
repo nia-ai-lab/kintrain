@@ -432,7 +432,12 @@ async def _run_agent_turn_stream(
         agentcore_memory_config=memory_config,
         region_name=AWS_REGION,
     ) as session_manager:
-        tools: list[Any] = [*_load_web_search_tools()]
+        try:
+            tools: list[Any] = [*_load_web_search_tools()]
+        except Exception as exc:
+            # Web search is optional; the coach still answers from KinTrain data without it.
+            print(f"web-search-tool-unavailable: {type(exc).__name__}: {exc}")
+            tools = []
         mcp_url = _normalize_mcp_gateway_url(MCP_GATEWAY_URL)
         if ENABLE_MCP_TOOLS and mcp_url:
             # The Gateway verifies this token again and scopes every tool to its sub.
