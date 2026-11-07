@@ -625,6 +625,39 @@ if (enableAgentCoreResources) {
     credentialProviderConfigurations: [agentcore.GatewayCredentialProvider.fromIamRole()]
   });
 
+  if (process.env.ENABLE_WEB_SEARCH_TOOL === "true") {
+    // Amazon-operated web search exposed by the Gateway as the "web-search___WebSearch" tool.
+    // No third-party API key is involved; the Gateway role is authorized per request.
+    const webSearchPolicy = new iam.Policy(agentCoreStack, "AiCoachWebSearchPolicy", {
+      statements: [
+        new iam.PolicyStatement({
+          actions: ["bedrock-agentcore:InvokeGateway"],
+          resources: [aiCoachGateway.gatewayArn]
+        }),
+        new iam.PolicyStatement({
+          actions: ["bedrock-agentcore:InvokeWebSearch"],
+          resources: [`arn:${Stack.of(agentCoreStack).partition}:bedrock-agentcore:${Stack.of(agentCoreStack).region}:aws:tool/web-search.v1`]
+        })
+      ]
+    });
+    aiCoachGateway.role.attachInlinePolicy(webSearchPolicy);
+    const webSearchTarget = new agentcore.CfnGatewayTarget(agentCoreStack, "AiCoachWebSearchTarget", {
+      gatewayIdentifier: aiCoachGateway.gatewayId,
+      name: "web-search",
+      description: "Amazon-operated web search connector",
+      targetConfiguration: {
+        mcp: {
+          connector: {
+            source: { connectorId: "web-search" },
+            configurations: [{ name: "WebSearch", parameterValues: {} }]
+          }
+        }
+      },
+      credentialProviderConfigurations: [{ credentialProviderType: "GATEWAY_IAM_ROLE" }]
+    });
+    webSearchTarget.node.addDependency(webSearchPolicy);
+  }
+
   const aiCoachMemory = new agentcore.Memory(agentCoreStack, "AiCoachMemory", {
     memoryName,
     description: "KinTrain long-term memory for AI coach conversation context",
@@ -671,10 +704,6 @@ if (enableAgentCoreResources) {
       APP_TIMEZONE_DEFAULT: process.env.APP_TIMEZONE_DEFAULT ?? "Asia/Tokyo",
       MCP_GATEWAY_URL: aiCoachGateway.gatewayUrl ?? "",
       ENABLE_MCP_TOOLS: process.env.ENABLE_MCP_TOOLS ?? "true",
-      ENABLE_WEB_SEARCH_TOOL: process.env.ENABLE_WEB_SEARCH_TOOL ?? "false",
-      WEB_SEARCH_PROVIDER: process.env.WEB_SEARCH_PROVIDER ?? "http_request",
-      TAVILY_API_KEY: process.env.TAVILY_API_KEY ?? "",
-      EXA_API_KEY: process.env.EXA_API_KEY ?? "",
       MEMORY_ID: aiCoachMemory.memoryId,
       USER_POOL_ID: backend.auth.resources.userPool.userPoolId,
       USER_POOL_CLIENT_IDS: backend.auth.resources.userPoolClient.userPoolClientId,

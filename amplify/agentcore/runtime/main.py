@@ -39,8 +39,6 @@ STREAM_FLUSH_INTERVAL_MS = int(os.getenv("STREAM_FLUSH_INTERVAL_MS", "250"))
 STREAM_MIN_CHARS_FOR_INTERVAL_FLUSH = int(os.getenv("STREAM_MIN_CHARS_FOR_INTERVAL_FLUSH", "12"))
 MCP_GATEWAY_URL = os.getenv("MCP_GATEWAY_URL", "").strip()
 ENABLE_MCP_TOOLS = os.getenv("ENABLE_MCP_TOOLS", "true").strip().lower() != "false"
-ENABLE_WEB_SEARCH_TOOL = os.getenv("ENABLE_WEB_SEARCH_TOOL", "false").strip().lower() == "true"
-WEB_SEARCH_PROVIDER = os.getenv("WEB_SEARCH_PROVIDER", "http_request").strip().lower()
 VENDOR_DIR = (Path(__file__).resolve().parent / "vendor").resolve()
 LTM_ENABLED = os.getenv("LTM_RETRIEVAL_ENABLED", "true").strip().lower() != "false"
 LTM_PREFERENCES_TOP_K = int(os.getenv("LTM_PREFERENCES_TOP_K", "5"))
@@ -362,35 +360,6 @@ def _build_system_prompt(payload: dict[str, Any]) -> str:
     return _render_template(SYSTEM_PROMPT_TEMPLATE, context)
 
 
-def _load_web_search_tools() -> list[Any]:
-    # A web tool is exposed to the model only when explicitly enabled; the generic
-    # HTTP tool can otherwise reach arbitrary URLs from model-chosen arguments.
-    if not ENABLE_WEB_SEARCH_TOOL:
-        return []
-
-    provider = WEB_SEARCH_PROVIDER.strip().lower()
-    if not provider or provider == "http_request":
-        from strands_tools.http_request import http_request  # type: ignore
-
-        return [http_request]
-
-    if provider == "tavily":
-        if not _to_non_empty_string(os.getenv("TAVILY_API_KEY")):
-            raise RuntimeError("TAVILY_API_KEY is required when WEB_SEARCH_PROVIDER=tavily.")
-        from strands_tools.tavily import tavily_search  # type: ignore
-
-        return [tavily_search]
-
-    if provider == "exa":
-        if not _to_non_empty_string(os.getenv("EXA_API_KEY")):
-            raise RuntimeError("EXA_API_KEY is required when WEB_SEARCH_PROVIDER=exa.")
-        from strands_tools.exa import exa_search  # type: ignore
-
-        return [exa_search]
-
-    raise RuntimeError("WEB_SEARCH_PROVIDER must be one of: http_request, tavily, exa.")
-
-
 def _build_model() -> Any:
     model_config: dict[str, Any] = {"model_id": MODEL_ID, "max_tokens": MODEL_MAX_TOKENS}
     if MODEL_EFFORT in {"low", "medium", "high", "xhigh", "max"}:
@@ -432,12 +401,8 @@ async def _run_agent_turn_stream(
         agentcore_memory_config=memory_config,
         region_name=AWS_REGION,
     ) as session_manager:
-        try:
-            tools: list[Any] = [*_load_web_search_tools()]
-        except Exception as exc:
-            # Web search is optional; the coach still answers from KinTrain data without it.
-            print(f"web-search-tool-unavailable: {type(exc).__name__}: {exc}")
-            tools = []
+        # KinTrain data tools and web search both come from the MCP Gateway.
+        tools: list[Any] = []
         mcp_url = _normalize_mcp_gateway_url(MCP_GATEWAY_URL)
         if ENABLE_MCP_TOOLS and mcp_url:
             # The Gateway verifies this token again and scopes every tool to its sub.

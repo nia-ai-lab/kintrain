@@ -20,6 +20,9 @@ type VerifyAccessToken = (token: string) => Promise<VerifiedIdentity>;
 
 const requiredScope = "aws.cognito.signin.user.admin";
 const trustedPrincipalArgument = "__principalUserId";
+// Tools from these Gateway targets are AWS-managed connectors, not KinTrain data tools.
+// They never receive the user's identity.
+const identityFreeToolPrefixes = ["web-search___"];
 let verifier: ReturnType<typeof CognitoJwtVerifier.create> | undefined;
 
 export function resolveUserPoolClientIds(
@@ -159,6 +162,11 @@ export async function processInterceptorEvent(
   }
 
   const params = asObject(body.params);
+  const toolName = typeof params?.name === "string" ? params.name : "";
+  if (identityFreeToolPrefixes.some((prefix) => toolName.startsWith(prefix))) {
+    return gatewayRequestOutput(body);
+  }
+
   const inputArguments = asObject(params?.arguments) ?? {};
   if (identityArgumentConflicts(inputArguments, identity.sub)) {
     return gatewayErrorOutput(body, 403, "Forbidden.");

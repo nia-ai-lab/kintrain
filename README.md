@@ -130,13 +130,9 @@ AI Runtime設定（任意、未指定時はデフォルト値）:
 - `ENABLE_MCP_TOOLS`  
   `true` / `false`
 - `ENABLE_WEB_SEARCH_TOOL`  
-  `true` / `false`
-- `WEB_SEARCH_PROVIDER`  
-  `http_request`、`tavily`、`exa`（省略時は `http_request`）
-- `TAVILY_API_KEY` / `EXA_API_KEY`
-  現行コードはRuntime環境変数へ渡す実装のため、利用前にSecrets Manager参照へ移行すること。値をリポジトリへ保存しない。
-
-注記: 現行コードは `WEB_SEARCH_PROVIDER=http_request` の場合に `ENABLE_WEB_SEARCH_TOOL=false` でもHTTP取得ツールをロードします。外部取得を無効化する契約との不一致、および取得先URL制限は継続課題です。
+  `true` のとき、AgentCore Gatewayに Web Search コネクタ（AWS運用の検索、APIキー不要）をターゲットとして追加する。
+  AIコーチからは `web-search___WebSearch` ツールとして使え、Gatewayに接続した ChatGPT / Claude からも利用できる。
+  `WEB_SEARCH_PROVIDER` / `TAVILY_API_KEY` / `EXA_API_KEY` は使用しない。
 
 既存Runtimeを使う場合のみ:
 

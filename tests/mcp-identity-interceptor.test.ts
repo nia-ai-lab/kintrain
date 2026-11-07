@@ -146,3 +146,23 @@ test("gateway uses stable AgentCore CDK and supports all required MCP protocol v
     /supportedVersions:\s*\[\s*agentcore\.MCPProtocolVersion\.of\("2026-07-28"\),\s*agentcore\.MCPProtocolVersion\.of\("2025-11-25"\),\s*agentcore\.MCPProtocolVersion\.MCP_2025_06_18,\s*agentcore\.MCPProtocolVersion\.MCP_2025_03_26\s*\]/
   );
 });
+
+test("web search connector calls are authenticated but never receive the user's identity", async () => {
+  const event = eventFor({ query: "スクワット 膝 痛み 対策", maxResults: 5 });
+  ((event.mcp as JsonObject).gatewayRequest as JsonObject).body = {
+    jsonrpc: "2.0",
+    id: 7,
+    method: "tools/call",
+    params: { name: "web-search___WebSearch", arguments: { query: "スクワット 膝 痛み 対策", maxResults: 5 } }
+  };
+  const output = await processInterceptorEvent(event, verifyAsPrincipal);
+  const transformed = (((output.mcp as JsonObject).transformedGatewayRequest as JsonObject).body as JsonObject).params as JsonObject;
+  assert.deepEqual(transformed.arguments, { query: "スクワット 膝 痛み 対策", maxResults: 5 });
+
+  const unauthenticated = await processInterceptorEvent(
+    { ...event, mcp: { gatewayRequest: { ...((event.mcp as JsonObject).gatewayRequest as JsonObject), headers: {} } } },
+    verifyAsPrincipal
+  );
+  assert.equal(((unauthenticated.mcp as JsonObject).transformedGatewayResponse as JsonObject).statusCode, 401);
+});
+

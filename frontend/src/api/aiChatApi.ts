@@ -256,6 +256,8 @@ function toTransportError(error: unknown, abortReason: 'user' | 'idle' | null): 
 }
 
 const toolLabels: Array<[RegExp, string]> = [
+  [/^WebSearch$/i, 'Webで調べています'],
+  [/agentcore_search/, '使う機能を探しています'],
   [/coaching_context|coaching_note/, 'コーチング方針を確認しています'],
   [/^save_/, '記録を保存しています'],
   [/daily_record|daily_readiness/, 'Dailyの記録を確認しています'],
@@ -264,8 +266,7 @@ const toolLabels: Array<[RegExp, string]> = [
   [/create_temporary|update_temporary|reschedule|cancel_temporary/, 'メニューを更新しています'],
   [/menu/, 'メニューを確認しています'],
   [/goal/, '目標を確認しています'],
-  [/analysis_export/, 'データを集計しています'],
-  [/http_request|search/, 'Webを調べています']
+  [/analysis_export/, 'データを集計しています']
 ];
 
 /** A short Japanese label for a tool the coach is using. Gateway tool names carry a "target___" prefix. */

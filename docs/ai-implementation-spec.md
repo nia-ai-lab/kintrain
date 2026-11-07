@@ -50,7 +50,7 @@
 - AIキャラクター設定・アバターのCore API永続化
 - 未実装:
 - Memoryを使ったドメイン知識検索結果のプロンプト注入最適化
-- Web取得ツールのURL allow/deny制御とprompt injection隔離
+- Web検索結果に含まれる指示文（prompt injection）の隔離
 
 ## 3. 認証・認可方式（必須）
 
@@ -164,10 +164,12 @@
 - `SOUL_FILE_PATH` / `PERSONA_FILE_PATH` / `SYSTEM_PROMPT_FILE_PATH`
 - `APP_TIMEZONE_DEFAULT`: ユーザー設定未取得時の既定（`Asia/Tokyo`）
 - `ENABLE_MCP_TOOLS`: MCPツールを読み込むか（既定 `true`）
-- `ENABLE_WEB_SEARCH_TOOL`: Web取得ツールを読み込むか（既定 `false`）
-- `WEB_SEARCH_PROVIDER`: `http_request` / `tavily` / `exa`
+- Web検索はRuntimeにツールを持たず、AgentCore Gatewayの Web Search コネクタ（ターゲット名 `web-search`、ツール名 `web-search___WebSearch`）を使う。
+  CDKはAmplify環境変数 `ENABLE_WEB_SEARCH_TOOL=true` のときだけターゲットを作成し、Gatewayロールに `bedrock-agentcore:InvokeWebSearch` を付与する。
 
-`ENABLE_WEB_SEARCH_TOOL=false` の場合、Web取得ツールは読み込まない（`http_request` を含む）。HTTP取得を有効にする場合は、loopback、link-local、private IP、AWS metadata/credential endpointsを拒否する対策を別途入れる。
+Gateway REQUEST Interceptorは `web-search___` で始まるツールにはユーザーID（`__principalUserId`）を注入しない（トークン検証は行う）。
+Web検索結果を回答に使う場合は出典のタイトルとURLを示し、ユーザー個人の記録を検索語に含めないことをシステムプロンプトで指示する（Web Search Toolの利用条件）。
+任意URLを取得するHTTPツールはRuntimeに読み込まない。
 
 ### 5.2 トークン検証と使い回し（必須）
 
